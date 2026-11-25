@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ka_teb_core::{Setting, Settings, ThemeName, contrast_ratio, settings_path};
+use ka_teb_core::{Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
 
 #[test]
 fn the_settings_file_is_in_xdg_config_home() {
@@ -168,6 +168,85 @@ fn ten_steps_of_a_tenth_land_on_the_tenth() {
     }
     assert_eq!(settings.line_height, 2.8);
 }
+#[test]
+fn each_setting_has_a_label_and_a_slug() {
+    let named: Vec<(&str, &str)> = [
+        Setting::UiScale,
+        Setting::FontSize,
+        Setting::LineHeight,
+        Setting::ColumnWidth,
+    ]
+    .into_iter()
+    .map(|setting| (setting.label(), setting.slug()))
+    .collect();
+    assert_eq!(
+        named,
+        [
+            ("UI scale", "ui-scale"),
+            ("Font size", "font-size"),
+            ("Line height", "line-height"),
+            ("Column width", "column-width"),
+        ]
+    );
+}
+
+#[test]
+fn a_shown_value_carries_its_unit() {
+    let settings = Settings {
+        ui_scale: 1.2,
+        font_size: 18.0,
+        line_height: 1.5,
+        column_width: 700.0,
+        ..Settings::default()
+    };
+    assert_eq!(settings.shown(Setting::UiScale), "120%");
+    assert_eq!(settings.shown(Setting::FontSize), "18 px");
+    assert_eq!(settings.shown(Setting::LineHeight), "1.5");
+    assert_eq!(settings.shown(Setting::ColumnWidth), "700 px");
+}
+
+#[test]
+fn each_toggle_has_a_label_and_a_slug() {
+    let named: Vec<(&str, &str)> = [
+        Toggle::ReducedMotion,
+        Toggle::FocusZoom,
+        Toggle::CycleSounds,
+    ]
+    .into_iter()
+    .map(|toggle| (toggle.label(), toggle.slug()))
+    .collect();
+    assert_eq!(
+        named,
+        [
+            ("Reduced motion", "reduced-motion"),
+            ("Focus zoom", "focus-zoom"),
+            ("Cycle sounds", "cycle-sounds"),
+        ]
+    );
+}
+
+#[test]
+fn a_flip_turns_a_toggle_on_or_off_and_shows_it() {
+    let mut settings = Settings::default();
+    assert_eq!(settings.shown_toggle(Toggle::ReducedMotion), "Off");
+
+    settings.flip(Toggle::ReducedMotion);
+    settings.flip(Toggle::FocusZoom);
+    settings.flip(Toggle::CycleSounds);
+
+    assert!(settings.is_on(Toggle::ReducedMotion));
+    assert_eq!(settings.shown_toggle(Toggle::ReducedMotion), "On");
+    assert_eq!(
+        settings,
+        Settings {
+            reduced_motion: true,
+            focus_zoom: false,
+            cycle_sounds: false,
+            ..Settings::default()
+        }
+    );
+}
+
 #[test]
 fn reduced_motion_is_off_by_default_and_in_a_file_without_it() {
     let dir = tempfile::tempdir().unwrap();

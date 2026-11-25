@@ -7,10 +7,10 @@ use gpui::{
     IntoElement, MouseButton, MouseDownEvent, Render, SharedString, Stateful, Window, anchored,
     deferred, div, prelude::*, px, rgb,
 };
-use ka_teb_core::{Setting, Settings, SettingsError, ThemeName};
+use ka_teb_core::{Setting, Settings, ThemeName, Toggle};
 
 use crate::actions::{CloseSettings, OpenSettings};
-use crate::settings::SettingsStore;
+use crate::settings::{self, SettingsStore};
 use crate::{Theme, Workspace};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,9 +36,6 @@ pub struct SettingsModal {
     fonts: Vec<SharedString>,
     /// The select whose list shows, if one does.
     open_select: Option<Select>,
-    saving: bool,
-    /// A save asked for while one runs; it starts when that one ends.
-    queued: bool,
 }
 
 impl EventEmitter<SaveFailed> for SettingsModal {}
@@ -60,48 +57,20 @@ impl SettingsModal {
             section: Section::Appearance,
             fonts,
             open_select: None,
-            saving: false,
-            queued: false,
         }
     }
 
-    fn change(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Settings)) {
+    fn change(cx: &mut Context<Self>, change: impl FnOnce(&mut Settings)) {
         let store = cx.global_mut::<SettingsStore>();
         change(&mut store.settings);
         let theme = Theme::new(&store.settings);
         cx.set_global(theme);
         cx.refresh_windows();
-        self.save(cx);
-    }
-
-    fn save(&mut self, cx: &mut Context<Self>) {
-        let store = cx.global::<SettingsStore>();
-        let Some(path) = store.path.clone() else {
-            return;
-        };
-        if self.saving {
-            self.queued = true;
-            return;
-        }
-        self.saving = true;
-        let settings = store.settings.clone();
-        let saving = cx.background_spawn(async move { settings.save(&path) });
-        cx.spawn(async move |this, cx| {
-            let result = saving.await;
-            this.update(cx, |modal, cx| modal.saved(result, cx))
-        })
-        .detach();
-    }
-
-    fn saved(&mut self, result: Result<(), SettingsError>, cx: &mut Context<Self>) {
-        self.saving = false;
-        if let Err(error) = result {
-            cx.emit(SaveFailed(error.to_string()));
-        }
-        if self.queued {
-            self.queued = false;
-            self.save(cx);
-        }
+        let modal = cx.weak_entity();
+        settings::save(cx, move |error, cx| {
+            let failed = SaveFailed(error.to_string());
+            modal.update(cx, |_, cx| cx.emit(failed)).ok();
+        });
     }
 
     fn show(&mut self, section: Section, cx: &mut Context<Self>) {
@@ -214,7 +183,7 @@ impl SettingsModal {
             .text_color(if chosen { theme.accent } else { theme.text })
             .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
                 modal.open_select = None;
-                modal.change(cx, &change);
+                Self::change(cx, &change);
             }))
     }
 
@@ -259,30 +228,6 @@ impl SettingsModal {
             .gap(px(8.))
             .child(swatch(settings.theme, theme))
             .child(settings.theme.label());
-        let motion = |reduced: bool| {
-            let (id, label) = if reduced {
-                ("settings-reduced-motion-on", "On")
-            } else {
-                ("settings-reduced-motion-off", "Off")
-            };
-            choice_button(id, label, settings.reduced_motion == reduced, theme).on_click(
-                cx.listener(move |modal, _: &ClickEvent, _, cx| {
-                    modal.change(cx, |settings| settings.reduced_motion = reduced);
-                }),
-            )
-        };
-        let zoom = |on: bool| {
-            let (id, label) = if on {
-                ("settings-focus-zoom-on", "On")
-            } else {
-                ("settings-focus-zoom-off", "Off")
-            };
-            choice_button(id, label, settings.focus_zoom == on, theme).on_click(cx.listener(
-                move |modal, _: &ClickEvent, _, cx| {
-                    modal.change(cx, |settings| settings.focus_zoom = on);
-                },
-            ))
-        };
         div()
             .flex()
             .flex_col()
@@ -293,24 +238,8 @@ impl SettingsModal {
                 self.select(Select::Theme, current, themes, theme, cx),
             ))
             .child(Self::stepper(Setting::UiScale, settings, theme, cx))
-            .child(field(
-                "Reduced motion",
-                theme,
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(motion(false))
-                    .child(motion(true)),
-            ))
-            .child(field(
-                "Focus zoom",
-                theme,
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(zoom(false))
-                    .child(zoom(true)),
-            ))
+            .child(Self::toggle(Toggle::ReducedMotion, settings, theme, cx))
+            .child(Self::toggle(Toggle::FocusZoom, settings, theme, cx))
     }
 
     fn editor(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
@@ -347,19 +276,20 @@ impl SettingsModal {
             .child(Self::stepper(Setting::FontSize, settings, theme, cx))
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
             .child(Self::stepper(Setting::ColumnWidth, settings, theme, cx))
-            .child(Self::cycle_sounds(settings, theme, cx))
+            .child(Self::toggle(Toggle::CycleSounds, settings, theme, cx))
     }
 
-    /// A tone on each Active variant switch, on or off.
-    fn cycle_sounds(settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let on = settings.cycle_sounds;
+    /// A label and one button that shows "On" or "Off" and flips the setting.
+    fn toggle(toggle: Toggle, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
+        let on = settings.is_on(toggle);
+        let id = format!("settings-{}", toggle.slug());
         field(
-            "Cycle sounds",
+            toggle.label(),
             theme,
             div().flex().child(
                 div()
-                    .id("settings-cycle-sounds")
-                    .debug_selector(|| "settings-cycle-sounds".to_owned())
+                    .id(SharedString::from(id.clone()))
+                    .debug_selector(move || id.clone())
                     .px(px(8.))
                     .border_1()
                     .rounded(theme.elevated_radius)
@@ -370,30 +300,22 @@ impl SettingsModal {
                     })
                     .text_color(if on { theme.accent } else { theme.text_muted })
                     .cursor_pointer()
-                    .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
-                        modal.change(cx, |settings| settings.cycle_sounds = !on);
+                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        Self::change(cx, |settings| settings.flip(toggle));
                     }))
-                    .child(if on { "On" } else { "Off" }),
+                    .child(settings.shown_toggle(toggle)),
             ),
         )
     }
 
     /// A label, a "-" button, the value, and a "+" button.
     fn stepper(setting: Setting, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let (slug, label) = match setting {
-            Setting::UiScale => ("ui-scale", "UI scale"),
-            Setting::FontSize => ("font-size", "Font size"),
-            Setting::LineHeight => ("line-height", "Line height"),
-            Setting::ColumnWidth => ("column-width", "Column width"),
-        };
-        let value = settings.value(setting);
-        let shown = match setting {
-            Setting::UiScale => format!("{:.0}%", value * 100.),
-            Setting::FontSize | Setting::ColumnWidth => format!("{value:.0} px"),
-            Setting::LineHeight => format!("{value:.1}"),
-        };
         let button = |up: bool| {
-            let id = format!("settings-{slug}-{}", if up { "up" } else { "down" });
+            let id = format!(
+                "settings-{}-{}",
+                setting.slug(),
+                if up { "up" } else { "down" }
+            );
             div()
                 .id(SharedString::from(id.clone()))
                 .debug_selector(move || id.clone())
@@ -405,8 +327,8 @@ impl SettingsModal {
                 .rounded(theme.elevated_radius)
                 .cursor_pointer()
                 .hover(|button| button.bg(theme.elevated_row_hover))
-                .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
-                    modal.change(cx, |settings| {
+                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                    Self::change(cx, |settings| {
                         if up {
                             settings.increase(setting);
                         } else {
@@ -417,44 +339,23 @@ impl SettingsModal {
                 .child(if up { "+" } else { "-" })
         };
         field(
-            label,
+            setting.label(),
             theme,
             div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
                 .child(button(false))
-                .child(div().min_w(px(56.)).flex().justify_center().child(shown))
+                .child(
+                    div()
+                        .min_w(px(56.))
+                        .flex()
+                        .justify_center()
+                        .child(settings.shown(setting)),
+                )
                 .child(button(true)),
         )
     }
-}
-
-/// One choice of a field; `chosen` shows in the accent color.
-fn choice_button(
-    id: &'static str,
-    label: &'static str,
-    chosen: bool,
-    theme: &Theme,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .debug_selector(|| id.to_owned())
-        .px(px(8.))
-        .border_1()
-        .rounded(theme.elevated_radius)
-        .border_color(if chosen {
-            theme.accent_outline
-        } else {
-            theme.panel_border
-        })
-        .text_color(if chosen {
-            theme.accent
-        } else {
-            theme.text_muted
-        })
-        .cursor_pointer()
-        .child(label)
 }
 
 /// A small square in the background color of `name` with a dot in its accent color.

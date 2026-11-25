@@ -38,7 +38,7 @@ pub use markdown::{MarkdownSpan, MarkdownStyle};
 pub use motion::Effect;
 pub use overflow::{Overflow, OverflowError};
 pub use particles::{Particle, ParticleArea, ParticleLook};
-pub use settings::{LoadedSettings, Setting, Settings, SettingsError, settings_path};
+pub use settings::{LoadedSettings, Setting, Settings, SettingsError, Toggle, settings_path};
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};
 pub use sound::Sound;
 pub use storage::{Dropped, Opened, StorageError, sidecar_path};
