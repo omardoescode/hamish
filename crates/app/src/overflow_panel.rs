@@ -10,6 +10,7 @@ use gpui::{
     ScrollHandle, SharedString, Size, Style, Subscription, TextRun, UTF16Selection, Window, div,
     fill, point, prelude::*, px, relative, size,
 };
+use ka_teb_core::EditKind;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{
@@ -17,7 +18,6 @@ use crate::actions::{
     MoveToLineStart, MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight,
     SelectToLineEnd, SelectToLineStart, SelectUp, ToggleOverflow, Undo, UseOverflowBlock,
 };
-use crate::edit_history::EditKind;
 use crate::editor::{PaintedText, follow_change, scroll_into_view, shape};
 use crate::{Editor, Theme};
 

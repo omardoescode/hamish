@@ -8,7 +8,6 @@ mod actions;
 mod ai;
 mod alternatives_panel;
 mod context_menu;
-mod edit_history;
 mod editor;
 mod effects;
 mod lab;

@@ -12,8 +12,8 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, FocusZoom, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError,
-    SlotId, Sound, TrimError, paragraph_around,
+    Cycle, Document, EditHistory, EditKind, FocusZoom, LabError, Level, MarkdownSpan,
+    MarkdownStyle, Slot, SlotError, SlotId, Sound, TrimError, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -25,7 +25,6 @@ use crate::actions::{
     SelectUp, Stash, ToggleGhost, Undo,
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
-use crate::edit_history::{EditHistory, EditKind};
 use crate::effects::{self, Effect, EffectKind, Playing};
 use crate::settings_modal;
 use crate::sounds;

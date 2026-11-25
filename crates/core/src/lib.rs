@@ -5,6 +5,7 @@ mod around;
 mod article;
 mod counter;
 mod document;
+mod edit_history;
 mod focus_zoom;
 mod ghost;
 mod lab;
@@ -21,6 +22,7 @@ pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, ClaudeBackend
 pub use around::{paragraph_around, sentence_around};
 pub use counter::Counter;
 pub use document::{Document, RangeError};
+pub use edit_history::{EditGroup, EditHistory, EditKind};
 pub use focus_zoom::{FOCUS_ZOOM_SCALE, FocusZoom, paragraph_index, paragraph_range};
 pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
