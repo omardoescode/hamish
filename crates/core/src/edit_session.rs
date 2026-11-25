@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::{Caret, CaretEdit, Document, EditHistory, EditKind, SlotId};
+use crate::{Caret, CaretEdit, Document, EditHistory, EditedText, SlotId};
 
 /// A Document with its selection and its editor undo steps. Each change made through it is
 /// one undo step, and the selection follows the change.
@@ -71,7 +71,7 @@ impl ShownVariant {
 }
 
 impl EditSession {
-    /// A session over `document` with the cursor at the start and no undo steps.
+    /// A session over `document` with the caret at the start and no undo steps.
     #[must_use]
     pub fn new(document: Document) -> Self {
         Self {
@@ -145,8 +145,12 @@ impl EditSession {
         }
         let before = self.caret.selection();
         self.caret = edit.caret.clone();
-        self.history
-            .record(edit.kind, before, self.caret.selection());
+        self.history.record(
+            edit.kind,
+            EditedText::Document,
+            before,
+            self.caret.selection(),
+        );
         true
     }
 
@@ -163,15 +167,13 @@ impl EditSession {
         {
             return false;
         }
-        let kind = match edit.kind {
-            EditKind::Typing => EditKind::OverflowTyping,
-            EditKind::Deleting => EditKind::OverflowDeleting,
-            kind @ (EditKind::OverflowTyping | EditKind::OverflowDeleting | EditKind::Other) => {
-                kind
-            }
-        };
         let selection = self.caret.selection();
-        self.history.record(kind, selection.clone(), selection);
+        self.history.record(
+            edit.kind,
+            EditedText::Overflow,
+            selection.clone(),
+            selection,
+        );
         true
     }
 
