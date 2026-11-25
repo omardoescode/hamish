@@ -7,15 +7,18 @@
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
 | `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save (issue #21). |
-| `crates/core/src/motion.rs` | `Effect`: the one animation timing source (durations, progress, Reduced motion; issue #31). |
+| `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
+| `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
+| `crates/core/src/edit_history.rs` | `EditHistory`: groups core edits into the undo steps the writer sees. |
 | `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time (FR-83, issue #32). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
 | `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |
-| `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest` (trigger: context menu or Quick fill; sentence, paragraph, existing Variants), `AiError`; `Document::ai_request` / `apply_ai_result` (ADR 0004). |
+| `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest` (trigger: context menu or Quick fill; sentence, paragraph, existing Variants), `AiError`, `CancelToken` (stops a call; the backend kills `claude`); `Document::ai_request` / `apply_ai_result` (ADR 0004). |
 | `crates/core/src/around.rs` | The sentence and paragraph around a text range. |
 | `crates/core/src/ai/claude.rs` | `ClaudeBackend`: runs `claude -p` with the API credentials removed from its environment. Tested with a stub `claude` on `PATH` (`crates/core/tests/claude_backend.rs`). |
 | `crates/app/src/ai.rs` | Global `Ai`: the adapter the app calls on the background executor. `main` sets `ClaudeBackend`; tests set a fake. |
-| `crates/app/src/loading.rs` | Loading dance (FR-34), reused by views that wait on the AI; the "??" dance of a Quick fill (FR-71). |
+| `crates/app/src/loading.rs` | The "??" loading dance of the empty panel row, for Quick fill and AI alternatives; still with Reduced motion. |
+| `crates/app/src/effects.rs` | `PlayingEffect` (a core `Effect` at a text range); paints the Explosion and the Undo burst. |
 | `crates/app/src/alternatives_panel.rs` | Alternatives panel: Variant rows, live preview of the empty row (FR-68), Quick fill (FR-69 to FR-73, FR-82). |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
 | `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
