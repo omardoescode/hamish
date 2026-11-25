@@ -19,7 +19,7 @@ pub use actions::{
     MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
     SelectToLineStart, SelectUp, ToggleChrome, Undo,
 };
-pub use editor::Editor;
+pub use editor::{Editor, Marker, MarkerKind};
 pub use theme::Theme;
 pub use workspace::Workspace;
 
