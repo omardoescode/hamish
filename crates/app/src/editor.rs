@@ -20,8 +20,8 @@ use gpui::{
     Window, div, prelude::*,
 };
 use ka_teb_core::{
-    Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, Level, SlotError, SlotId,
-    Sound, TrimProposal, follow_change, paragraph_around,
+    Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
+    SlotId, Sound, TrimProposal, follow_change, paragraph_around,
 };
 
 use element::EditorElement;
@@ -172,6 +172,30 @@ impl Editor {
     #[must_use]
     pub fn selection(&self) -> Range<usize> {
         self.session.selection()
+    }
+
+    /// The Lab mark at the caret (see [`Document::lab_mark_at`]), which shows as selected.
+    /// `None` when text is selected.
+    #[must_use]
+    pub fn selected_lab_mark(&self) -> Option<&LabMark> {
+        let selection = self.selection();
+        if !selection.is_empty() {
+            return None;
+        }
+        self.document().lab_mark_at(selection.start)
+    }
+
+    /// The box around the rows of the selected Lab mark as last painted (window
+    /// coordinates); `None` with no selected mark.
+    #[must_use]
+    pub fn selected_lab_mark_bounds(&self) -> Option<Bounds<Pixels>> {
+        let mark = self.selected_lab_mark()?;
+        self.painted
+            .as_ref()?
+            .selection_quads(&mark.range, gpui::Hsla::default())
+            .into_iter()
+            .map(|quad| self.zoomed(quad.bounds))
+            .reduce(|all, row| all.union(&row))
     }
 
     /// The Markers as last painted, in document order, each parent before the Slots in it.
@@ -510,7 +534,8 @@ impl Editor {
 
     /// Ctrl+Return puts the Overflow block at Overflow offset `caret` at the caret.
     pub(crate) fn use_overflow_block(&mut self, caret: usize, cx: &mut Context<Self>) -> bool {
-        self.insert_overflow_block(caret, self.caret_offset(), cx)
+        let at = self.caret_offset();
+        self.insert_overflow_block(at, |document| document.use_block(caret, at), cx)
     }
 
     /// A block dragged into the page goes in at the drop point.
@@ -521,7 +546,8 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> bool {
         self.drop_target = None;
-        self.insert_overflow_block(caret, caret::offset_at(self, position, cx), cx)
+        let at = caret::offset_at(self, position, cx);
+        self.insert_overflow_block(at, |document| document.drop_block(caret, at), cx)
     }
 
     /// Where a dragged Overflow block goes in if it drops now; `None` with no drag over
@@ -544,16 +570,18 @@ impl Editor {
         }
     }
 
-    /// Inserts a copy of the block at Overflow offset `caret` at `at`, as one undo step;
-    /// the caret goes after it.
-    fn insert_overflow_block(&mut self, caret: usize, at: usize, cx: &mut Context<Self>) -> bool {
-        let inserted = self.session.change_then_select(
-            |document| document.use_block(caret, at),
-            |old, new| {
-                let after = (at + new.text().len()).saturating_sub(old.len());
-                after..after
-            },
-        );
+    /// Inserts a copy of an Overflow block at `at` with `insert`, as one undo step; the
+    /// caret goes after it.
+    fn insert_overflow_block(
+        &mut self,
+        at: usize,
+        insert: impl FnOnce(&mut Document) -> Result<(), ka_teb_core::OverflowError>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let inserted = self.session.change_then_select(insert, |old, new| {
+            let after = (at + new.text().len()).saturating_sub(old.len());
+            after..after
+        });
         if inserted.is_err() {
             return false;
         }

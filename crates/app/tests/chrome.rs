@@ -1,5 +1,5 @@
 use app::{OpenAlternatives, Theme, ToggleChrome, ToggleOverflow, Workspace};
-use gpui::{Bounds, Pixels, TestAppContext, VisualTestContext, px};
+use gpui::{Bounds, Modifiers, Pixels, TestAppContext, VisualTestContext, px};
 use ka_teb_core::{Document, LoadedSettings, Settings, ThemeName};
 
 /// Opens a window with `settings` as the Theme and shows the Chrome.
@@ -42,6 +42,23 @@ fn assert_above_bar(cx: &mut VisualTestContext, selector: &'static str) {
         element.bottom() <= bar.top(),
         "{selector} {element:?} overlaps the Chrome bar {bar:?}"
     );
+}
+
+#[gpui::test]
+fn a_click_on_the_counter_toggles_the_chrome_and_keeps_the_caret(cx: &mut TestAppContext) {
+    assert!(cx.update(app::init).is_ok(), "bundled font loads");
+    let (workspace, cx) =
+        cx.add_window_view(|window, cx| Workspace::new(Document::new("Title\nBody."), window, cx));
+    cx.simulate_keystrokes("down end");
+    let selection =
+        |cx: &mut VisualTestContext| cx.read(|cx| workspace.read(cx).editor().read(cx).selection());
+    assert_eq!(selection(cx), 11..11);
+
+    let counter = bounds(cx, "counter");
+    cx.simulate_click(counter.center(), Modifiers::none());
+
+    assert!(cx.read(|cx| workspace.read(cx).chrome_visible()));
+    assert_eq!(selection(cx), 11..11);
 }
 
 #[test]

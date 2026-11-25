@@ -288,6 +288,65 @@ fn dismiss_on_the_mark_card_removes_the_mark_and_keeps_the_text(cx: &mut TestApp
     );
 }
 
+/// The clicked mark at the caret is the selected one, and its card sits just under it.
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn assert_the_card_sits_under_the_selected_mark(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    range: Range<usize>,
+) {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    let selected = cx.read(|cx| {
+        editor
+            .read(cx)
+            .selected_lab_mark()
+            .map(|mark| mark.range.clone())
+    });
+    assert_eq!(selected, Some(range));
+    let mark = cx
+        .read(|cx| editor.read(cx).selected_lab_mark_bounds())
+        .expect("the editor painted the selected mark");
+    let card = bounds(cx, "lab-mark-card");
+    assert!(
+        mark.bottom() <= card.top() && card.top() <= mark.bottom() + px(12.),
+        "the card {card:?} is not just under the mark {mark:?}"
+    );
+    assert!(
+        (card.left() - mark.left()).abs() <= px(1.),
+        "the card {card:?} does not start at the mark {mark:?}"
+    );
+}
+
+#[gpui::test]
+fn a_clicked_mark_is_selected_and_its_card_shows_under_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+    run_checks(cx, &["lab-check-0", "lab-check-5"]);
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    assert!(cx.read(|cx| editor.read(cx).selected_lab_mark().is_none()));
+
+    click_text(&workspace, cx, 27);
+
+    assert_the_card_sits_under_the_selected_mark(&workspace, cx, 26..30);
+}
+
+#[gpui::test]
+fn a_clicked_mark_shows_its_card_while_the_lab_popover_is_open(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+    run_checks(cx, &["lab-check-0"]);
+    click(cx, "lab-button");
+
+    click_text(&workspace, cx, 13);
+
+    assert!(lab_open(&workspace, cx));
+    assert!(cx.debug_bounds("lab-popover").is_some());
+    assert_the_card_sits_under_the_selected_mark(&workspace, cx, 12..15);
+    click(cx, "lab-mark-accept");
+    assert_eq!(
+        text(&workspace, cx),
+        "Title\nI saw the cat. It was very good."
+    );
+}
+
 #[gpui::test]
 fn an_ai_failure_shows_in_the_row_and_changes_nothing(cx: &mut TestAppContext) {
     let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));

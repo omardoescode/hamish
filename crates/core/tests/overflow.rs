@@ -143,6 +143,55 @@ fn use_block_outside_a_block_is_refused() {
     assert_eq!(document.text(), "Body.");
 }
 
+/// "the light changed over it." with Overflow "paragraph".
+fn dropping() -> Document {
+    let mut document = Document::new("the light changed over it.");
+    assert!(
+        document.edit_overflow(0..0, "paragraph").is_ok(),
+        "valid range"
+    );
+    document
+}
+
+#[test]
+fn drop_block_between_words_puts_a_space_on_each_side() {
+    let mut after_word = dropping();
+    after_word.drop_block(0, 17).unwrap();
+    assert_eq!(after_word.text(), "the light changed paragraph over it.");
+
+    let mut before_word = dropping();
+    before_word.drop_block(0, 4).unwrap();
+    assert_eq!(before_word.text(), "the paragraph light changed over it.");
+}
+
+#[test]
+fn drop_block_puts_no_space_before_punctuation_or_next_to_a_space() {
+    let mut before_stop = dropping();
+    before_stop.drop_block(0, 25).unwrap();
+    assert_eq!(before_stop.text(), "the light changed over it paragraph.");
+
+    let mut at_start = dropping();
+    at_start.drop_block(0, 0).unwrap();
+    assert_eq!(at_start.text(), "paragraph the light changed over it.");
+
+    let mut at_end = dropping();
+    at_end.drop_block(0, 26).unwrap();
+    assert_eq!(at_end.text(), "the light changed over it. paragraph");
+
+    let mut spaced = Document::new("one two");
+    spaced.edit_overflow(0..0, "block ").unwrap();
+    spaced.drop_block(0, 4).unwrap();
+    assert_eq!(spaced.text(), "one block two");
+}
+
+#[test]
+fn drop_block_is_one_undo_step() {
+    let mut document = dropping();
+    document.drop_block(0, 17).unwrap();
+    assert!(document.undo());
+    assert_eq!(document.text(), "the light changed over it.");
+}
+
 #[test]
 fn use_block_is_one_undo_step() {
     let mut document = Document::new("Body.");
