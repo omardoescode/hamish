@@ -1,7 +1,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use crate::Document;
+use crate::{Document, RangeError};
 
 /// How much a Trim cuts (FR-55).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -144,12 +144,25 @@ impl fmt::Display for TrimProposal {
 pub enum TrimError {
     /// The text is not the request text any more.
     Stale,
+    NoProposal,
+    /// The proposal has no cut at this index.
+    NoCut(usize),
+    Range(RangeError),
+}
+
+impl From<RangeError> for TrimError {
+    fn from(error: RangeError) -> Self {
+        Self::Range(error)
+    }
 }
 
 impl fmt::Display for TrimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Stale => f.write_str("the text changed since the Trim request"),
+            Self::NoProposal => f.write_str("no Trim proposal is open"),
+            Self::NoCut(index) => write!(f, "the Trim proposal has no cut {index}"),
+            Self::Range(error) => error.fmt(f),
         }
     }
 }
@@ -217,6 +230,39 @@ impl Document {
     /// Closes the Trim proposal (Done, or the Original level). The text stays.
     pub fn close_trim(&mut self) {
         self.trim = None;
+    }
+
+    /// Keep: cut `index` leaves the proposal, its text stays, and the counts update (FR-58).
+    ///
+    /// # Errors
+    /// [`TrimError::NoProposal`] when no proposal is open, [`TrimError::NoCut`] when it has
+    /// no cut `index`.
+    pub fn keep_trim_cut(&mut self, index: usize) -> Result<(), TrimError> {
+        let mut proposal = self.trim.take().ok_or(TrimError::NoProposal)?;
+        let Some(cut) = proposal.cuts.get_mut(index) else {
+            self.trim = Some(proposal);
+            return Err(TrimError::NoCut(index));
+        };
+        cut.kept = true;
+        self.recount(&mut proposal);
+        self.trim = Some(proposal);
+        Ok(())
+    }
+
+    /// Make the cuts: deletes the cuts still in the proposal as one undoable writer edit,
+    /// and closes the proposal (FR-59).
+    ///
+    /// # Errors
+    /// [`TrimError::NoProposal`] when no proposal is open.
+    pub fn make_trim_cuts(&mut self) -> Result<(), TrimError> {
+        let proposal = self.trim.take().ok_or(TrimError::NoProposal)?;
+        match self.delete_ranges(&proposal.open_ranges()) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.trim = Some(proposal);
+                Err(error.into())
+            }
+        }
     }
 
     fn recount(&self, proposal: &mut TrimProposal) {

@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, TrimCut, TrimError, TrimLevel,
-    TrimRequest,
+    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, Level, Provenance, TrimCut,
+    TrimError, TrimLevel, TrimRequest,
 };
 
 /// Returns fixed cuts, as an AI backend would.
@@ -152,6 +152,79 @@ fn a_trim_result_for_text_that_changed_since_the_request_is_refused() {
         Err(TrimError::Stale)
     );
     assert_eq!(document.trim_proposal(), None);
+}
+
+#[test]
+fn keep_takes_one_cut_out_of_the_proposal_and_updates_the_counts() {
+    let text = draft();
+    let mut document = Document::new(&text);
+    run(&mut document, TrimLevel::SlightTrim, sentences(11)).unwrap();
+
+    document.keep_trim_cut(3).unwrap();
+
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(proposal.to_string(), "535 → 485 words · -9%");
+    assert_eq!(
+        proposal.cuts()[3],
+        TrimCut {
+            range: 57..76,
+            kept: true
+        }
+    );
+    assert_eq!(proposal.cuts().iter().filter(|cut| cut.kept).count(), 1);
+    assert_eq!(document.text(), text);
+    assert_eq!(document.keep_trim_cut(11), Err(TrimError::NoCut(11)));
+}
+
+#[test]
+fn make_the_cuts_deletes_the_cuts_still_in_the_proposal_as_one_undo_step() {
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    run(
+        &mut document,
+        TrimLevel::TightenMore,
+        vec![20..26, 26..31, 37..45],
+    )
+    .unwrap();
+    document.keep_trim_cut(1).unwrap();
+
+    document.make_trim_cuts().unwrap();
+
+    assert_eq!(document.text(), "The cat sat. It was very good. ");
+    assert_eq!(document.counter().words, 7);
+    assert_eq!(document.trim_proposal(), None);
+    assert!(document.undo());
+    assert_eq!(
+        document.text(),
+        "The cat sat. It was very, very good. The end."
+    );
+    assert!(!document.undo());
+    assert!(document.redo());
+    assert_eq!(document.text(), "The cat sat. It was very good. ");
+}
+
+#[test]
+fn make_the_cuts_moves_slots_and_ghost_ranges_around_the_cuts() {
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    let slot = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.ghost(41..44).unwrap();
+    run(&mut document, TrimLevel::TightenMore, vec![13..20, 20..26]).unwrap();
+
+    document.make_trim_cuts().unwrap();
+
+    assert_eq!(document.text(), "The cat sat. very good. The end.");
+    assert_eq!(document.slot(slot).unwrap().range, 4..7);
+    assert_eq!(document.ghost_ranges(), vec![28..31]);
+}
+
+#[test]
+fn trim_actions_without_a_proposal_are_refused() {
+    let mut document = Document::new("The cat sat.");
+
+    assert_eq!(document.make_trim_cuts(), Err(TrimError::NoProposal));
+    assert_eq!(document.keep_trim_cut(0), Err(TrimError::NoProposal));
+    assert_eq!(document.text(), "The cat sat.");
 }
 
 #[test]

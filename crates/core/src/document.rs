@@ -462,6 +462,37 @@ impl Document {
         self.commit(range, text, Tree { slots, ghosts })
     }
 
+    /// Deletes `ranges` as one undoable writer edit. `ranges` are sorted and do not overlap.
+    pub(crate) fn delete_ranges(&mut self, ranges: &[Range<usize>]) -> Result<(), RangeError> {
+        let (Some(first), Some(last)) = (ranges.first(), ranges.last()) else {
+            return Ok(());
+        };
+        let span = first.start..last.end;
+        let mut kept = self
+            .text
+            .get(span.clone())
+            .ok_or(RangeError {
+                range: span.clone(),
+            })?
+            .to_owned();
+        let mut slots = self.slots.clone();
+        let mut ghosts = self.ghosts.clone();
+        let mut marks = self.lab_marks.clone();
+        for range in ranges.iter().rev() {
+            let piece = range.start - span.start..range.end - span.start;
+            kept.get(piece.clone()).ok_or(RangeError {
+                range: range.clone(),
+            })?;
+            kept.replace_range(piece, "");
+            slot::shift(&mut slots, &mut ghosts, range, 0, true, None);
+            marks = marks
+                .into_iter()
+                .filter_map(|mark| mark.follow(range, 0))
+                .collect();
+        }
+        self.record(span, &kept, Tree { slots, ghosts }, marks)
+    }
+
     /// The open Lab marks in document order.
     #[must_use]
     pub fn lab_marks(&self) -> &[LabMark] {
