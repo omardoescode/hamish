@@ -35,6 +35,9 @@ fn edit_outside_text_or_inside_a_char_is_rejected_and_changes_nothing() {
 fn counter_counts_words_and_chars_of_the_document() {
     let examples = [
         ("", "0 words 0 chars"),
+        ("I", "1 word 1 char"),
+        ("Hi", "1 word 2 chars"),
+        ("a b", "2 words 3 chars"),
         ("Hello, dear world", "3 words 17 chars"),
         ("كاتب يكتب", "2 words 9 chars"),
         ("Title\n\nOne two.  Three", "4 words 22 chars"),
@@ -53,7 +56,7 @@ fn selection_counter_counts_only_the_selected_text() {
     let document = Document::new("Hello, dear world");
     assert_eq!(
         document.selection_counter(7..11).unwrap().to_string(),
-        "1 words 4 chars"
+        "1 word 4 chars"
     );
     assert_eq!(
         document.selection_counter(2..9).unwrap().to_string(),

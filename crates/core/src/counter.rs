@@ -8,6 +8,7 @@ use std::fmt;
 /// use ka_teb_core::Counter;
 ///
 /// assert_eq!(Counter::of("Hello, dear world").to_string(), "3 words 17 chars");
+/// assert_eq!(Counter::of("I").to_string(), "1 word 1 char");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Counter {
@@ -27,6 +28,8 @@ impl Counter {
 
 impl fmt::Display for Counter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} words {} chars", self.words, self.chars)
+        let words = if self.words == 1 { "word" } else { "words" };
+        let chars = if self.chars == 1 { "char" } else { "chars" };
+        write!(f, "{} {words} {} {chars}", self.words, self.chars)
     }
 }
