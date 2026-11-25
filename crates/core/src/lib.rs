@@ -19,7 +19,7 @@ mod sound;
 mod storage;
 mod trim;
 
-pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, ClaudeBackend};
+pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
 pub use around::{paragraph_around, sentence_around};
 pub use counter::Counter;
 pub use document::{Document, RangeError};

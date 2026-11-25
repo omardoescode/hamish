@@ -8,8 +8,8 @@ use gpui::{
     Modifiers, Render, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
 use ka_teb_core::{
-    AiError, AiRequest, AiTrigger, Effect, Level, Provenance, SlotId, paragraph_around,
-    sentence_around,
+    AiError, AiRequest, AiTrigger, CancelToken, Effect, Level, Provenance, SlotId,
+    paragraph_around, sentence_around,
 };
 
 use crate::actions::{
@@ -38,8 +38,16 @@ const QUICK_FILL_BATCH_GAP: Duration = Duration::from_millis(150);
 struct QuickFill {
     /// The AI request, then the batch reveal.
     _work: Task<()>,
+    /// Stops the AI call of the request when the quick fill drops.
+    cancel: CancelToken,
     /// Added AI Variants at the end of the list not shown yet.
     hidden: usize,
+}
+
+impl Drop for QuickFill {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
 }
 
 /// One Variant row of the Alternatives panel (FR-22, FR-23).
@@ -257,7 +265,7 @@ impl AlternativesPanel {
         self.ai = AiStatus::Loading;
         cx.notify();
         let asking = cx.background_spawn(async move {
-            let answer = ai.variants(&request);
+            let answer = ai.variants(&request, &CancelToken::default());
             (request, answer)
         });
         let editor = self.editor.downgrade();
@@ -319,9 +327,13 @@ impl AlternativesPanel {
         };
         self.ai = AiStatus::Loading;
         cx.notify();
-        let asking = cx.background_spawn(async move {
-            let answer = ai.variants(&request);
-            (request, answer)
+        let cancel = CancelToken::default();
+        let asking = cx.background_spawn({
+            let cancel = cancel.clone();
+            async move {
+                let answer = ai.variants(&request, &cancel);
+                (request, answer)
+            }
         });
         let work = cx.spawn(async move |this, cx| {
             let (request, answer) = asking.await;
@@ -332,6 +344,7 @@ impl AlternativesPanel {
         });
         self.quick_fill = Some(QuickFill {
             _work: work,
+            cancel,
             hidden: 0,
         });
     }
@@ -371,6 +384,7 @@ impl AlternativesPanel {
         });
         self.quick_fill = Some(QuickFill {
             _work: reveal,
+            cancel: CancelToken::default(),
             hidden,
         });
         cx.notify();

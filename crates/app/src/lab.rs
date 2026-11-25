@@ -9,7 +9,9 @@ use gpui::{
     AnyElement, Context, FocusHandle, IntoElement, MouseButton, SharedString, Window, div,
     prelude::*, px,
 };
-use ka_teb_core::{AiError, LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
+use ka_teb_core::{
+    AiError, CancelToken, LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest,
+};
 
 use gpui::Focusable;
 
@@ -81,6 +83,8 @@ pub(crate) struct Lab {
     guide: bool,
     runs: HashMap<LabCheck, Run>,
     pub(crate) trim: TrimRun,
+    /// Stops the AI call of the running Trim when a new level or Original replaces it.
+    pub(crate) trim_cancel: CancelToken,
     focus_handle: FocusHandle,
 }
 
@@ -91,6 +95,7 @@ impl Lab {
             guide: false,
             runs: HashMap::new(),
             trim: TrimRun::Idle,
+            trim_cancel: CancelToken::default(),
             focus_handle: cx.focus_handle(),
         }
     }
@@ -234,7 +239,7 @@ impl Workspace {
         self.lab.runs.insert(check, Run::Running);
         cx.notify();
         let checking = cx.background_spawn(async move {
-            let findings = ai.lab_check(&request);
+            let findings = ai.lab_check(&request, &CancelToken::default());
             (request, findings)
         });
         cx.spawn(async move |this, cx| {

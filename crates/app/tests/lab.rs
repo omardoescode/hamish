@@ -7,18 +7,27 @@ use gpui::{
     px,
 };
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabCheck, LabFinding, LabRequest, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabCheck, LabFinding, LabRequest,
+    TrimRequest,
 };
 
 /// Gives fixed findings for each Lab check, or fails, as an AI backend would.
 struct FakeAdapter(Result<Vec<(LabCheck, LabFinding)>, AiError>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         Ok(Vec::new())
     }
 
-    fn lab_check(&self, request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         let findings = self.0.clone()?;
         Ok(findings
             .into_iter()
@@ -27,7 +36,11 @@ impl AiAdapter for FakeAdapter {
             .collect())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }

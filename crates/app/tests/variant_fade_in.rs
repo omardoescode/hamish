@@ -7,23 +7,35 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px,
 };
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, Level, LoadedSettings,
-    Provenance, Settings, SlotId, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
+    LoadedSettings, Provenance, Settings, SlotId, TrimRequest,
 };
 
 /// Gives two fixed Variant texts, as an AI backend would.
 struct FakeAdapter;
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         Ok(vec!["stress".to_owned(), "pull".to_owned()])
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }

@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use app::{Ai, RunTrim, ToggleChrome, TrimBar, Workspace};
 use gpui::{
@@ -7,29 +7,73 @@ use gpui::{
     px,
 };
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, TrimCut, TrimLevel,
-    TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, TrimCut,
+    TrimLevel, TrimRequest,
 };
 
 /// Gives fixed cuts for each Trim level, or fails, as an AI backend would.
 struct FakeAdapter(Result<Vec<(TrimLevel, Range<usize>)>, AiError>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         Ok(Vec::new())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         let cuts = self.0.clone()?;
         Ok(cuts
             .into_iter()
             .filter(|(level, _)| *level == request.level())
             .map(|(_, range)| range)
             .collect())
+    }
+}
+
+/// Keeps the cancel token of each Trim call and gives no cut.
+struct CancelWatch(Arc<Mutex<Vec<CancelToken>>>);
+
+impl AiAdapter for CancelWatch {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
+        Ok(Vec::new())
+    }
+
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
+        Ok(Vec::new())
+    }
+
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
+        if let Ok(mut cancels) = self.0.lock() {
+            cancels.push(cancel.clone());
+        }
+        Ok(Vec::new())
     }
 }
 
@@ -343,4 +387,24 @@ fn a_trim_for_text_that_changed_meanwhile_is_refused(cx: &mut TestAppContext) {
         Some("Slight trim: the text changed since the Trim request".to_owned())
     );
     assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
+}
+
+#[gpui::test]
+fn a_new_trim_level_cancels_the_ai_call_of_the_one_that_runs(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, None);
+    let cancels = Arc::new(Mutex::new(Vec::new()));
+    let watch = CancelWatch(Arc::clone(&cancels));
+    cx.update(|_, cx| cx.set_global(Ai(Arc::new(watch))));
+    let calls = || cancels.lock().map_or(0, |cancels| cancels.len());
+
+    cx.dispatch_action(RunTrim(TrimLevel::SlightTrim));
+    while calls() == 0 && cx.executor().tick() {}
+    cx.dispatch_action(RunTrim(TrimLevel::TightenMore));
+    cx.run_until_parked();
+
+    let cancelled: Vec<bool> = cancels.lock().map_or_else(
+        |_| Vec::new(),
+        |cancels| cancels.iter().map(CancelToken::is_cancelled).collect(),
+    );
+    assert_eq!(cancelled, [true, false]);
 }

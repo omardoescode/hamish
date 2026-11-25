@@ -2,6 +2,8 @@ mod claude;
 
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub use claude::ClaudeBackend;
@@ -75,28 +77,53 @@ impl AiRequest {
     }
 }
 
-/// The one way to ask an AI for Variants, Lab checks, and Trims. Implementations block, so the app calls them
-/// on a background thread.
+/// Asks a running AI call to stop. Clones share one flag; it never resets.
+#[derive(Debug, Clone, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    /// Asks each AI call that has this token to stop.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// The one way to ask an AI for Variants, Lab checks, and Trims. Implementations block, so
+/// the app calls them on a background thread. Each call stops soon after its
+/// [`CancelToken`] is cancelled and gives [`AiError::Cancelled`].
 pub trait AiAdapter: Send + Sync {
     /// Variant texts for the selection of `request`.
     ///
     /// # Errors
-    /// [`AiError`] when the AI gives no usable answer.
-    fn variants(&self, request: &AiRequest) -> Result<Vec<String>, AiError>;
+    /// [`AiError`] when the AI gives no usable answer or the call was cancelled.
+    fn variants(&self, request: &AiRequest, cancel: &CancelToken) -> Result<Vec<String>, AiError>;
 
     /// The ranges of the request text that match the Lab check of `request`.
     /// It never changes text.
     ///
     /// # Errors
-    /// [`AiError`] when the AI gives no usable answer.
-    fn lab_check(&self, request: &LabRequest) -> Result<Vec<LabFinding>, AiError>;
+    /// [`AiError`] when the AI gives no usable answer or the call was cancelled.
+    fn lab_check(
+        &self,
+        request: &LabRequest,
+        cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError>;
 
     /// The byte ranges of the request text to cut for the Trim level of `request`.
     /// It never rewrites text.
     ///
     /// # Errors
-    /// [`AiError`] when the AI gives no usable answer.
-    fn trim(&self, request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError>;
+    /// [`AiError`] when the AI gives no usable answer or the call was cancelled.
+    fn trim(
+        &self,
+        request: &TrimRequest,
+        cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError>;
 }
 
 /// Why an AI call gave no answer.
@@ -112,6 +139,8 @@ pub enum AiError {
     BadOutput(String),
     /// No answer within this time; the call was stopped.
     Timeout(Duration),
+    /// The caller cancelled the call; it was stopped.
+    Cancelled,
 }
 
 impl fmt::Display for AiError {
@@ -129,6 +158,7 @@ impl fmt::Display for AiError {
             Self::Declined(message) => write!(f, "the AI declined: {message}"),
             Self::BadOutput(detail) => write!(f, "the AI gave bad output: {detail}"),
             Self::Timeout(limit) => write!(f, "the AI gave no answer in {} s", limit.as_secs()),
+            Self::Cancelled => f.write_str("the AI request was cancelled"),
         }
     }
 }

@@ -1,23 +1,35 @@
 use std::ops::Range;
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, Document, LabFinding, LabRequest, Level,
-    Provenance, SlotId, TrimRequest,
+    AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, Document, LabFinding,
+    LabRequest, Level, Provenance, SlotId, TrimRequest,
 };
 
 /// Returns fixed Variant texts, as an AI backend would.
 struct FakeAdapter(Vec<&'static str>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         Ok(self.0.iter().map(|text| (*text).to_owned()).collect())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }
@@ -46,7 +58,9 @@ fn ai_result_makes_a_slot_of_ai_variants_and_keeps_the_original_active() {
         .unwrap();
     assert_eq!(request.selection(), "cat");
     assert_eq!(request.trigger(), AiTrigger::ContextMenu);
-    let texts = FakeAdapter(vec!["dog", "fox"]).variants(&request).unwrap();
+    let texts = FakeAdapter(vec!["dog", "fox"])
+        .variants(&request, &CancelToken::default())
+        .unwrap();
 
     let id = document.apply_ai_result(&request, &texts).unwrap();
 
@@ -75,7 +89,9 @@ fn ai_result_on_an_existing_slot_adds_variants_and_keeps_the_active_one() {
     let request = document
         .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
         .unwrap();
-    let texts = FakeAdapter(vec!["fox", "owl"]).variants(&request).unwrap();
+    let texts = FakeAdapter(vec!["fox", "owl"])
+        .variants(&request, &CancelToken::default())
+        .unwrap();
 
     assert_eq!(document.apply_ai_result(&request, &texts), Ok(id));
 

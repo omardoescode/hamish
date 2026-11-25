@@ -7,24 +7,36 @@ use gpui::{
     VisualTestContext, point, px,
 };
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, LoadedSettings, Provenance,
-    Settings, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, LoadedSettings,
+    Provenance, Settings, TrimRequest,
 };
 
 /// Gives fixed Variant texts, or fails, as an AI backend would.
 struct FakeAdapter(Result<Vec<&'static str>, AiError>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         let texts = self.0.clone()?;
         Ok(texts.into_iter().map(str::to_owned).collect())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }

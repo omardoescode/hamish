@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use gpui::{AnyElement, Context, IntoElement, SharedString, Window, div, prelude::*, px};
-use ka_teb_core::{AiError, TrimError, TrimLevel, TrimRequest};
+use ka_teb_core::{AiError, CancelToken, TrimError, TrimLevel, TrimRequest};
 
 use crate::ai::AiFailure;
 use crate::{Ai, Theme, Workspace};
@@ -121,8 +121,9 @@ impl Workspace {
         };
         self.lab.trim = TrimRun::Running(level);
         cx.notify();
+        let cancel = self.new_trim_cancel();
         let trimming = cx.background_spawn(async move {
-            let cuts = ai.trim(&request);
+            let cuts = ai.trim(&request, &cancel);
             (request, cuts)
         });
         cx.spawn(async move |this, cx| {
@@ -141,7 +142,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let level = request.level();
-        if self.lab.trim != TrimRun::Running(level) {
+        if self.lab.trim != TrimRun::Running(level) || cuts == Err(AiError::Cancelled) {
             return;
         }
         let proposed = cuts.map_err(AiFailure::Ai).and_then(|cuts| {
@@ -158,8 +159,16 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Cancels the AI call of the Trim that runs, and gives the token for the next one.
+    fn new_trim_cancel(&mut self) -> CancelToken {
+        self.lab.trim_cancel.cancel();
+        self.lab.trim_cancel = CancelToken::default();
+        self.lab.trim_cancel.clone()
+    }
+
     /// Removes the proposal and any run or failure; the text stays (FR-60, FR-62).
     fn end_trim(&mut self, cx: &mut Context<Self>) {
+        self.new_trim_cancel();
         self.lab.trim = TrimRun::Idle;
         self.trim_step(
             |document| {
