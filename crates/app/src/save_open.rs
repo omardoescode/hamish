@@ -292,3 +292,37 @@ fn check_name(check: LabCheck) -> &'static str {
         LabCheck::HedgesFiller => "Hedges and filler",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ka_teb_core::{Dropped, LabCheck, Level};
+
+    use super::{Notice, notice_lines};
+
+    #[test]
+    fn a_dropped_notice_names_each_item_with_its_text() {
+        let notice = Notice::Dropped(vec![
+            Dropped::Slot {
+                level: Level::Sentence,
+                text: "It rains.".to_owned(),
+            },
+            Dropped::Ghost {
+                text: "maybe".to_owned(),
+            },
+            Dropped::LabMark {
+                check: LabCheck::HedgesFiller,
+                text: "really".to_owned(),
+            },
+        ]);
+
+        assert_eq!(
+            notice_lines(&notice),
+            [
+                "The .md file changed outside Ka-teb. Not found again:",
+                "Sentence Slot \"It rains.\"",
+                "Ghost \"maybe\"",
+                "Hedges and filler mark \"really\"",
+            ]
+        );
+    }
+}
