@@ -160,6 +160,43 @@ fn escape_in_overflow_gives_the_keyboard_back_to_the_document(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn ctrl_shift_x_stashes_the_selection_and_shows_overflow(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title\nCut this."));
+
+    cx.simulate_keystrokes("down shift-end ctrl-shift-x");
+
+    assert_eq!(text(&workspace, cx), "Title\n");
+    assert_eq!(overflow(&workspace, cx), "Cut this.");
+    assert!(overflow_open(&workspace, cx));
+}
+
+#[gpui::test]
+fn undo_brings_stashed_text_back_from_overflow(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title\nCut this."));
+
+    cx.simulate_keystrokes("down shift-end ctrl-shift-x ctrl-z");
+
+    assert_eq!(text(&workspace, cx), "Title\nCut this.");
+    assert_eq!(overflow(&workspace, cx), "");
+}
+
+#[gpui::test]
+fn the_stash_menu_row_moves_the_word_under_the_pointer(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title\nThe customer waits."));
+
+    let position = document_point(&workspace, cx, 13);
+    cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
+    let row = cx
+        .debug_bounds("context-menu-row-3")
+        .expect("the menu shows the Stash row");
+    cx.simulate_click(row.center(), Modifiers::none());
+
+    assert_eq!(text(&workspace, cx), "Title\nThe  waits.");
+    assert_eq!(overflow(&workspace, cx), "customer");
+}
+
+#[gpui::test]
 fn ctrl_return_puts_the_block_at_the_caret_into_the_document(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, document_with_overflow());
 

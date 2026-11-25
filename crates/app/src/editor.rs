@@ -596,8 +596,8 @@ impl Editor {
         self.history.close();
     }
 
-    /// Menu actions that later tickets build (Alternatives panel, AI alternatives,
-    /// Overflow): close the menu and let a view up the tree handle the action.
+    /// Menu actions that later tickets build (Alternatives panel, AI alternatives):
+    /// close the menu and let a view up the tree handle the action.
     fn pass_on(&mut self, cx: &mut Context<Self>) {
         self.context_menu = None;
         cx.notify();
@@ -612,8 +612,24 @@ impl Editor {
         self.pass_on(cx);
     }
 
+    /// FR-45: moves the target to the end of Overflow as one undo step, then lets the
+    /// workspace show Overflow.
     fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
-        self.pass_on(cx);
+        self.context_menu = None;
+        cx.notify();
+        let target = self.target();
+        if self.document.stash(target.clone()).is_err() {
+            return;
+        }
+        let before = self.selection.clone();
+        self.selection = target.start..target.start;
+        self.reversed = false;
+        self.history.close();
+        self.history
+            .record(EditKind::Other, before, self.selection.clone());
+        self.history.close();
+        self.autoscroll = true;
+        cx.propagate();
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {

@@ -4,6 +4,7 @@ use gpui::{
 };
 use ka_teb_core::Document;
 
+use crate::actions::Stash;
 use crate::actions::{ToggleChrome, ToggleOverflow};
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::{Editor, Theme};
@@ -66,6 +67,12 @@ impl Workspace {
         cx.notify();
     }
 
+    /// FR-45: after a Stash, Overflow shows where the text went. The Document keeps the keyboard.
+    fn show_stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
+        self.overflow_open = true;
+        cx.notify();
+    }
+
     /// FR-47: a block dragged from Overflow goes into the Document at the drop point.
     fn drop_block(&mut self, _: &OverflowBlockDrag, window: &mut Window, cx: &mut Context<Self>) {
         let caret = self.overflow_panel.read(cx).caret();
@@ -100,6 +107,7 @@ impl Render for Workspace {
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::toggle_overflow))
+            .on_action(cx.listener(Self::show_stash))
             .child(
                 div()
                     .size_full()
