@@ -70,6 +70,18 @@ jobs:
       - name: doc tests
         run: cargo test --workspace --doc
 
+  packaging:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop-file-utils (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: desktop-file-utils
+          version: 1
+      - run: sh scripts/packaging-test.sh
+
   guards:
     if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
