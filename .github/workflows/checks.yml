@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -12,14 +16,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install GPUI build libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev
+      - name: Install GPUI build libraries (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev
+          version: 1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
