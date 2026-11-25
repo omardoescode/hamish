@@ -1,4 +1,4 @@
-use ka_teb_core::{Cycle, Document, Level, Provenance, SlotError};
+use ka_teb_core::{Cycle, Document, Level, Provenance, SlotError, Switch};
 
 fn variant_texts(document: &Document, slot: ka_teb_core::SlotId) -> Vec<String> {
     document.slot(slot).map_or_else(Vec::new, |slot| {
@@ -81,6 +81,33 @@ fn cycle_moves_the_active_variant_and_wraps_around() {
         document.cycle_active(id, cycle).unwrap();
         assert_eq!(document.text(), expected, "{cycle:?}");
     }
+}
+
+#[test]
+fn a_switch_reports_a_return_to_the_original() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    assert_eq!(
+        document.cycle_active(id, Cycle::Next),
+        Ok(Switch::ToVariant)
+    );
+    assert_eq!(
+        document.cycle_active(id, Cycle::Next),
+        Ok(Switch::ToVariant)
+    );
+    assert_eq!(
+        document.cycle_active(id, Cycle::Next),
+        Ok(Switch::ToOriginal)
+    );
+    assert_eq!(
+        document.cycle_active(id, Cycle::Previous),
+        Ok(Switch::ToVariant)
+    );
+    assert_eq!(document.set_active(id, 0), Ok(Switch::ToOriginal));
+    assert_eq!(document.set_active(id, 1), Ok(Switch::ToVariant));
 }
 
 #[test]

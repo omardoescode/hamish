@@ -32,6 +32,24 @@ pub enum Cycle {
     Previous,
 }
 
+/// What a change of the Active variant did: it showed the Original again, or another
+/// Variant. The app picks the cycle sound from it (issue #27).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Switch {
+    ToOriginal,
+    ToVariant,
+}
+
+impl Switch {
+    pub(crate) fn to(index: usize) -> Self {
+        if index == 0 {
+            Self::ToOriginal
+        } else {
+            Self::ToVariant
+        }
+    }
+}
+
 /// Stable name of a Slot for the life of its Document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SlotId(pub(crate) u64);

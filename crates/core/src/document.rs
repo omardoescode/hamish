@@ -7,7 +7,7 @@ use crate::markdown;
 use crate::slot::{self, SlotNode};
 use crate::{
     Counter, Cycle, GhostError, LabMark, LabMarkId, Level, MarkdownSpan, Overflow, OverflowError,
-    Provenance, Slot, SlotError, SlotId, TrimProposal, Variant,
+    Provenance, Slot, SlotError, SlotId, Switch, TrimProposal, Variant,
 };
 
 /// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, Trim proposal,
@@ -306,15 +306,16 @@ impl Document {
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
-    pub fn set_active(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
-        self.change_slot(id, SlotChange::Switch, |node| node.set_active(index))
+    pub fn set_active(&mut self, id: SlotId, index: usize) -> Result<Switch, SlotError> {
+        self.change_slot(id, SlotChange::Switch, |node| node.set_active(index))?;
+        Ok(Switch::to(index))
     }
 
     /// Moves the Active variant of Slot `id` one step (FR-14).
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] when `id` is not a visible Slot.
-    pub fn cycle_active(&mut self, id: SlotId, cycle: Cycle) -> Result<(), SlotError> {
+    pub fn cycle_active(&mut self, id: SlotId, cycle: Cycle) -> Result<Switch, SlotError> {
         let slot = self.slot(id).ok_or(SlotError::NoSlot(id))?;
         let count = slot.variants.len();
         let step = match cycle {
