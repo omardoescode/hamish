@@ -16,7 +16,7 @@ use crate::{Notice, Theme, Workspace};
 /// The settings in use and where they save; a global.
 #[derive(Default)]
 pub(crate) struct SettingsStore {
-    settings: Settings,
+    pub(crate) settings: Settings,
     /// `None`: changes apply but do not save.
     path: Option<PathBuf>,
     /// Why the file at start did not load; the first Workspace shows it.
@@ -33,6 +33,12 @@ pub fn use_settings(path: Option<PathBuf>, loaded: LoadedSettings, cx: &mut App)
         path,
         problem: loaded.problem,
     });
+}
+
+/// Effects are instant (spec NFR "Reduced motion").
+pub(crate) fn reduced_motion(cx: &App) -> bool {
+    cx.try_global::<SettingsStore>()
+        .is_some_and(|store| store.settings.reduced_motion)
 }
 
 /// The notice for a settings file that did not load at start; it shows one time.
@@ -157,28 +163,23 @@ impl SettingsModal {
                 ThemeName::Dark => ("settings-theme-dark", "Dark"),
                 ThemeName::Light => ("settings-theme-light", "Light"),
             };
-            let chosen = settings.theme == name;
-            div()
-                .id(id)
-                .debug_selector(|| id.to_owned())
-                .px(px(8.))
-                .border_1()
-                .rounded(theme.elevated_radius)
-                .border_color(if chosen {
-                    theme.accent_outline
-                } else {
-                    theme.panel_border
-                })
-                .text_color(if chosen {
-                    theme.accent
-                } else {
-                    theme.text_muted
-                })
-                .cursor_pointer()
-                .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
+            choice_button(id, label, settings.theme == name, theme).on_click(cx.listener(
+                move |modal, _: &ClickEvent, _, cx| {
                     modal.change(cx, |settings| settings.theme = name);
-                }))
-                .child(label)
+                },
+            ))
+        };
+        let motion = |reduced: bool| {
+            let (id, label) = if reduced {
+                ("settings-reduced-motion-on", "On")
+            } else {
+                ("settings-reduced-motion-off", "Off")
+            };
+            choice_button(id, label, settings.reduced_motion == reduced, theme).on_click(
+                cx.listener(move |modal, _: &ClickEvent, _, cx| {
+                    modal.change(cx, |settings| settings.reduced_motion = reduced);
+                }),
+            )
         };
         div()
             .flex()
@@ -194,6 +195,15 @@ impl SettingsModal {
                     .child(choice(ThemeName::Light)),
             ))
             .child(Self::stepper(Setting::UiScale, settings, theme, cx))
+            .child(field(
+                "Reduced motion",
+                theme,
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(motion(false))
+                    .child(motion(true)),
+            ))
     }
 
     fn editor(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
@@ -236,6 +246,35 @@ impl SettingsModal {
             .child(Self::stepper(Setting::FontSize, settings, theme, cx))
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
             .child(Self::stepper(Setting::ColumnWidth, settings, theme, cx))
+            .child(Self::cycle_sounds(settings, theme, cx))
+    }
+
+    /// Issue #27: a tone on each Active variant switch, on or off.
+    fn cycle_sounds(settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
+        let on = settings.cycle_sounds;
+        field(
+            "Cycle sounds",
+            theme,
+            div().flex().child(
+                div()
+                    .id("settings-cycle-sounds")
+                    .debug_selector(|| "settings-cycle-sounds".to_owned())
+                    .px(px(8.))
+                    .border_1()
+                    .rounded(theme.elevated_radius)
+                    .border_color(if on {
+                        theme.accent_outline
+                    } else {
+                        theme.panel_border
+                    })
+                    .text_color(if on { theme.accent } else { theme.text_muted })
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
+                        modal.change(cx, |settings| settings.cycle_sounds = !on);
+                    }))
+                    .child(if on { "On" } else { "Off" }),
+            ),
+        )
     }
 
     /// A label, a "-" button, the value, and a "+" button.
@@ -290,6 +329,33 @@ impl SettingsModal {
     }
 }
 
+/// One choice of a field; `chosen` shows in the accent color.
+fn choice_button(
+    id: &'static str,
+    label: &'static str,
+    chosen: bool,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(|| id.to_owned())
+        .px(px(8.))
+        .border_1()
+        .rounded(theme.elevated_radius)
+        .border_color(if chosen {
+            theme.accent_outline
+        } else {
+            theme.panel_border
+        })
+        .text_color(if chosen {
+            theme.accent
+        } else {
+            theme.text_muted
+        })
+        .cursor_pointer()
+        .child(label)
+}
+
 /// A field row: its label above its control.
 fn field(label: &'static str, theme: &Theme, control: impl IntoElement) -> Div {
     div()
@@ -335,7 +401,7 @@ impl Render for SettingsModal {
                 div()
                     .id("settings-modal")
                     .w(px(560.) * scale)
-                    .h(px(380.) * scale)
+                    .h(px(440.) * scale)
                     .flex()
                     .bg(theme.elevated_background)
                     .border_1()

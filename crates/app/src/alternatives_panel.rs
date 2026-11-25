@@ -16,9 +16,10 @@ use crate::actions::{
     SelectPreviousVariant,
 };
 use crate::editor::Spotlight;
-use crate::effects::{Effect, EffectKind, Playing};
+use crate::effects::{self, Effect, EffectKind, Playing};
+use crate::sounds;
 use crate::{Ai, Editor, Theme};
-use crate::{context_menu, loading};
+use crate::{context_menu, loading, settings_modal};
 
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
@@ -518,7 +519,7 @@ impl AlternativesPanel {
                         |document| {
                             let id =
                                 document.create_slot(range, level, &draft, Provenance::Writer)?;
-                            document.set_active(id, 1).map(|()| id)
+                            document.set_active(id, 1).map(|_switch| id)
                         },
                         cx,
                     )
@@ -573,11 +574,12 @@ impl AlternativesPanel {
         if active.is_none_or(|active| active == row) {
             return;
         }
-        self.editor
-            .update(cx, |editor, cx| {
-                editor.change_document(|document| document.set_active(id, row), cx)
-            })
-            .ok();
+        let switched = self.editor.update(cx, |editor, cx| {
+            editor.change_document(|document| document.set_active(id, row), cx)
+        });
+        if let Ok(switch) = switched {
+            sounds::play(switch.sound(), cx);
+        }
     }
 
     /// FR-24: Esc closes the panel.
@@ -640,7 +642,7 @@ impl AlternativesPanel {
             range,
         };
         let seed = u64::try_from(row).unwrap_or_default().wrapping_add(0x5eed);
-        self.explosion = Some((row, Playing::new(effect, seed)));
+        self.explosion = effects::plays(cx).then(|| (row, Playing::new(effect, seed)));
         if let Some(kept) = kept {
             let text = self.editor.read(cx).document().text();
             let target = ended_slot_text(text, start, &kept)
@@ -867,6 +869,7 @@ impl AlternativesPanel {
             .children(variant_rows)
             .children(self.render_ai_status(theme))
             .when(self.quick_fill.is_some(), |list| {
+                let reduced_motion = settings_modal::reduced_motion(cx);
                 list.child(
                     row_box(theme, true)
                         .id("alternatives-quick-fill")
@@ -875,6 +878,7 @@ impl AlternativesPanel {
                         .child(loading::quick_fill_dance(
                             "alternatives-quick-fill-dance",
                             theme.accent,
+                            reduced_motion,
                         )),
                 )
             })

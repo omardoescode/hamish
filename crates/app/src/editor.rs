@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
@@ -12,7 +12,7 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId,
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId, Sound,
     TrimError, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -26,7 +26,9 @@ use crate::actions::{
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
-use crate::effects::{Effect, EffectKind, Playing};
+use crate::effects::{self, Effect, EffectKind, Playing};
+use crate::settings_modal;
+use crate::sounds;
 
 /// How a Slot shows that it has Variants (FR-12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +70,9 @@ const PEN_STEP: Pixels = px(2.);
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
 
+/// Opacity of new Active variant text when its fade-in starts (FR-81: "low opacity").
+const FADE_IN_START_OPACITY: f32 = 0.2;
+
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
 pub struct Editor {
     document: Document,
@@ -90,6 +95,8 @@ pub struct Editor {
     preview: Option<Document>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
+    /// The Slot whose Active variant last changed, and when (FR-81).
+    fade_in: Option<(SlotId, Instant)>,
     /// FR-78, FR-79: effects that play over the text.
     effects: Vec<Playing>,
     effect_seed: u64,
@@ -107,8 +114,7 @@ pub(crate) enum Spotlight {
 pub(crate) enum EditorEvent {
     /// A click on the text of a visible Slot (FR-21).
     SlotClicked(SlotId),
-    /// A Variant of the Slot was deleted; its explosion plays (FR-78). The explosion sound
-    /// hooks here (#27).
+    /// A Variant of the Slot was deleted; its explosion and its sound (#27) play (FR-78).
     VariantDeleted(SlotId),
     /// An undo put a deleted Variant of the Slot back; its burst plays (FR-79).
     VariantRestored(SlotId),
@@ -149,6 +155,7 @@ impl Editor {
             spotlight: None,
             preview: None,
             saved: None,
+            fade_in: None,
             effects: Vec::new(),
             effect_seed: 0,
         }
@@ -208,7 +215,10 @@ impl Editor {
             .collect()
     }
 
-    fn play(&mut self, kind: EffectKind, range: Range<usize>) {
+    fn play(&mut self, kind: EffectKind, range: Range<usize>, cx: &App) {
+        if !effects::plays(cx) {
+            return;
+        }
         self.effect_seed = self.effect_seed.wrapping_add(1);
         self.effects
             .push(Playing::new(Effect { kind, range }, self.effect_seed));
@@ -228,7 +238,9 @@ impl Editor {
         self.play(
             EffectKind::Explosion,
             range.start.min(len)..range.end.min(len),
+            cx,
         );
+        sounds::play(Sound::Explosion, cx);
         cx.emit(EditorEvent::VariantDeleted(id));
         Ok(())
     }
@@ -507,14 +519,52 @@ impl Editor {
         let Some(id) = self.hovered.or_else(at_caret) else {
             return false;
         };
-        if self
-            .change_document(|document| document.cycle_active(id, cycle), cx)
-            .is_err()
-        {
+        let Ok(switch) = self.change_document(|document| document.cycle_active(id, cycle), cx)
+        else {
             self.hovered = None;
             return false;
-        }
+        };
+        sounds::play(switch.sound(), cx);
         true
+    }
+
+    /// Each Slot with the index of its Active variant and its Variant count.
+    fn shown_variants(&self) -> Vec<(SlotId, usize, usize)> {
+        self.document
+            .slots()
+            .iter()
+            .map(|slot| (slot.id, slot.active, slot.variants.len()))
+            .collect()
+    }
+
+    /// FR-81: starts the fade-in of a Slot whose Active variant changed since `before`
+    /// (cycle, delete, undo), `delay` from now. Typing in a Variant changes neither, so it
+    /// does not fade.
+    fn fade_in_changed(&mut self, before: &[(SlotId, usize, usize)], delay: Duration, cx: &App) {
+        let changed = self
+            .shown_variants()
+            .into_iter()
+            .find(|shown| before.iter().any(|old| old.0 == shown.0 && old != shown));
+        if let Some((slot, _, _)) = changed {
+            self.fade_in = Some((slot, cx.background_executor().now() + delay));
+        }
+    }
+
+    /// The Slot whose new Active variant fades in now, and its text opacity. `None` when
+    /// no fade runs; with reduced motion a fade is done at once.
+    #[must_use]
+    pub fn fading_in(&self, cx: &App) -> Option<(SlotId, f32)> {
+        let (slot, started) = self.fade_in?;
+        let elapsed = cx
+            .background_executor()
+            .now()
+            .saturating_duration_since(started);
+        let progress = ka_teb_core::Effect::VariantFadeIn
+            .progress(elapsed, settings_modal::reduced_motion(cx));
+        (progress < 1.).then_some((
+            slot,
+            FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,
+        ))
     }
 
     /// Runs one Document API call that makes at most one core undo step, as one editor
@@ -535,7 +585,9 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
         let old_text = self.document.text().to_owned();
+        let shown = self.shown_variants();
         let done = change(&mut self.document)?;
+        self.fade_in_changed(&shown, Duration::ZERO, cx);
         let new_text = self.document.text();
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
@@ -725,18 +777,26 @@ impl Editor {
         let Some(group) = self.history.undo() else {
             return;
         };
+        let shown = self.shown_variants();
         let mut restored = Vec::new();
         for _ in 0..group.steps {
             restored.extend(self.document.undo_restores_variant());
             self.document.undo();
         }
+        // FR-79: the restored text fades in after its burst.
+        let after_burst = if restored.is_empty() || !effects::plays(cx) {
+            Duration::ZERO
+        } else {
+            ka_teb_core::Effect::UndoBurst.duration()
+        };
         for id in restored {
             let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
                 continue;
             };
-            self.play(EffectKind::Burst, range);
+            self.play(EffectKind::Burst, range, cx);
             cx.emit(EditorEvent::VariantRestored(id));
         }
+        self.fade_in_changed(&shown, after_burst, cx);
         self.selection = group.before;
         self.reversed = false;
         self.autoscroll = true;
@@ -747,9 +807,11 @@ impl Editor {
         let Some(group) = self.history.redo() else {
             return;
         };
+        let shown = self.shown_variants();
         for _ in 0..group.steps {
             self.document.redo();
         }
+        self.fade_in_changed(&shown, Duration::ZERO, cx);
         self.selection = group.after;
         self.reversed = false;
         self.autoscroll = true;
@@ -1518,7 +1580,8 @@ struct EditorPrepaint {
 
 impl EditorElement {
     /// The effects that play now, each with its progress and the rows of its span. Ended
-    /// effects drop; while one plays, the next frame comes (FR-78, FR-79).
+    /// effects drop; while one plays or a Variant fades in, the next frame comes (FR-78,
+    /// FR-79, FR-81).
     fn effect_frames(
         &self,
         painted: &PaintedText,
@@ -1532,7 +1595,8 @@ impl EditorElement {
                 .effects
                 .retain(|playing| playing.progress(now).is_some());
         });
-        if !effects.is_empty() {
+        let fading = self.editor.read(cx).fading_in(cx).is_some();
+        if fading || !effects.is_empty() {
             window.request_animation_frame();
         }
         effects
@@ -1609,6 +1673,13 @@ impl EditorElement {
             }
         })
         .collect();
+        let fading = editor
+            .fading_in(cx)
+            .and_then(|(id, opacity)| editor.document.slot(id).map(|slot| (slot.range, opacity)));
+        let runs = match fading {
+            Some((range, opacity)) => faded_runs(&runs, &range, opacity),
+            None => runs,
+        };
         if runs.is_empty() {
             let empty = TextRun {
                 len: 0,
@@ -1714,6 +1785,36 @@ fn shape_sized(
         start = end + 1;
     }
     lines
+}
+
+/// `runs` (which cover the text from offset 0) with the part inside byte `range` at
+/// `opacity`.
+fn faded_runs(runs: &[TextRun], range: &Range<usize>, opacity: f32) -> Vec<TextRun> {
+    let mut at = 0;
+    let mut faded = Vec::with_capacity(runs.len() + 2);
+    for run in runs {
+        let start = at;
+        at += run.len;
+        let inside = start.max(range.start)..at.min(range.end);
+        if inside.is_empty() {
+            faded.push(run.clone());
+            continue;
+        }
+        let parts = [
+            (start..inside.start, 1.),
+            (inside.clone(), opacity),
+            (inside.end..at, 1.),
+        ];
+        faded.extend(parts.into_iter().filter(|(part, _)| !part.is_empty()).map(
+            |(part, factor)| TextRun {
+                len: part.len(),
+                color: run.color.opacity(factor),
+                background_color: run.background_color.map(|color| color.opacity(factor)),
+                ..run.clone()
+            },
+        ));
+    }
+    faded
 }
 
 /// The parts of `runs` (which cover the text from offset 0) inside byte `range`.
@@ -2193,7 +2294,26 @@ pub(crate) fn scroll_into_view(
 mod tests {
     use ka_teb_core::{MarkdownSpan, MarkdownStyle};
 
-    use super::{Span, follow_change, heading_lines, pen, spans};
+    use gpui::{TextRun, font, hsla};
+
+    use super::{Span, faded_runs, follow_change, heading_lines, pen, spans};
+
+    #[test]
+    fn a_fade_splits_the_runs_at_its_range_and_dims_only_inside() {
+        let run = |len| TextRun {
+            len,
+            font: font("IBM Plex Mono"),
+            color: hsla(0., 0., 1., 1.),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+
+        let faded = faded_runs(&[run(4), run(6)], &(2..7), 0.5);
+
+        let shape: Vec<(usize, f32)> = faded.iter().map(|run| (run.len, run.color.a)).collect();
+        assert_eq!(shape, [(2, 1.), (2, 0.5), (3, 0.5), (3, 1.)]);
+    }
 
     fn samples(seed: u64) -> Vec<(f32, f32)> {
         (0..400u16)

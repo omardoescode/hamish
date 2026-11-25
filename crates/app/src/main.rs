@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use app::{Ai, Workspace};
+use app::{Ai, DeviceSounds, Sounds, Workspace};
 use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
 use ka_teb_core::{ClaudeBackend, Document, Settings, settings_path};
 
@@ -24,6 +24,7 @@ fn main() {
             app::use_settings(path, loaded, cx);
         }
         cx.set_global(Ai(Arc::new(ClaudeBackend::default())));
+        cx.set_global(Sounds(Arc::new(DeviceSounds::start())));
         let bounds = Bounds::centered(None, size(px(1140.0), px(720.0)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

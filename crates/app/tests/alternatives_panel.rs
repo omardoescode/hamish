@@ -5,7 +5,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, TestAppContext,
     VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, Provenance};
+use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -481,4 +481,24 @@ fn one_undo_in_the_editor_removes_a_variant_the_panel_added(cx: &mut TestAppCont
             row("patron", false)
         ]
     );
+}
+#[gpui::test]
+fn with_reduced_motion_a_row_delete_plays_no_explosion(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+    let loaded = LoadedSettings {
+        settings: Settings {
+            reduced_motion: true,
+            ..Settings::default()
+        },
+        problem: None,
+    };
+    cx.update(|_, cx| app::use_settings(None, loaded, cx));
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up up ctrl-backspace");
+
+    let panel = panel(&workspace, cx).expect("the panel is open");
+    assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), None);
+    let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
+    assert_eq!(effects, Vec::new());
 }

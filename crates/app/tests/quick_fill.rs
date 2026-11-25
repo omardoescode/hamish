@@ -5,8 +5,8 @@ use std::time::Duration;
 use app::{Ai, AiStatus, AlternativesPanel, Workspace};
 use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, AiTrigger, Document, LabFinding, LabRequest, Level, Provenance,
-    TrimRequest,
+    AiAdapter, AiError, AiRequest, AiTrigger, Document, LabFinding, LabRequest, Level,
+    LoadedSettings, Provenance, Settings, TrimRequest,
 };
 
 /// Gives fixed Variant texts, or fails, as an AI backend would, and keeps each request.
@@ -66,7 +66,24 @@ fn open<'a>(
     &'a mut VisualTestContext,
     Arc<Mutex<Vec<AiRequest>>>,
 ) {
+    open_with(cx, answer, Settings::default())
+}
+
+fn open_with<'a>(
+    cx: &'a mut TestAppContext,
+    answer: Result<Vec<&'static str>, AiError>,
+    settings: Settings,
+) -> (
+    Entity<Workspace>,
+    &'a mut VisualTestContext,
+    Arc<Mutex<Vec<AiRequest>>>,
+) {
     assert!(cx.update(app::init).is_ok(), "bundled font loads");
+    let loaded = LoadedSettings {
+        settings,
+        problem: None,
+    };
+    cx.update(|cx| app::use_settings(None, loaded, cx));
     let requests = Arc::new(Mutex::new(Vec::new()));
     let ai = FakeAdapter {
         answer,
@@ -218,6 +235,24 @@ fn the_quick_fill_row_dances_while_the_ai_works(cx: &mut TestAppContext) {
     cx.update(|window, _| window.refresh());
 
     assert!(cx.debug_bounds("alternatives-quick-fill").is_some());
+    assert!(cx.debug_bounds("alternatives-quick-fill-still").is_none());
+}
+
+#[gpui::test]
+fn with_reduced_motion_the_quick_fill_row_shows_a_still_question_mark_pair(
+    cx: &mut TestAppContext,
+) {
+    let settings = Settings {
+        reduced_motion: true,
+        ..Settings::default()
+    };
+    let (_workspace, cx, _) = open_with(cx, Ok(DEMO.to_vec()), settings);
+
+    press(cx, "?");
+    press(cx, "?");
+    cx.update(|window, _| window.refresh());
+
+    assert!(cx.debug_bounds("alternatives-quick-fill-still").is_some());
 }
 
 #[gpui::test]

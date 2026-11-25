@@ -199,3 +199,18 @@ fn a_bad_settings_file_gives_the_defaults_and_a_notice(cx: &mut TestAppContext) 
         "{notice:?}"
     );
 }
+#[gpui::test]
+fn reduced_motion_turns_on_in_appearance_and_saves(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let (_, cx) = open_with_file(cx, path.clone());
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-reduced-motion-on");
+
+    assert!(Settings::load(&path).settings.reduced_motion);
+
+    click(cx, "settings-reduced-motion-off");
+
+    assert!(!Settings::load(&path).settings.reduced_motion);
+}

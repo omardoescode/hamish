@@ -2,14 +2,13 @@
 //! paint: they never block input (NFR "Fun, not in the way").
 
 use std::ops::Range;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use gpui::{Bounds, BoxShadow, Hsla, Pixels, Point, Window, fill, point, px, rgb, size};
+use gpui::{App, Bounds, BoxShadow, Hsla, Pixels, Point, Window, fill, point, px, rgb, size};
+use ka_teb_core::Effect as Timing;
 
-/// FR-78: explosion 500 to 800 ms (spec estimate).
-const EXPLOSION: Duration = Duration::from_millis(650);
-/// FR-79: the undo burst is shorter; the text then shows at once (fade-in: FR-81).
-const BURST: Duration = Duration::from_millis(450);
+use crate::settings_modal;
+
 const SPARKS: u64 = 36;
 const FLAMES: u64 = 7;
 
@@ -58,17 +57,14 @@ impl Playing {
         }
     }
 
-    fn duration(&self) -> Duration {
-        match self.effect.kind {
-            EffectKind::Explosion => EXPLOSION,
-            EffectKind::Burst => BURST,
-        }
-    }
-
-    /// 0 at the start, up to 1 at the end; `None` when it is over.
+    /// 0 at the start, up to 1 at the end; `None` when it is over. With Reduced motion an
+    /// effect does not play (see [`plays`]).
     pub(crate) fn progress(&self, now: Instant) -> Option<f32> {
-        let elapsed = now.saturating_duration_since(self.started);
-        let progress = elapsed.as_secs_f32() / self.duration().as_secs_f32();
+        let timing = match self.effect.kind {
+            EffectKind::Explosion => Timing::Explosion,
+            EffectKind::Burst => Timing::UndoBurst,
+        };
+        let progress = timing.progress(now.saturating_duration_since(self.started), false);
         (progress < 1.).then_some(progress)
     }
 
@@ -130,6 +126,11 @@ impl Playing {
             window.paint_quad(fill(bounds, spark.opacity(fade)).corner_radii(px(1.)));
         }
     }
+}
+
+/// Whether effects play: with Reduced motion they show no particles and are done at once.
+pub(crate) fn plays(cx: &App) -> bool {
+    !settings_modal::reduced_motion(cx)
 }
 
 /// The spark squares at `progress`: they fly out from the span about one line above and
