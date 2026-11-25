@@ -22,6 +22,14 @@ pub enum Motion {
     Left,
     /// One grapheme on.
     Right,
+    /// To the start of the word before.
+    WordLeft,
+    /// To the end of the word after.
+    WordRight,
+    /// To the start of the line: just after the newline before, else the text start.
+    LineStart,
+    /// To the end of the line: the newline after, else the text end.
+    LineEnd,
     /// A byte offset the app found, for example from the painted rows or the pointer.
     To(usize),
 }
@@ -70,6 +78,13 @@ impl Caret {
         }
     }
 
+    /// The word at byte `offset` of `text` selected (see [`word_at`]), the caret at its
+    /// end; with no word there, the caret at `offset`.
+    #[must_use]
+    pub fn word(text: &str, offset: usize) -> Self {
+        word_at(text, offset).map_or_else(|| Self::at(floor_boundary(text, offset)), Self::over)
+    }
+
     /// The whole of `text` selected, the caret at its end.
     #[must_use]
     pub fn all(text: &str) -> Self {
@@ -101,11 +116,15 @@ impl Caret {
     pub fn moved(&self, text: &str, motion: Motion) -> Self {
         let caret = self.clamped(text);
         let offset = match motion {
-            Motion::Left if caret.selection.is_empty() => previous_boundary(text, caret.offset()),
-            Motion::Left => caret.selection.start,
-            Motion::Right if caret.selection.is_empty() => next_boundary(text, caret.offset()),
-            Motion::Right => caret.selection.end,
-            Motion::To(offset) => floor_boundary(text, offset),
+            Motion::Left if !caret.selection.is_empty() => caret.selection.start,
+            Motion::Right if !caret.selection.is_empty() => caret.selection.end,
+            Motion::Left
+            | Motion::Right
+            | Motion::WordLeft
+            | Motion::WordRight
+            | Motion::LineStart
+            | Motion::LineEnd
+            | Motion::To(_) => target(text, caret.offset(), motion),
         };
         Self::at(offset)
     }
@@ -115,11 +134,7 @@ impl Caret {
     #[must_use]
     pub fn extended(&self, text: &str, motion: Motion) -> Self {
         let caret = self.clamped(text);
-        let offset = match motion {
-            Motion::Left => previous_boundary(text, caret.offset()),
-            Motion::Right => next_boundary(text, caret.offset()),
-            Motion::To(offset) => floor_boundary(text, offset),
-        };
+        let offset = target(text, caret.offset(), motion);
         let anchor = if caret.reversed {
             caret.selection.end
         } else {
@@ -250,6 +265,43 @@ impl Caret {
             marked: self.marked.as_ref().map(fit),
         }
     }
+}
+
+/// Where `motion` goes from `offset` in `text`, as if nothing is selected.
+fn target(text: &str, offset: usize, motion: Motion) -> usize {
+    match motion {
+        Motion::Left => previous_boundary(text, offset),
+        Motion::Right => next_boundary(text, offset),
+        Motion::WordLeft => words(text)
+            .filter(|word| word.start < offset)
+            .last()
+            .map_or(0, |word| word.start),
+        Motion::WordRight => words(text)
+            .find(|word| word.end > offset)
+            .map_or(text.len(), |word| word.end),
+        Motion::LineStart => text
+            .get(..offset)
+            .and_then(|before| before.rfind('\n'))
+            .map_or(0, |newline| newline + 1),
+        Motion::LineEnd => text
+            .get(offset..)
+            .and_then(|after| after.find('\n'))
+            .map_or(text.len(), |newline| offset + newline),
+        Motion::To(offset) => floor_boundary(text, offset),
+    }
+}
+
+/// The byte ranges of the words of `text`: word-bound runs with a letter or digit.
+fn words(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    text.split_word_bound_indices()
+        .filter(|(_, word)| word.chars().any(char::is_alphanumeric))
+        .map(|(start, word)| start..start + word.len())
+}
+
+/// The word at byte `offset` of `text`: the word `offset` lies in or on an edge of.
+#[must_use]
+pub fn word_at(text: &str, offset: usize) -> Option<Range<usize>> {
+    words(text).find(|word| word.start <= offset && offset <= word.end)
 }
 
 fn floor_boundary(text: &str, offset: usize) -> usize {

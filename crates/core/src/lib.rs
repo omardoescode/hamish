@@ -24,7 +24,7 @@ mod trim;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
 pub use around::{paragraph_around, sentence_around};
-pub use caret::{Caret, CaretEdit, Motion, byte_range, follow_change, utf16_range};
+pub use caret::{Caret, CaretEdit, Motion, byte_range, follow_change, utf16_range, word_at};
 pub use counter::Counter;
 pub use document::{Document, RangeError};
 pub use edit_history::EditKind;

@@ -1,4 +1,4 @@
-use ka_teb_core::{Caret, CaretEdit, EditKind, Motion, byte_range, utf16_range};
+use ka_teb_core::{Caret, CaretEdit, EditKind, Motion, byte_range, utf16_range, word_at};
 
 /// "ά" is one grapheme of two chars and four bytes.
 const ALPHA_TONOS: &str = "x\u{3b1}\u{301}y";
@@ -120,4 +120,53 @@ fn a_followed_selection_moves_with_a_change_before_it_and_drops_composed_text() 
     assert_eq!(caret.followed("Ix a cat.", "Ix  cat.").marked(), None);
     let followed = selected.followed("It a cat.", "It is a cat.");
     assert_eq!(followed.selection(), 7..10);
+}
+
+#[test]
+fn word_moves_go_to_the_start_of_the_word_before_and_the_end_of_the_word_after() {
+    let text = "The red, old cat.";
+    assert_eq!(Caret::at(10).moved(text, Motion::WordLeft), Caret::at(9));
+    assert_eq!(Caret::at(9).moved(text, Motion::WordLeft), Caret::at(4));
+    assert_eq!(Caret::at(2).moved(text, Motion::WordLeft), Caret::at(0));
+    assert_eq!(Caret::at(4).moved(text, Motion::WordRight), Caret::at(7));
+    assert_eq!(Caret::at(7).moved(text, Motion::WordRight), Caret::at(12));
+    assert_eq!(Caret::at(16).moved(text, Motion::WordRight), Caret::at(17));
+}
+
+#[test]
+fn line_moves_stop_at_the_newlines_around_the_caret() {
+    let text = "Title\nThe cat sat.\nEnd";
+    assert_eq!(Caret::at(10).moved(text, Motion::LineStart), Caret::at(6));
+    assert_eq!(Caret::at(10).moved(text, Motion::LineEnd), Caret::at(18));
+    assert_eq!(Caret::at(2).moved(text, Motion::LineStart), Caret::at(0));
+    assert_eq!(Caret::at(20).moved(text, Motion::LineEnd), Caret::at(22));
+}
+
+#[test]
+fn a_word_move_extends_a_selection_from_its_caret_end() {
+    let selected = Caret::at(4).extended("The red cat.", Motion::WordRight);
+    assert_eq!(selected.selection(), 4..7);
+}
+
+#[test]
+fn the_word_at_an_offset_selects_it_and_a_gap_gives_the_caret() {
+    let text = "The customer waits.";
+    assert_eq!(Caret::word(text, 7), Caret::over(4..12));
+    assert_eq!(Caret::word(text, 12), Caret::over(4..12));
+    assert_eq!(Caret::word("a  b", 2), Caret::at(2));
+}
+
+#[test]
+fn the_word_at_an_offset_includes_its_edges() {
+    let text = "The customer waits.";
+    assert_eq!(word_at(text, 7), Some(4..12));
+    assert_eq!(word_at(text, 4), Some(4..12));
+    assert_eq!(word_at(text, 12), Some(4..12));
+    assert_eq!(word_at(text, 0), Some(0..3));
+}
+
+#[test]
+fn spaces_and_punctuation_are_no_word() {
+    assert_eq!(word_at("a  . b", 2), None);
+    assert_eq!(word_at("a  . b", 4), None);
 }
