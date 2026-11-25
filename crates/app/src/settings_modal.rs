@@ -41,6 +41,12 @@ pub(crate) fn reduced_motion(cx: &App) -> bool {
         .is_some_and(|store| store.settings.reduced_motion)
 }
 
+/// The paragraph with the caret zooms (FR-83).
+pub(crate) fn focus_zoom(cx: &App) -> bool {
+    cx.try_global::<SettingsStore>()
+        .is_some_and(|store| store.settings.focus_zoom)
+}
+
 /// The notice for a settings file that did not load at start; it shows one time.
 pub(crate) fn take_start_notice(cx: &mut App) -> Option<Notice> {
     let problem = cx
@@ -181,6 +187,18 @@ impl SettingsModal {
                 }),
             )
         };
+        let zoom = |on: bool| {
+            let (id, label) = if on {
+                ("settings-focus-zoom-on", "On")
+            } else {
+                ("settings-focus-zoom-off", "Off")
+            };
+            choice_button(id, label, settings.focus_zoom == on, theme).on_click(cx.listener(
+                move |modal, _: &ClickEvent, _, cx| {
+                    modal.change(cx, |settings| settings.focus_zoom = on);
+                },
+            ))
+        };
         div()
             .flex()
             .flex_col()
@@ -203,6 +221,15 @@ impl SettingsModal {
                     .gap(px(6.))
                     .child(motion(false))
                     .child(motion(true)),
+            ))
+            .child(field(
+                "Focus zoom",
+                theme,
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(zoom(false))
+                    .child(zoom(true)),
             ))
     }
 

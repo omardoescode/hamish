@@ -12,8 +12,8 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId, Sound,
-    TrimError, paragraph_around,
+    Cycle, Document, FocusZoom, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError,
+    SlotId, Sound, TrimError, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -29,6 +29,8 @@ use crate::edit_history::{EditHistory, EditKind};
 use crate::effects::{self, Effect, EffectKind, Playing};
 use crate::settings_modal;
 use crate::sounds;
+
+mod focus_zoom;
 
 /// How a Slot shows that it has Variants (FR-12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +102,9 @@ pub struct Editor {
     /// FR-78, FR-79: effects that play over the text.
     effects: Vec<Playing>,
     effect_seed: u64,
+    focus_zoom: FocusZoom,
+    /// The zoomed paragraphs as last painted (FR-83).
+    zooms: Vec<focus_zoom::Zoom>,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims (FR-27).
@@ -158,6 +163,8 @@ impl Editor {
             fade_in: None,
             effects: Vec::new(),
             effect_seed: 0,
+            focus_zoom: FocusZoom::default(),
+            zooms: Vec::new(),
         }
     }
 
@@ -473,7 +480,7 @@ impl Editor {
         let Some(painted) = self.painted.as_ref() else {
             return self.cursor();
         };
-        let local = position - painted.bounds.origin;
+        let local = self.unzoomed(position) - painted.bounds.origin;
         painted.offset_for_local(local, self.document.text().len())
     }
 
@@ -653,7 +660,7 @@ impl Editor {
         let Some(glyph) = self
             .painted
             .as_ref()
-            .and_then(|painted| painted.glyph_at(position - painted.bounds.origin))
+            .and_then(|painted| painted.glyph_at(self.unzoomed(position) - painted.bounds.origin))
         else {
             return false;
         };
@@ -912,7 +919,7 @@ impl Editor {
     /// The innermost visible Slot whose text (or Paragraph margin) is under `position`.
     fn slot_at(&self, position: Point<Pixels>) -> Option<SlotId> {
         let painted = self.painted.as_ref()?;
-        let local = position - painted.bounds.origin;
+        let local = self.unzoomed(position) - painted.bounds.origin;
         let slots = self.document.slots();
         slots
             .iter()
@@ -1472,10 +1479,10 @@ impl EntityInputHandler for Editor {
         let range = self.range_from_utf16(&range_utf16);
         let start = painted.position_for(range.start)?;
         let origin = painted.bounds.origin;
-        Some(Bounds::new(
+        Some(self.zoomed(Bounds::new(
             origin + start,
             size(px(1.), painted.line_height),
-        ))
+        )))
     }
 
     fn character_index_for_point(
@@ -1576,6 +1583,7 @@ struct EditorPrepaint {
     marker_quads: Vec<PaintQuad>,
     underlines: Vec<PenStroke>,
     cursor: Option<PaintQuad>,
+    zoom: focus_zoom::Frame,
 }
 
 impl EditorElement {
@@ -1982,10 +1990,10 @@ impl Element for EditorElement {
             editor.markers = markers;
             editor.underlines.clone_from(&underlines);
         });
-        let effects = self.effect_frames(&painted, window, cx);
         EditorPrepaint {
+            effects: self.effect_frames(&painted, window, cx),
+            zoom: self.focus_zoom(&painted, &runs, window, cx),
             lines: painted.lines,
-            effects,
             hover,
             lab_marks,
             selection,
@@ -1993,6 +2001,7 @@ impl Element for EditorElement {
             underlines,
             cursor,
         }
+        .zoomed()
     }
 
     fn paint(
@@ -2021,13 +2030,23 @@ impl Element for EditorElement {
             window.paint_quad(quad);
         }
         let line_height = window.line_height();
-        for painted in &prepaint.lines {
+        let normal = prepaint.lines.iter().enumerate().filter(|(index, _)| {
+            !prepaint
+                .zoom
+                .lines
+                .iter()
+                .any(|zoomed| zoomed.line == *index)
+        });
+        for (_, painted) in normal {
             let origin = bounds.origin + point(px(0.), painted.top);
             // A failed glyph paint leaves that line blank; the next frame tries again.
             painted
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        for zoomed in &prepaint.zoom.lines {
+            zoomed.paint(window);
         }
         let background = cx.global::<Theme>().background;
         for (playing, progress, rows) in prepaint.effects.drain(..) {
@@ -2044,7 +2063,9 @@ impl Element for EditorElement {
             window.paint_quad(cursor);
         }
         let lines = std::mem::take(&mut prepaint.lines);
+        let zooms = std::mem::take(&mut prepaint.zoom.zooms);
         self.editor.update(cx, |editor, _| {
+            editor.zooms = zooms;
             editor.painted = Some(PaintedText {
                 bounds,
                 line_height,

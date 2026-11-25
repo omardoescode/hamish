@@ -1,5 +1,5 @@
 //! Settings (issue #21): theme, UI scale, editor font values, cycle sounds (issue #27),
-//! and reduced motion (issue #31), with their defaults, limits, and the JSON file in the
+//! reduced motion (issue #31), and focus zoom (issue #32), with their defaults, limits, and the JSON file in the
 //! XDG config dir.
 
 use std::ffi::{OsStr, OsString};
@@ -77,6 +77,8 @@ pub struct Settings {
     pub reduced_motion: bool,
     /// A tone on each Active variant switch and a sound on a Variant delete (issue #27).
     pub cycle_sounds: bool,
+    /// The paragraph with the caret shows a little larger (FR-83).
+    pub focus_zoom: bool,
 }
 
 impl Default for Settings {
@@ -91,6 +93,7 @@ impl Default for Settings {
             column_width: 585.0,
             reduced_motion: false,
             cycle_sounds: true,
+            focus_zoom: true,
         }
     }
 }

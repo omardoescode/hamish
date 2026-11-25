@@ -96,6 +96,10 @@ _Avoid_: Animation (in code), transition
 **Reduced motion**:
 The setting that makes every Effect instant: no fade, no particles. Off unless the writer turns it on (GPUI does not expose the OS setting).
 
+**Focus zoom**:
+The paragraph with the caret shows at 1.02x, a look only (the text keeps its layout). The opposite of Ghost. Off while the Alternatives panel dims the text.
+_Avoid_: Magnify, highlight
+
 **Explosion**:
 The particle burst that plays at a span (or panel row) when a Variant is deleted.
 _Avoid_: Animation, boom

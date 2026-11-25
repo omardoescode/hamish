@@ -214,3 +214,19 @@ fn reduced_motion_turns_on_in_appearance_and_saves(cx: &mut TestAppContext) {
 
     assert!(!Settings::load(&path).settings.reduced_motion);
 }
+
+#[gpui::test]
+fn focus_zoom_turns_off_in_appearance_and_saves(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let (_, cx) = open_with_file(cx, path.clone());
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-focus-zoom-off");
+
+    assert!(!Settings::load(&path).settings.focus_zoom);
+
+    click(cx, "settings-focus-zoom-on");
+
+    assert!(Settings::load(&path).settings.focus_zoom);
+}
