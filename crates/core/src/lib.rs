@@ -1,5 +1,6 @@
 //! Ka-teb core: the Document editing API. No GPUI.
 
+mod article;
 mod counter;
 mod document;
 mod slot;
