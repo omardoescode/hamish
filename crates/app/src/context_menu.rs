@@ -1,6 +1,4 @@
-//! The right-click context menu of the editor and the word and Ghost tests its rows use.
-
-use std::ops::Range;
+//! The right-click context menu of the editor.
 
 use gpui::{
     Action, App, Corner, IntoElement, MouseDownEvent, Pixels, Point, Window, anchored, deferred,
@@ -9,8 +7,6 @@ use gpui::{
 
 use crate::Theme;
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleGhost};
-
-pub(crate) use ka_teb_core::word_at;
 
 /// One row of the context menu: its label and its shortcut.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,30 +107,5 @@ impl ContextMenu {
                         .children(rows),
                 ),
         )
-    }
-}
-
-/// `target` touches a Ghost range: it overlaps one, or as a caret lies in or on an edge of one.
-pub(crate) fn touches_ghost(ghosts: &[Range<usize>], target: &Range<usize>) -> bool {
-    ghosts.iter().any(|ghost| {
-        let overlaps = ghost.start < target.end && target.start < ghost.end;
-        let holds_caret =
-            target.is_empty() && ghost.start <= target.start && target.start <= ghost.end;
-        overlaps || holds_caret
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::touches_ghost;
-
-    #[test]
-    fn a_caret_on_the_edge_of_a_ghost_touches_it_and_a_range_beside_it_does_not() {
-        let ghosts = [4..12, 20..25];
-        assert!(touches_ghost(&ghosts, &(12..12)));
-        assert!(touches_ghost(&ghosts, &(10..14)));
-        assert!(!touches_ghost(&ghosts, &(12..14)));
-        assert!(!touches_ghost(&ghosts, &(0..3)));
-        assert!(touches_ghost(&ghosts, &(24..30)));
     }
 }

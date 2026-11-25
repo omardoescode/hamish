@@ -238,3 +238,25 @@ fn editing_a_variant_ends_the_ghost_ranges_in_it() {
     assert!(document.undo());
     assert_eq!(document.ghost_ranges(), [4..7]);
 }
+
+#[test]
+fn a_caret_on_the_edge_of_a_ghost_touches_it_and_a_range_beside_it_does_not() {
+    let mut document = Document::new("Keep this aside now, then go on.");
+    document.ghost(4..12).unwrap();
+    document.ghost(20..25).unwrap();
+    assert!(document.touches_ghost(&(12..12)));
+    assert!(document.touches_ghost(&(10..14)));
+    assert!(!document.touches_ghost(&(12..14)));
+    assert!(!document.touches_ghost(&(0..3)));
+    assert!(document.touches_ghost(&(24..30)));
+}
+
+#[test]
+fn toggle_ghost_ghosts_a_range_and_revives_one_it_touches() {
+    let mut document = Document::new("Keep this aside now.");
+    document.toggle_ghost(5..9).unwrap();
+    assert_eq!(document.ghost_ranges(), [5..9]);
+
+    document.toggle_ghost(7..7).unwrap();
+    assert_eq!(document.ghost_ranges(), []);
+}

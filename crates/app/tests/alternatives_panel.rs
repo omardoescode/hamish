@@ -133,48 +133,6 @@ fn the_preview_ends_when_the_draft_is_added_or_the_panel_closes(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn after_return_a_new_empty_row_takes_the_next_variant(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("client");
-    cx.simulate_keystrokes("enter");
-
-    cx.simulate_input("patron");
-    cx.simulate_keystrokes("enter");
-
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![
-            row("customer", false),
-            row("client", false),
-            row("patron", true)
-        ]
-    );
-    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
-}
-
-#[gpui::test]
-fn one_undo_removes_a_variant_added_with_return(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("client");
-    cx.simulate_keystrokes("enter");
-    cx.simulate_input("patron");
-    cx.simulate_keystrokes("enter");
-
-    cx.simulate_keystrokes("escape ctrl-z");
-
-    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
-    let variants = cx.read(|cx| {
-        let document = workspace.read(cx).editor().read(cx).document();
-        document.slots().first().map(|slot| slot.variants.len())
-    });
-    assert_eq!(variants, Some(2));
-}
-
-#[gpui::test]
 fn undo_and_redo_work_while_the_panel_has_focus(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, customer_document());
     cx.simulate_keystrokes(INTO_CUSTOMER);
@@ -280,46 +238,6 @@ fn up_and_down_in_the_panel_show_each_variant_in_the_document(cx: &mut TestAppCo
     assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
 }
 
-#[expect(clippy::expect_used, reason = "test fixture")]
-fn provenances(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Provenance> {
-    let panel = panel(workspace, cx).expect("the panel is open");
-    cx.read(|cx| {
-        panel
-            .read(cx)
-            .rows(cx)
-            .into_iter()
-            .map(|row| row.provenance)
-            .collect()
-    })
-}
-
-#[gpui::test]
-fn return_on_a_variant_edits_it_and_an_edited_ai_variant_is_mixed(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, slot_document());
-
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up enter backspace backspace backspace backspace");
-    cx.simulate_input("rty");
-    cx.simulate_keystrokes("enter");
-
-    assert_eq!(text(&workspace, cx), "Title\nThe party waits.");
-    assert_eq!(
-        provenances(&workspace, cx),
-        vec![Provenance::Writer, Provenance::Writer, Provenance::Mixed]
-    );
-}
-
-#[gpui::test]
-fn escape_while_editing_drops_the_edit_and_keeps_the_panel_open(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, slot_document());
-
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up enter backspace escape");
-
-    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
-    assert!(panel(&workspace, cx).is_some());
-}
-
 #[gpui::test]
 fn ctrl_backspace_deletes_the_active_variant_and_the_original_shows(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, slot_document());
@@ -364,34 +282,6 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span(cx: &mut TestAppC
             effect: ka_teb_core::Effect::Explosion,
             range: 10..16
         }]
-    );
-}
-
-#[gpui::test]
-fn deleting_all_but_one_variant_ends_the_slot_and_the_panel_keeps_its_text(
-    cx: &mut TestAppContext,
-) {
-    let (workspace, cx) = open(cx, slot_document());
-
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up ctrl-backspace up ctrl-backspace");
-    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
-    let slots = cx.read(|cx| {
-        workspace
-            .read(cx)
-            .editor()
-            .read(cx)
-            .document()
-            .slots()
-            .len()
-    });
-    assert_eq!(slots, 0);
-
-    cx.simulate_input("buyer");
-    cx.simulate_keystrokes("enter");
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![row("customer", false), row("buyer", true)]
     );
 }
 

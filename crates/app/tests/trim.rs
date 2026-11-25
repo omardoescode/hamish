@@ -320,3 +320,23 @@ fn an_ai_failure_shows_in_the_bar_and_changes_nothing(cx: &mut TestAppContext) {
     click(cx, "trim-done");
     assert_eq!(bar(&workspace, cx), None);
 }
+
+#[gpui::test]
+fn a_running_trim_shows_the_ai_bar_above_the_popover(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx, Some(two_levels()));
+    click(cx, "lab-button");
+    assert_eq!(cx.debug_bounds("ai-bar"), None);
+
+    cx.update(|window, cx| {
+        window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
+    });
+
+    let bar = cx
+        .debug_bounds("ai-bar")
+        .expect("a running Trim shows the AI bar");
+    let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
+    assert!(
+        bar.bottom() <= popover.top(),
+        "the AI bar {bar:?} overlaps the popover {popover:?}"
+    );
+}
