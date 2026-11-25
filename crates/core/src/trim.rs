@@ -85,9 +85,27 @@ pub struct TrimProposal {
     cuts: Vec<TrimCut>,
     words_before: usize,
     words_after: usize,
+    current: Option<usize>,
 }
 
 impl TrimProposal {
+    /// The index of the cut under the Walk through cursor. `None` when no walk is on or it
+    /// went past the last cut.
+    #[must_use]
+    pub fn current(&self) -> Option<usize> {
+        self.current
+    }
+
+    /// The first cut still in the proposal at or after index `from`.
+    fn next_open(&self, from: usize) -> Option<usize> {
+        self.cuts
+            .iter()
+            .enumerate()
+            .skip(from)
+            .find(|(_, cut)| !cut.kept)
+            .map(|(index, _)| index)
+    }
+
     #[must_use]
     pub fn level(&self) -> TrimLevel {
         self.level
@@ -129,11 +147,21 @@ impl TrimProposal {
         if edit.is_empty() && inserted == 0 {
             return self;
         }
-        self.cuts = self
+        let followed: Vec<Option<TrimCut>> = self
             .cuts
             .into_iter()
-            .filter_map(|cut| cut.follow(edit, inserted))
+            .map(|cut| cut.follow(edit, inserted))
             .collect();
+        let gone_before = |index: usize| {
+            followed
+                .iter()
+                .take(index)
+                .filter(|cut| cut.is_none())
+                .count()
+        };
+        let current = self.current.map(|index| index - gone_before(index));
+        self.cuts = followed.into_iter().flatten().collect();
+        self.current = current.and_then(|index| self.next_open(index));
         self
     }
 
@@ -173,6 +201,8 @@ pub enum TrimError {
     NoProposal,
     /// The proposal has no cut at this index.
     NoCut(usize),
+    /// No Walk through is on, or it went past the last cut.
+    NotWalking,
     Range(RangeError),
 }
 
@@ -188,6 +218,7 @@ impl fmt::Display for TrimError {
             Self::Stale => f.write_str("the text changed since the Trim request"),
             Self::NoProposal => f.write_str("no Trim proposal is open"),
             Self::NoCut(index) => write!(f, "the Trim proposal has no cut {index}"),
+            Self::NotWalking => f.write_str("no Walk through is on"),
             Self::Range(error) => error.fmt(f),
         }
     }
@@ -241,6 +272,7 @@ impl Document {
                 .collect(),
             words_before: self.counter().words,
             words_after: 0,
+            current: None,
         };
         self.recount(&mut proposal);
         self.trim = Some(proposal);
@@ -270,6 +302,9 @@ impl Document {
             return Err(TrimError::NoCut(index));
         };
         cut.kept = true;
+        proposal.current = proposal
+            .current
+            .and_then(|current| proposal.next_open(current));
         self.recount(&mut proposal);
         self.trim = Some(proposal);
         Ok(())
@@ -289,6 +324,43 @@ impl Document {
                 Err(error.into())
             }
         }
+    }
+
+    /// Walk through: puts the cursor on the first cut still in the proposal (FR-60).
+    ///
+    /// # Errors
+    /// [`TrimError::NoProposal`] when no proposal is open.
+    pub fn walk_trim(&mut self) -> Result<(), TrimError> {
+        let proposal = self.trim.as_mut().ok_or(TrimError::NoProposal)?;
+        proposal.current = proposal.next_open(0);
+        Ok(())
+    }
+
+    /// Walk through: keeps the cut under the cursor and goes to the next one.
+    ///
+    /// # Errors
+    /// [`TrimError::NoProposal`] when no proposal is open, [`TrimError::NotWalking`] when
+    /// no cut is under the cursor.
+    pub fn walk_keep(&mut self) -> Result<(), TrimError> {
+        let proposal = self.trim.as_ref().ok_or(TrimError::NoProposal)?;
+        let current = proposal.current.ok_or(TrimError::NotWalking)?;
+        self.keep_trim_cut(current)
+    }
+
+    /// Walk through: deletes the text of the cut under the cursor as one undoable writer
+    /// edit, and goes to the next cut.
+    ///
+    /// # Errors
+    /// [`TrimError::NoProposal`] when no proposal is open, [`TrimError::NotWalking`] when
+    /// no cut is under the cursor.
+    pub fn walk_cut(&mut self) -> Result<(), TrimError> {
+        let proposal = self.trim.as_ref().ok_or(TrimError::NoProposal)?;
+        let range = proposal
+            .current
+            .and_then(|current| proposal.cuts.get(current))
+            .map(|cut| cut.range.clone())
+            .ok_or(TrimError::NotWalking)?;
+        Ok(self.delete(range)?)
     }
 
     /// The Trim proposal after a text edit: `edit` was replaced by `inserted` bytes.

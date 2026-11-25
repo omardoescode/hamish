@@ -260,11 +260,88 @@ fn cuts_stay_when_a_ghost_or_slot_is_made_in_them() {
 }
 
 #[test]
+fn walk_through_steps_over_the_cuts_and_keeps_or_cuts_each_one() {
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    run(
+        &mut document,
+        TrimLevel::TightenMore,
+        vec![20..26, 26..31, 37..45],
+    )
+    .unwrap();
+    assert_eq!(document.trim_proposal().unwrap().current(), None);
+
+    document.walk_trim().unwrap();
+    assert_eq!(document.trim_proposal().unwrap().current(), Some(0));
+    document.walk_keep().unwrap();
+    assert_eq!(document.trim_proposal().unwrap().current(), Some(1));
+    assert_eq!(
+        document.text(),
+        "The cat sat. It was very, very good. The end."
+    );
+    document.walk_cut().unwrap();
+
+    assert_eq!(document.text(), "The cat sat. It was very, good. The end.");
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(
+        proposal.cuts(),
+        [
+            TrimCut {
+                range: 20..26,
+                kept: true
+            },
+            open_cut(32..40)
+        ]
+    );
+    assert_eq!(proposal.current(), Some(1));
+    assert_eq!(proposal.to_string(), "10 → 7 words · -30%");
+
+    document.walk_cut().unwrap();
+    assert_eq!(document.text(), "The cat sat. It was very, good. ");
+    assert_eq!(document.trim_proposal().unwrap().current(), None);
+    assert_eq!(document.walk_cut(), Err(TrimError::NotWalking));
+    assert_eq!(document.walk_keep(), Err(TrimError::NotWalking));
+
+    assert!(document.undo());
+    assert_eq!(document.text(), "The cat sat. It was very, good. The end.");
+    assert!(document.undo());
+    assert_eq!(
+        document.text(),
+        "The cat sat. It was very, very good. The end."
+    );
+    assert!(!document.undo());
+}
+
+#[test]
+fn walk_through_starts_at_the_first_cut_still_in_the_proposal() {
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    run(
+        &mut document,
+        TrimLevel::TightenMore,
+        vec![20..26, 26..31, 37..45],
+    )
+    .unwrap();
+    document.keep_trim_cut(0).unwrap();
+    document.keep_trim_cut(2).unwrap();
+
+    document.walk_trim().unwrap();
+    assert_eq!(document.trim_proposal().unwrap().current(), Some(1));
+    document.walk_keep().unwrap();
+    assert_eq!(document.trim_proposal().unwrap().current(), None);
+    assert_eq!(
+        document.text(),
+        "The cat sat. It was very, very good. The end."
+    );
+}
+
+#[test]
 fn trim_actions_without_a_proposal_are_refused() {
     let mut document = Document::new("The cat sat.");
 
     assert_eq!(document.make_trim_cuts(), Err(TrimError::NoProposal));
     assert_eq!(document.keep_trim_cut(0), Err(TrimError::NoProposal));
+    assert_eq!(document.walk_trim(), Err(TrimError::NoProposal));
+    assert_eq!(document.walk_keep(), Err(TrimError::NoProposal));
+    assert_eq!(document.walk_cut(), Err(TrimError::NoProposal));
     assert_eq!(document.text(), "The cat sat.");
 }
 
