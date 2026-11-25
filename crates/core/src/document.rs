@@ -711,28 +711,13 @@ impl Document {
 
     /// Uses an Overflow block: inserts the text of the block that holds Overflow
     /// offset `caret` (on its end included) at `at` in the Document, as one undoable step.
-    /// The block stays in Overflow.
+    /// The block stays in Overflow. A space goes between the block and a word char on each
+    /// side. No space goes before punctuation or next to whitespace.
     ///
     /// # Errors
     /// [`OverflowError::NoBlock`] when no block holds `caret`,
     /// [`OverflowError::Range`] when `at` is out of bounds or not on a char boundary.
     pub fn use_block(&mut self, caret: usize, at: usize) -> Result<(), OverflowError> {
-        let block = self
-            .state
-            .overflow
-            .block_at(caret)
-            .ok_or(OverflowError::NoBlock(caret))?
-            .to_owned();
-        self.insert(at, &block)?;
-        Ok(())
-    }
-
-    /// [`Document::use_block`] for a block dropped at `at`: a space goes between the block
-    /// and a word char on each side. No space goes before punctuation or next to whitespace.
-    ///
-    /// # Errors
-    /// As [`Document::use_block`].
-    pub fn drop_block(&mut self, caret: usize, at: usize) -> Result<(), OverflowError> {
         let block = self
             .state
             .overflow
