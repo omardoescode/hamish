@@ -4,6 +4,7 @@
 
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, ClickEvent, Context, Corner, Div, EventEmitter, FocusHandle, Focusable,
@@ -19,6 +20,7 @@ use crate::actions::{
 use crate::chrome::{
     clickable_row, elevated_surface, popover_surface, selectable_row, text_button,
 };
+use crate::fonts;
 use crate::settings::{self, SettingsStore};
 use crate::{Theme, Workspace};
 
@@ -42,8 +44,9 @@ pub(crate) struct SaveFailed(pub(crate) String);
 pub struct SettingsModal {
     focus_handle: FocusHandle,
     section: Section,
-    /// The bundled font first, then the fonts the text system knows.
-    fonts: Rc<[SharedString]>,
+    /// The bundled font first, then the fonts the text system knows. Empty until a font
+    /// select opens.
+    fonts: Arc<[SharedString]>,
     /// The select whose list shows, if one does.
     open_select: Option<Select>,
     /// The search field of the open select has this focus.
@@ -56,20 +59,10 @@ impl EventEmitter<SaveFailed> for SettingsModal {}
 
 impl SettingsModal {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
-        let bundled = Settings::default().ui_font;
-        let system = cx.text_system().all_font_names();
-        let fonts = std::iter::once(bundled.clone())
-            .chain(
-                system
-                    .into_iter()
-                    .filter(|name| !name.starts_with('.') && *name != bundled),
-            )
-            .map(SharedString::from)
-            .collect();
         Self {
             focus_handle: cx.focus_handle(),
             section: Section::Appearance,
-            fonts,
+            fonts: Arc::from([]),
             open_select: None,
             search_focus: cx.focus_handle(),
             search: SelectSearch::default(),
@@ -103,6 +96,9 @@ impl SettingsModal {
             self.close_select(window, cx);
             return;
         }
+        if select != Select::Theme {
+            self.fonts = fonts::font_names_now(cx);
+        }
         self.open_select = Some(select);
         self.search = SelectSearch::default();
         self.scroll = UniformListScrollHandle::new();
@@ -126,7 +122,7 @@ impl SettingsModal {
                 .into_iter()
                 .map(|name| SharedString::from(name.label()))
                 .collect(),
-            Select::UiFont => Rc::clone(&self.fonts),
+            Select::UiFont => self.fonts.iter().cloned().collect(),
             Select::TextFont => std::iter::once(SharedString::from("Default"))
                 .chain(self.fonts.iter().cloned())
                 .collect(),

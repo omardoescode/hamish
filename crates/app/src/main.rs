@@ -26,6 +26,7 @@ fn main() {
         if let Some(loaded) = loaded {
             app::use_settings(path, loaded, cx);
         }
+        app::load_fonts_in_background(cx);
         cx.set_global(Ai(Arc::new(ClaudeBackend::default())));
         cx.set_global(Sounds(Arc::new(DeviceSounds::start())));
         let bounds = Bounds::centered(None, size(px(1140.0), px(720.0)), cx);

@@ -35,6 +35,7 @@
 | `crates/app/src/editor/element.rs` | `EditorElement`: layout, prepaint, paint; Markers, hover box, Lab marks, Slot hit test. |
 | `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
 | `crates/app/src/settings.rs` | Settings global: `use_settings`, `is_on` (how views read a setting), the start notice. |
+| `crates/app/src/fonts.rs` | Font list of the Settings selects (cached global) and the UI font and Text font faces, both loaded on the background executor at start (`load_fonts_in_background`). |
 | `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, selects (theme, font), save on the background executor. |
 | `crates/app/src/lab.rs` | `Lab` entity: LAB button, popover with Lab checks, Lab mark card. Holds the `Editor`; the Workspace places it and routes its actions. |
 | `crates/app/src/trim.rs` | Trim part of the `Lab`: trim row, trim bar, Make the cuts, Walk through. |
