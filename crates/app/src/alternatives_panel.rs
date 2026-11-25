@@ -460,8 +460,7 @@ impl AlternativesPanel {
             Target::Slot(id) => self
                 .editor
                 .update(cx, |editor, cx| {
-                    editor.change_document_in_steps(
-                        2,
+                    editor.change_document(
                         |document| {
                             document.add_variant(id, &draft, Provenance::Writer)?;
                             let last = document
@@ -475,8 +474,7 @@ impl AlternativesPanel {
                 .ok(),
             Target::Text { range, level } => {
                 let created = self.editor.update(cx, |editor, cx| {
-                    editor.change_document_in_steps(
-                        2,
+                    editor.change_document(
                         |document| {
                             let id =
                                 document.create_slot(range, level, &draft, Provenance::Writer)?;

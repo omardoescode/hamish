@@ -209,7 +209,7 @@ impl Editor {
     #[must_use]
     pub fn focus_zoom(&self, cx: &App) -> Vec<(Range<usize>, f32)> {
         let now = cx.background_executor().now();
-        let text = self.document.text();
+        let text = self.session.document().text();
         self.focus_zoom
             .zoomed(now, settings::is_on(cx, |settings| settings.reduced_motion))
             .into_iter()
@@ -221,7 +221,7 @@ impl Editor {
     fn focus_zoom_step(&mut self, cx: &App) -> bool {
         let on = settings::is_on(cx, |settings| settings.focus_zoom)
             && self.bright_paragraph().is_none();
-        let paragraph = on.then(|| paragraph_index(self.document.text(), self.cursor()));
+        let paragraph = on.then(|| paragraph_index(self.session.document().text(), self.cursor()));
         let now = cx.background_executor().now();
         let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
         self.focus_zoom.focus(paragraph, now, reduced_motion);

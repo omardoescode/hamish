@@ -9,7 +9,8 @@
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save (issue #21). |
 | `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
 | `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
-| `crates/core/src/edit_history.rs` | `EditHistory`: groups core edits into the undo steps the writer sees. |
+| `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). `follow_change`. The Editor and all views change the Document only through it. |
+| `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`. |
 | `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time (FR-83, issue #32). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
 | `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |

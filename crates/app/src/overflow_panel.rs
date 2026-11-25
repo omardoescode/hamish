@@ -10,7 +10,7 @@ use gpui::{
     ScrollHandle, SharedString, Size, Style, Subscription, TextRun, UTF16Selection, Window, div,
     fill, point, prelude::*, px, relative, size,
 };
-use ka_teb_core::EditKind;
+use ka_teb_core::{EditKind, follow_change};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{
@@ -18,7 +18,7 @@ use crate::actions::{
     MoveToLineStart, MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight,
     SelectToLineEnd, SelectToLineStart, SelectUp, ToggleOverflow, Undo, UseOverflowBlock,
 };
-use crate::editor::{PaintedText, follow_change, scroll_into_view, shape};
+use crate::editor::{PaintedText, scroll_into_view, shape};
 use crate::{Editor, Theme};
 
 /// The value a drag from the Overflow text carries: the block at the panel caret.

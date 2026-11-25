@@ -6,6 +6,7 @@ mod article;
 mod counter;
 mod document;
 mod edit_history;
+mod edit_session;
 mod focus_zoom;
 mod ghost;
 mod lab;
@@ -23,7 +24,9 @@ pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, 
 pub use around::{paragraph_around, sentence_around};
 pub use counter::Counter;
 pub use document::{Document, RangeError};
-pub use edit_history::{EditGroup, EditHistory, EditKind};
+pub(crate) use edit_history::EditHistory;
+pub use edit_history::EditKind;
+pub use edit_session::{EditSession, SlotChanges, follow_change};
 pub use focus_zoom::{FOCUS_ZOOM_SCALE, FocusZoom, paragraph_index, paragraph_range};
 pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};

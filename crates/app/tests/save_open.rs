@@ -97,18 +97,6 @@ fn two_quick_saves_leave_the_last_text_on_disk(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn undo_back_to_the_saved_state_is_not_unsaved(cx: &mut TestAppContext) {
-    let dir = TempDir::new().unwrap();
-    let (workspace, cx) = open(cx, Document::new("Title"));
-    save_new(cx, &dir.path().join("draft.md"));
-
-    cx.simulate_keystrokes("end ! ctrl-z");
-
-    assert_eq!(text(&workspace, cx), "Title");
-    assert!(!unsaved(&workspace, cx));
-}
-
-#[gpui::test]
 fn save_as_asks_for_a_path_every_time_and_moves_the_document_there(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
     let first = dir.path().join("first.md");

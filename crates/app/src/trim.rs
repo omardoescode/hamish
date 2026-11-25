@@ -113,7 +113,8 @@ impl Lab {
             trim_run,
             |lab, request, cuts, cx| {
                 lab.editor.update(cx, |editor, cx| {
-                    editor.trim_step(|document| document.apply_trim_result(request, &cuts), cx)
+                    editor
+                        .change_document(|document| document.apply_trim_result(request, &cuts), cx)
                 })
             },
             cx,
@@ -140,7 +141,7 @@ impl Lab {
     ) {
         let done = self
             .editor
-            .update(cx, |editor, cx| editor.trim_step(step, cx));
+            .update(cx, |editor, cx| editor.change_document(step, cx));
         if done.is_ok() {
             cx.notify();
         }
