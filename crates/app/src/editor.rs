@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, Font, FontStyle, FontWeight,
+    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight,
     GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Render, ScrollHandle, SharedString,
     Size, Style, TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point,
@@ -67,9 +67,26 @@ pub struct Editor {
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
     context_menu: Option<ContextMenu>,
+    spotlight: Option<Spotlight>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
 }
+
+/// What the open Alternatives panel shows: its paragraph stays bright, the rest dims (FR-27).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Spotlight {
+    Slot(SlotId),
+    Text(Range<usize>),
+}
+
+/// What the editor tells the views around it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditorEvent {
+    /// A click on the text of a visible Slot (FR-21).
+    SlotClicked(SlotId),
+}
+
+impl EventEmitter<EditorEvent> for Editor {}
 
 /// The text as last painted, for mouse and vertical cursor moves.
 pub(crate) struct PaintedText {
@@ -100,6 +117,7 @@ impl Editor {
             hovered: None,
             markers: Vec::new(),
             context_menu: None,
+            spotlight: None,
             saved: None,
         }
     }
@@ -159,6 +177,24 @@ impl Editor {
     #[must_use]
     pub fn context_menu_items(&self) -> Option<Vec<ContextMenuItem>> {
         self.context_menu.as_ref().map(ContextMenu::items)
+    }
+
+    /// The paragraph that stays bright while the Alternatives panel is open (FR-27); the
+    /// rest of the text dims. `None` when nothing dims.
+    #[must_use]
+    pub fn bright_paragraph(&self) -> Option<Range<usize>> {
+        let range = match self.spotlight.as_ref()? {
+            Spotlight::Slot(id) => self.document.slot(*id)?.range,
+            Spotlight::Text(range) => range.clone(),
+        };
+        Some(paragraph_around(self.document.text(), &range))
+    }
+
+    pub(crate) fn set_spotlight(&mut self, spotlight: Option<Spotlight>, cx: &mut Context<Self>) {
+        if self.spotlight != spotlight {
+            self.spotlight = spotlight;
+            cx.notify();
+        }
     }
 
     /// Counter text: the Document, or the selection with "selected" (FR-3, FR-4).
@@ -307,11 +343,25 @@ impl Editor {
         let Some(id) = self.hovered else {
             return false;
         };
-        let old_text = self.document.text().to_owned();
-        if self.document.cycle_active(id, cycle).is_err() {
+        if self
+            .change_document(|document| document.cycle_active(id, cycle), cx)
+            .is_err()
+        {
             self.hovered = None;
             return false;
         }
+        true
+    }
+
+    /// Runs one Document API call that makes at most one core undo step, as one editor
+    /// undo step. The selection follows the text change.
+    pub(crate) fn change_document<T, E>(
+        &mut self,
+        change: impl FnOnce(&mut Document) -> Result<T, E>,
+        cx: &mut Context<Self>,
+    ) -> Result<T, E> {
+        let old_text = self.document.text().to_owned();
+        let done = change(&mut self.document)?;
         let new_text = self.document.text();
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
@@ -321,7 +371,7 @@ impl Editor {
             .record(EditKind::Other, before, self.selection.clone());
         self.history.close();
         cx.notify();
-        true
+        Ok(done)
     }
 
     fn move_to_line_start(&mut self, _: &MoveToLineStart, _: &mut Window, cx: &mut Context<Self>) {
@@ -528,6 +578,9 @@ impl Editor {
         } else {
             self.move_to(offset, cx);
         }
+        if let Some(slot) = self.slot_at(event.position) {
+            cx.emit(EditorEvent::SlotClicked(slot));
+        }
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -555,7 +608,7 @@ impl Editor {
 
     /// What the menu actions act on: the selection, else the word at the cursor (FR-29),
     /// else the cursor.
-    fn target(&self) -> Range<usize> {
+    pub(crate) fn target(&self) -> Range<usize> {
         if !self.selection.is_empty() {
             return self.selection.clone();
         }
@@ -1096,7 +1149,8 @@ struct EditorPrepaint {
 impl EditorElement {
     /// Text runs and the heading lines with their font size. The title line is bold in the
     /// title color (FR-5) unless it is a Markdown heading, which uses the heading style.
-    /// Markdown styles draw under Slot underlines (FR-12) and Ghost dimming (FR-37).
+    /// Markdown styles draw under Slot underlines (FR-12) and Ghost dimming (FR-37). Text
+    /// outside the bright paragraph dims while the Alternatives panel is open (FR-27).
     fn runs(&self, window: &Window, cx: &App) -> (Vec<TextRun>, Vec<(usize, Pixels)>) {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
@@ -1140,6 +1194,7 @@ impl EditorElement {
             &underlined,
             &editor.document.ghost_ranges(),
             &markdown,
+            editor.bright_paragraph().as_ref(),
         )
         .into_iter()
         .map(|span| {
@@ -1150,7 +1205,13 @@ impl EditorElement {
                 color = theme.text_title;
             }
             let (font, color, background) = markdown_look(&span.markdown, theme, font, color);
-            let opacity = if span.ghost { theme.ghost_opacity } else { 1. };
+            let ghost = if span.ghost { theme.ghost_opacity } else { 1. };
+            let dim = if span.dimmed {
+                theme.panel_open_dim_opacity
+            } else {
+                1.
+            };
+            let opacity = ghost * dim;
             let underline = UnderlineStyle {
                 thickness: px(1.),
                 color: Some(theme.slot_underline.opacity(opacity)),
@@ -1477,7 +1538,24 @@ impl Element for EditorElement {
     }
 }
 
+/// The lines that hold `range` of `text`, without the newlines around them.
+pub(crate) fn paragraph_around(text: &str, range: &Range<usize>) -> Range<usize> {
+    let start = text
+        .get(..range.start)
+        .and_then(|before| before.rfind('\n'))
+        .map_or(0, |newline| newline + 1);
+    let end = text
+        .get(range.end..)
+        .and_then(|after| after.find('\n'))
+        .map_or(text.len(), |newline| range.end + newline);
+    start..end
+}
+
 /// A stretch of the text with one style.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one independent style layer of the span"
+)]
 #[derive(Debug, PartialEq, Eq)]
 struct Span {
     range: Range<usize>,
@@ -1486,18 +1564,22 @@ struct Span {
     ghost: bool,
     /// The Markdown styles over it, outer first.
     markdown: Vec<MarkdownStyle>,
+    /// Outside the bright paragraph while the Alternatives panel is open (FR-27).
+    dimmed: bool,
 }
 
-/// Splits text of `len` bytes at the title end and at each underlined, Ghost, and
-/// Markdown range edge.
+/// Splits text of `len` bytes at the title end, at each underlined, Ghost, and Markdown
+/// range edge, and at the edges of the `bright` range, outside of which text is dimmed.
 fn spans(
     len: usize,
     title_end: usize,
     underlined: &[Range<usize>],
     ghosts: &[Range<usize>],
     markdown: &[MarkdownSpan],
+    bright: Option<&Range<usize>>,
 ) -> Vec<Span> {
     let mut edges = vec![0, title_end, len];
+    edges.extend(bright.iter().flat_map(|range| [range.start, range.end]));
     edges.extend(
         underlined
             .iter()
@@ -1525,6 +1607,7 @@ fn spans(
                 .filter(|span| span.range.start <= start && end <= span.range.end)
                 .map(|span| span.style)
                 .collect(),
+            dimmed: bright.is_some_and(|bright| !within(std::slice::from_ref(bright), start, end)),
         })
         .collect()
 }
@@ -1599,6 +1682,7 @@ mod tests {
             underlined,
             ghost,
             markdown: Vec::new(),
+            dimmed: false,
         };
         assert_eq!(
             spans(
@@ -1606,7 +1690,8 @@ mod tests {
                 5,
                 std::slice::from_ref(&(14..21)),
                 std::slice::from_ref(&(6..13)),
-                &[]
+                &[],
+                None
             ),
             vec![
                 span(0..5, true, false, false),
@@ -1628,6 +1713,7 @@ mod tests {
             underlined: false,
             ghost: false,
             markdown,
+            dimmed: false,
         };
         assert_eq!(
             spans(
@@ -1638,7 +1724,8 @@ mod tests {
                 &[
                     markdown(0..12, MarkdownStyle::Bold),
                     markdown(2..5, MarkdownStyle::Italic)
-                ]
+                ],
+                None
             ),
             vec![
                 span(0..2, vec![MarkdownStyle::Bold]),
@@ -1659,6 +1746,19 @@ mod tests {
                 (11, MarkdownStyle::Heading2),
                 (23, MarkdownStyle::Heading3)
             ]
+        );
+    }
+
+    #[test]
+    fn text_outside_the_bright_range_is_dimmed() {
+        let dimmed: Vec<(std::ops::Range<usize>, bool)> =
+            spans(30, 5, &[], &[], &[], Some(&(6..18)))
+                .into_iter()
+                .map(|span| (span.range, span.dimmed))
+                .collect();
+        assert_eq!(
+            dimmed,
+            vec![(0..5, true), (5..6, true), (6..18, false), (18..30, true)]
         );
     }
 
