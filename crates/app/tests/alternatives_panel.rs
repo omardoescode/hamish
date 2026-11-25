@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use app::{AlternativesPanel, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, Point, TestAppContext,
@@ -271,4 +273,25 @@ fn a_click_on_a_slot_while_the_panel_is_open_shows_its_variants(cx: &mut TestApp
 
     cx.simulate_keystrokes("up");
     assert_eq!(text(&workspace, cx), "Title\nThe customer stays.");
+}
+
+fn bright(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Range<usize>> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).bright_paragraph())
+}
+
+#[gpui::test]
+fn while_the_panel_is_open_only_the_paragraph_of_its_slot_stays_bright(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title\nThe customer waits.\nShe leaves."));
+    assert_eq!(bright(&workspace, cx), None);
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    assert_eq!(bright(&workspace, cx), Some(6..25));
+
+    cx.simulate_input("client");
+    cx.simulate_keystrokes("enter up");
+    assert_eq!(bright(&workspace, cx), Some(6..23));
+
+    cx.simulate_keystrokes("escape");
+    assert_eq!(bright(&workspace, cx), None);
 }

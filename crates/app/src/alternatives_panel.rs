@@ -10,6 +10,7 @@ use crate::actions::{
     ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
     SelectPreviousVariant,
 };
+use crate::editor::{Spotlight, paragraph_around};
 use crate::{Editor, Theme};
 
 /// Width of the left Alternatives panel (spec "Theme Mapping": about 205 px).
@@ -59,7 +60,8 @@ impl AlternativesPanel {
             editing: None,
             _editor_changes: editor_changes,
         };
-        panel.target = panel.target_at_editor(cx);
+        let target = panel.target_at_editor(cx);
+        panel.set_target(target, cx);
         panel.row = panel.rows(cx).len();
         panel
     }
@@ -84,9 +86,21 @@ impl AlternativesPanel {
         Target::Text { range, level }
     }
 
+    /// Shows `target`; its paragraph stays bright in the editor (FR-27).
+    fn set_target(&mut self, target: Target, cx: &mut App) {
+        let spotlight = match &target {
+            Target::Slot(id) => Some(Spotlight::Slot(*id)),
+            Target::Text { range, .. } => Some(Spotlight::Text(range.clone())),
+            Target::Nothing => None,
+        };
+        self.target = target;
+        self.editor
+            .update(cx, |editor, cx| editor.set_spotlight(spotlight, cx));
+    }
+
     /// FR-21: shows Slot `id`, with the last row selected.
     pub(crate) fn show_slot(&mut self, id: SlotId, cx: &mut Context<Self>) {
-        self.target = Target::Slot(id);
+        self.set_target(Target::Slot(id), cx);
         self.editing = None;
         self.draft.clear();
         self.row = self.rows(cx).len();
@@ -196,7 +210,9 @@ impl AlternativesPanel {
                         cx,
                     )
                 });
-                created.map(|id| self.target = Target::Slot(id)).is_ok()
+                created
+                    .map(|id| self.set_target(Target::Slot(id), cx))
+                    .is_ok()
             }
             Target::Nothing => false,
         };
@@ -294,8 +310,9 @@ impl AlternativesPanel {
         }
         if let Some(kept) = kept {
             let text = self.editor.read(cx).document().text();
-            self.target = ended_slot_text(text, start, &kept)
+            let target = ended_slot_text(text, start, &kept)
                 .map_or(Target::Nothing, |range| Target::Text { range, level });
+            self.set_target(target, cx);
         }
         self.editing = None;
         self.row = self.rows(cx).len();
@@ -348,15 +365,10 @@ fn ended_slot_text(text: &str, start: usize, kept: &str) -> Option<Range<usize>>
 /// more, Sentence for text with sentence-end punctuation, else Word (a word or short phrase).
 fn level_for(text: &str, range: &Range<usize>) -> Level {
     let selected = text.get(range.clone()).unwrap_or_default();
-    let start = text
-        .get(..range.start)
-        .and_then(|before| before.rfind('\n'))
-        .map_or(0, |newline| newline + 1);
-    let end = text
-        .get(range.end..)
-        .and_then(|after| after.find('\n'))
-        .map_or(text.len(), |newline| range.end + newline);
-    let paragraph = text.get(start..end).unwrap_or_default().trim();
+    let paragraph = text
+        .get(paragraph_around(text, range))
+        .unwrap_or_default()
+        .trim();
     if selected.contains('\n') || (!paragraph.is_empty() && selected.trim() == paragraph) {
         return Level::Paragraph;
     }
