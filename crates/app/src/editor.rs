@@ -953,13 +953,11 @@ struct EditorPrepaint {
 
 impl EditorElement {
     /// Text runs: the title line bold in the title color (FR-5), the rest in body style.
-    /// Word and Sentence Slots are underlined (FR-12).
+    /// Word and Sentence Slots are underlined (FR-12). Ghost text is dimmed (FR-37).
     fn runs(&self, window: &Window, cx: &App) -> Vec<TextRun> {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
         let style = window.text_style();
-        let text = editor.document.text();
-        let title_end = editor.document.title().map_or(0, str::len);
         let underlined: Vec<Range<usize>> = editor
             .document
             .slots()
@@ -967,37 +965,39 @@ impl EditorElement {
             .filter(|slot| slot.level != Level::Paragraph)
             .map(|slot| slot.range)
             .collect();
-        let mut edges = vec![0, title_end, text.len()];
-        edges.extend(underlined.iter().flat_map(|range| [range.start, range.end]));
-        edges.sort_unstable();
-        edges.dedup();
-        let underline = UnderlineStyle {
-            thickness: px(1.),
-            color: Some(theme.slot_underline),
-            wavy: false,
-        };
-        let runs: Vec<TextRun> = edges
-            .iter()
-            .zip(edges.iter().skip(1))
-            .map(|(&start, &end)| {
-                let mut font = style.font();
-                let title = end <= title_end;
-                if title {
-                    font.weight = FontWeight::BOLD;
-                }
-                let in_slot = underlined
-                    .iter()
-                    .any(|range| range.start <= start && end <= range.end);
-                TextRun {
-                    len: end - start,
-                    font,
-                    color: if title { theme.text_title } else { theme.text },
-                    background_color: None,
-                    underline: in_slot.then_some(underline),
-                    strikethrough: None,
-                }
-            })
-            .collect();
+        let runs: Vec<TextRun> = spans(
+            editor.document.text().len(),
+            editor.document.title().map_or(0, str::len),
+            &underlined,
+            &editor.document.ghost_ranges(),
+        )
+        .into_iter()
+        .map(|span| {
+            let mut font = style.font();
+            if span.title {
+                font.weight = FontWeight::BOLD;
+            }
+            let opacity = if span.ghost { theme.ghost_opacity } else { 1. };
+            let color = if span.title {
+                theme.text_title
+            } else {
+                theme.text
+            };
+            let underline = UnderlineStyle {
+                thickness: px(1.),
+                color: Some(theme.slot_underline.opacity(opacity)),
+                wavy: false,
+            };
+            TextRun {
+                len: span.range.len(),
+                font,
+                color: color.opacity(opacity),
+                background_color: None,
+                underline: span.underlined.then_some(underline),
+                strikethrough: None,
+            }
+        })
+        .collect();
         if runs.is_empty() {
             return vec![TextRun {
                 len: 0,
@@ -1223,6 +1223,48 @@ impl Element for EditorElement {
     }
 }
 
+/// A stretch of the text with one style.
+#[derive(Debug, PartialEq, Eq)]
+struct Span {
+    range: Range<usize>,
+    title: bool,
+    underlined: bool,
+    ghost: bool,
+}
+
+/// Splits text of `len` bytes at the title end and at each underlined and Ghost range edge.
+fn spans(
+    len: usize,
+    title_end: usize,
+    underlined: &[Range<usize>],
+    ghosts: &[Range<usize>],
+) -> Vec<Span> {
+    let mut edges = vec![0, title_end, len];
+    edges.extend(
+        underlined
+            .iter()
+            .chain(ghosts)
+            .flat_map(|range| [range.start, range.end]),
+    );
+    edges.sort_unstable();
+    edges.dedup();
+    let within = |ranges: &[Range<usize>], start: usize, end: usize| {
+        ranges
+            .iter()
+            .any(|range| range.start <= start && end <= range.end)
+    };
+    edges
+        .iter()
+        .zip(edges.iter().skip(1))
+        .map(|(&start, &end)| Span {
+            range: start..end,
+            title: end <= title_end,
+            underlined: within(underlined, start, end),
+            ghost: within(ghosts, start, end),
+        })
+        .collect()
+}
+
 /// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
 fn as_factor(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
@@ -1277,7 +1319,33 @@ fn scroll_into_view(scroll_handle: &ScrollHandle, cursor: Option<&PaintQuad>, ma
 
 #[cfg(test)]
 mod tests {
-    use super::follow_change;
+    use super::{Span, follow_change, spans};
+
+    #[test]
+    fn ghost_and_slot_ranges_split_the_text_into_styled_spans() {
+        let span = |range, title, underlined, ghost| Span {
+            range,
+            title,
+            underlined,
+            ghost,
+        };
+        assert_eq!(
+            spans(
+                27,
+                5,
+                std::slice::from_ref(&(14..21)),
+                std::slice::from_ref(&(6..13))
+            ),
+            vec![
+                span(0..5, true, false, false),
+                span(5..6, false, false, false),
+                span(6..13, false, false, true),
+                span(13..14, false, false, false),
+                span(14..21, false, true, false),
+                span(21..27, false, false, false),
+            ]
+        );
+    }
 
     #[test]
     fn an_offset_after_a_changed_span_moves_by_its_change_in_length() {
