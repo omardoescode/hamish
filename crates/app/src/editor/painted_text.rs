@@ -189,20 +189,63 @@ impl PaintedText {
         top + (self.line_height - ascent - descent) / 2. + ascent + descent * 0.618
     }
 
-    /// Quads that cover `range` (window coordinates), one per visual row.
+    /// Quads that cover `range` (window coordinates), one per visual row. A wrapped row
+    /// fills to the right edge.
     pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
+        let width = self.bounds.size.width;
+        self.row_quads(range, color, |_| width)
+    }
+
+    /// Quads that cover `range` (window coordinates), one per visual row. Each row ends
+    /// at the end of its text, not at the right edge.
+    pub(crate) fn text_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
+        let width = self.bounds.size.width;
+        self.row_quads(range, color, |top| self.text_end(top).unwrap_or(width))
+    }
+
+    /// Local x where the text of the row at local `top` ends, less trailing spaces.
+    fn text_end(&self, top: Pixels) -> Option<Pixels> {
+        let painted = self.lines.iter().rev().find(|line| line.top <= top)?;
+        let layout = &painted.line.unwrapped_layout;
+        let wraps = painted.line.wrap_boundaries.iter().filter_map(|boundary| {
+            let run = layout.runs.get(boundary.run_ix)?;
+            run.glyphs.get(boundary.glyph_ix).map(|glyph| glyph.index)
+        });
+        let starts = std::iter::once(0).chain(wraps.clone());
+        let ends = wraps.chain(std::iter::once(painted.line.len()));
+        let mut row_bottom = painted.top + self.line_height;
+        for (start, end) in starts.zip(ends) {
+            if top < row_bottom {
+                let text = painted.line.text.get(start..end)?;
+                let text_end = start + text.trim_end().len();
+                return Some(layout.x_for_index(text_end) - layout.x_for_index(start));
+            }
+            row_bottom += self.line_height;
+        }
+        None
+    }
+
+    fn row_quads(
+        &self,
+        range: &Range<usize>,
+        color: Hsla,
+        row_right: impl Fn(Pixels) -> Pixels,
+    ) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
             (self.position_for(range.start), self.position_for(range.end))
         else {
             return Vec::new();
         };
         let origin = self.bounds.origin;
-        let width = self.bounds.size.width;
         let mut quads = Vec::new();
         let mut top = start.y;
         while top <= end.y {
             let left = if top == start.y { start.x } else { px(0.) };
-            let right = if top == end.y { end.x } else { width };
+            let right = if top == end.y {
+                end.x
+            } else {
+                row_right(top).max(left)
+            };
             quads.push(fill(
                 Bounds::from_corners(
                     origin + point(left, top),
