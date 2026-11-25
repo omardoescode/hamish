@@ -184,6 +184,24 @@ impl Document {
         self.set_active(id, index)
     }
 
+    /// Deletes Variant `index` of Slot `id`. When it was active, the Original shows.
+    /// A Slot left with fewer than two Variants ends; its active text stays (FR-18).
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
+    pub fn delete_variant(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
+        self.change_slot(id, |node| node.remove_variant(index))
+    }
+
+    /// Sets the text of Variant `index` of Slot `id`, as a writer edit:
+    /// an AI Variant becomes Mixed. Slots nested in that Variant end.
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
+    pub fn edit_variant(&mut self, id: SlotId, index: usize, text: &str) -> Result<(), SlotError> {
+        self.change_slot(id, |node| node.edit_variant(index, text))
+    }
+
     /// Runs `change` on Slot `id`, then shows its Active variant text in its range,
     /// as one undoable step.
     fn change_slot(
@@ -198,7 +216,11 @@ impl Document {
         let shown = node.active_text()?.to_owned();
         node.range.end = node.range.start + shown.len();
         let changed = self.text.get(old.clone()) != Some(shown.as_str());
+        let ends = node.variants.len() < 2;
         slot::shift(&mut slots, &old, shown.len(), changed, Some(id));
+        if ends {
+            slot::dissolve(&mut slots, id);
+        }
         self.commit(old, &shown, slots)?;
         Ok(())
     }

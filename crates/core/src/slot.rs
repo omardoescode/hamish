@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Range;
 
@@ -56,6 +57,13 @@ impl Variant {
             text: text.to_owned(),
             provenance,
             slots: Vec::new(),
+        }
+    }
+
+    /// A writer edit to the text of an AI Variant makes it Mixed.
+    fn mark_edited(&mut self) {
+        if self.provenance == Provenance::Ai {
+            self.provenance = Provenance::Mixed;
         }
     }
 
@@ -154,6 +162,33 @@ impl SlotNode {
         self.variants.push(Variant::new(text, provenance));
     }
 
+    /// Removes Variant `index`. When it was active, the Original becomes active.
+    pub(crate) fn remove_variant(&mut self, index: usize) -> Result<(), SlotError> {
+        if index >= self.variants.len() {
+            return Err(self.no_variant(index));
+        }
+        self.variants.remove(index);
+        self.active = match index.cmp(&self.active) {
+            Ordering::Less => self.active - 1,
+            Ordering::Equal => 0,
+            Ordering::Greater => self.active,
+        };
+        Ok(())
+    }
+
+    /// A writer edit of Variant `index`. The Slots nested in it end.
+    pub(crate) fn edit_variant(&mut self, index: usize, text: &str) -> Result<(), SlotError> {
+        let error = self.no_variant(index);
+        let variant = self.variants.get_mut(index).ok_or(error)?;
+        if variant.text == text {
+            return Ok(());
+        }
+        text.clone_into(&mut variant.text);
+        variant.slots.clear();
+        variant.mark_edited();
+        Ok(())
+    }
+
     /// Moves or trims this Slot for a text edit at `edit` (relative to the text that holds it).
     fn follow(
         &mut self,
@@ -208,14 +243,13 @@ impl SlotNode {
         self.mark_edited(true);
     }
 
-    /// A writer edit to the text of an AI Variant makes it Mixed.
     fn mark_edited(&mut self, changed: bool) {
         let active = self.active;
         let Some(variant) = self.variants.get_mut(active) else {
             return;
         };
-        if changed && variant.provenance == Provenance::Ai {
-            variant.provenance = Provenance::Mixed;
+        if changed {
+            variant.mark_edited();
         }
     }
 
@@ -300,6 +334,26 @@ pub(crate) fn find_mut(
         }
     }
     None
+}
+
+/// Ends visible Slot `id`: the Slots nested in its Active variant take its place.
+pub(crate) fn dissolve(slots: &mut Vec<SlotNode>, id: SlotId) {
+    let Some(position) = slots.iter().position(|node| node.id == id) else {
+        for node in slots.iter_mut() {
+            if let Ok(children) = node.children_mut() {
+                dissolve(children, id);
+            }
+        }
+        return;
+    };
+    let mut node = slots.remove(position);
+    let start = node.range.start;
+    let children = node.children_mut().map_or_default(std::mem::take);
+    slots.extend(children.into_iter().map(|mut child| {
+        child.range = child.range.start + start..child.range.end + start;
+        child
+    }));
+    slots.sort_by_key(|node| node.range.start);
 }
 
 /// Moves, trims, or removes Slots for a text edit: `edit` (relative to the text that holds

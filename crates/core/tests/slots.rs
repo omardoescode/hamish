@@ -110,3 +110,101 @@ fn operations_on_a_missing_slot_or_variant_are_refused() {
     );
     assert_eq!(document.text(), "The cat sat.");
 }
+
+#[test]
+fn delete_an_inactive_variant_keeps_the_active_one() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    document.set_active(id, 2).unwrap();
+    document.delete_variant(id, 1).unwrap();
+    assert_eq!(variant_texts(&document, id), ["cat", "fox"]);
+    assert_eq!(document.slot(id).unwrap().active, 1);
+    assert_eq!(document.text(), "The fox sat.");
+}
+
+#[test]
+fn delete_the_active_variant_shows_the_original() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    document.set_active(id, 2).unwrap();
+    document.delete_variant(id, 2).unwrap();
+    assert_eq!(document.slot(id).unwrap().active, 0);
+    assert_eq!(document.text(), "The cat sat.");
+}
+
+#[test]
+fn slot_with_fewer_than_two_variants_ends_and_its_active_text_stays() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.set_active(id, 1).unwrap();
+    document.delete_variant(id, 0).unwrap();
+    assert_eq!(document.slot(id), None);
+    assert_eq!(document.slots(), Vec::new());
+    assert_eq!(document.text(), "The dog sat.");
+}
+
+#[test]
+fn slot_ends_with_the_remaining_variant_shown_when_the_active_one_is_deleted() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.delete_variant(id, 0).unwrap();
+    assert_eq!(document.slots(), Vec::new());
+    assert_eq!(document.text(), "The dog sat.");
+}
+
+#[test]
+fn edit_the_active_variant_updates_the_text_and_counter() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.edit_variant(id, 0, "big cat").unwrap();
+    assert_eq!(document.text(), "The big cat sat.");
+    assert_eq!(document.counter().to_string(), "4 words 16 chars");
+    assert_eq!(variant_texts(&document, id), ["big cat", "dog"]);
+    assert_eq!(document.slot(id).unwrap().range, 4..11);
+}
+
+#[test]
+fn edit_an_inactive_variant_leaves_the_text() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.edit_variant(id, 1, "hound").unwrap();
+    assert_eq!(variant_texts(&document, id), ["cat", "hound"]);
+    assert_eq!(document.text(), "The cat sat.");
+}
+
+#[test]
+fn writer_edit_makes_an_ai_variant_mixed_and_keeps_other_provenance() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Ai)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    document.edit_variant(id, 1, "dogs").unwrap();
+    document.edit_variant(id, 2, "foxes").unwrap();
+    document.edit_variant(id, 1, "hounds").unwrap();
+    let provenance: Vec<Provenance> = document
+        .slot(id)
+        .unwrap()
+        .variants
+        .iter()
+        .map(ka_teb_core::Variant::provenance)
+        .collect();
+    assert_eq!(
+        provenance,
+        [Provenance::Writer, Provenance::Mixed, Provenance::Writer]
+    );
+}
