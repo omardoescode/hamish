@@ -20,6 +20,7 @@ mod slot;
 mod sound;
 mod storage;
 mod theme;
+mod title;
 mod trim;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
@@ -42,4 +43,5 @@ pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Varian
 pub use sound::Sound;
 pub use storage::{Dropped, Opened, StorageError, sidecar_path};
 pub use theme::{Palette, ThemeName};
+pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
