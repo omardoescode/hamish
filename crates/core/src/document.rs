@@ -10,7 +10,7 @@ use crate::markdown;
 use crate::slot::{self, SlotNode};
 use crate::{
     Counter, Cycle, GhostError, LabMark, LabMarkId, Level, MarkdownSpan, Overflow, OverflowError,
-    Provenance, Slot, SlotError, SlotId, Switch, TrimProposal, Variant,
+    Provenance, Slot, SlotError, SlotId, Switch, TrimProposal, Variant, paragraph_around,
 };
 
 /// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, Trim proposal,
@@ -230,11 +230,36 @@ impl Document {
     /// (the caret at the end of a span is in it).
     #[must_use]
     pub fn slot_at(&self, caret: usize) -> Option<SlotId> {
+        self.slot_over(&(caret..caret))
+    }
+
+    /// The innermost visible Slot whose span holds all of `range`, edges included.
+    #[must_use]
+    pub fn slot_over(&self, range: &Range<usize>) -> Option<SlotId> {
         self.slots()
             .iter()
             .rev()
-            .find(|slot| slot.range.start <= caret && caret <= slot.range.end)
+            .find(|slot| slot.range.start <= range.start && range.end <= slot.range.end)
             .map(|slot| slot.id)
+    }
+
+    /// The Level a new Slot over `range` gets: Paragraph for a whole paragraph or more,
+    /// Sentence for text with sentence-end punctuation, else Word (a word or short phrase).
+    #[must_use]
+    pub fn level_for(&self, range: &Range<usize>) -> Level {
+        let selected = self.text.get(range.clone()).unwrap_or_default();
+        let paragraph = self
+            .text
+            .get(paragraph_around(&self.text, range))
+            .unwrap_or_default()
+            .trim();
+        if selected.contains('\n') || (!paragraph.is_empty() && selected.trim() == paragraph) {
+            return Level::Paragraph;
+        }
+        if selected.contains(['.', '!', '?']) {
+            return Level::Sentence;
+        }
+        Level::Word
     }
 
     /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.
@@ -263,6 +288,38 @@ impl Document {
         texts: &[&str],
         provenance: Provenance,
     ) -> Result<SlotId, SlotError> {
+        let (id, tree) = self.placed_slot(range.clone(), level, texts, provenance)?;
+        self.commit(range.start..range.start, "", tree)?;
+        self.next_slot = id.next();
+        Ok(id)
+    }
+
+    /// Makes a Slot over `range` with `text` as the Active variant after the Original, as
+    /// one undoable step, with Article agreement as in [`Document::set_active`].
+    ///
+    /// # Errors
+    /// As [`Document::create_slot`].
+    pub fn create_active_slot(
+        &mut self,
+        range: Range<usize>,
+        level: Level,
+        text: &str,
+        provenance: Provenance,
+    ) -> Result<SlotId, SlotError> {
+        let (id, tree) = self.placed_slot(range, level, &[text], provenance)?;
+        self.change_slot_in(tree, id, SlotChange::Switch, |node| node.set_active(1))?;
+        self.next_slot = id.next();
+        Ok(id)
+    }
+
+    /// The Slots, Ghost ranges, and Overflow with a new Slot over `range` placed, and its id.
+    fn placed_slot(
+        &self,
+        range: Range<usize>,
+        level: Level,
+        texts: &[&str],
+        provenance: Provenance,
+    ) -> Result<(SlotId, Tree), SlotError> {
         let original = self.text.get(range.clone()).ok_or(RangeError {
             range: range.clone(),
         })?;
@@ -283,9 +340,7 @@ impl Document {
         let mut slots = self.slots.clone();
         let mut ghosts = self.ghosts.clone();
         slot::place(&mut slots, &mut ghosts, node)?;
-        self.commit(range.start..range.start, "", self.tree(slots, ghosts))?;
-        self.next_slot = id.next();
-        Ok(id)
+        Ok((id, self.tree(slots, ghosts)))
     }
 
     /// Adds a Variant at the end of Slot `id`. The Active variant stays.
@@ -301,7 +356,8 @@ impl Document {
         self.change_slot(id, SlotChange::Switch, |node| {
             node.push_variant(text, provenance);
             Ok(())
-        })
+        })?;
+        Ok(())
     }
 
     /// Adds `texts` as Variants at the end of Slot `id`, as one undoable step.
@@ -316,7 +372,8 @@ impl Document {
                 node.push_variant(text, provenance);
             }
             Ok(())
-        })
+        })?;
+        Ok(())
     }
 
     /// Makes Variant `index` of Slot `id` the Active variant.
@@ -328,6 +385,24 @@ impl Document {
     pub fn set_active(&mut self, id: SlotId, index: usize) -> Result<Switch, SlotError> {
         self.change_slot(id, SlotChange::Switch, |node| node.set_active(index))?;
         Ok(Switch::to(index))
+    }
+
+    /// Adds a Variant at the end of Slot `id` and makes it the Active variant, as one
+    /// undoable step, with Article agreement as in [`Document::set_active`].
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] when `id` is not a visible Slot.
+    pub fn add_active_variant(
+        &mut self,
+        id: SlotId,
+        text: &str,
+        provenance: Provenance,
+    ) -> Result<Switch, SlotError> {
+        self.change_slot(id, SlotChange::Switch, |node| {
+            node.push_variant(text, provenance);
+            node.set_active(node.variants.len().saturating_sub(1))
+        })?;
+        Ok(Switch::ToVariant)
     }
 
     /// Moves the Active variant of Slot `id` one step.
@@ -347,17 +422,22 @@ impl Document {
 
     /// Deletes Variant `index` of Slot `id`; any Variant can go, the Original too. When it
     /// was active, the next Variant shows; after the last one, the first.
-    /// A Slot left with fewer than two Variants ends; its active text stays.
+    /// A Slot left with fewer than two Variants ends; its active text stays. Returns the
+    /// byte range of that kept text when the Slot ends (Article agreement may move it), else `None`.
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
-    pub fn delete_variant(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
+    pub fn delete_variant(
+        &mut self,
+        id: SlotId,
+        index: usize,
+    ) -> Result<Option<Range<usize>>, SlotError> {
         let steps = self.undo_steps.len();
-        self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))?;
+        let kept = self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))?;
         if let Some(step) = self.undo_steps.get_mut(steps) {
             step.variant_deleted = Some(id);
         }
-        Ok(())
+        Ok(kept)
     }
 
     /// The Slot whose Variant the next [`Document::undo`] puts back: `Some` when the last
@@ -375,18 +455,36 @@ impl Document {
     pub fn edit_variant(&mut self, id: SlotId, index: usize, text: &str) -> Result<(), SlotError> {
         self.change_slot(id, SlotChange::WriterText, |node| {
             node.edit_variant(index, text)
-        })
+        })?;
+        Ok(())
     }
 
     /// Runs `change` on Slot `id`, then shows its Active variant text in its range,
-    /// as one undoable step.
+    /// as one undoable step. Returns the range of the shown text when the Slot ends.
     fn change_slot(
         &mut self,
         id: SlotId,
         kind: SlotChange,
         change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
-    ) -> Result<(), SlotError> {
-        let mut slots = self.slots.clone();
+    ) -> Result<Option<Range<usize>>, SlotError> {
+        let tree = self.tree(self.slots.clone(), self.ghosts.clone());
+        self.change_slot_in(tree, id, kind, change)
+    }
+
+    /// Like [`Self::change_slot`], on the Slots and Ghost ranges of `tree` in place of the
+    /// current ones.
+    fn change_slot_in(
+        &mut self,
+        tree: Tree,
+        id: SlotId,
+        kind: SlotChange,
+        change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
+    ) -> Result<Option<Range<usize>>, SlotError> {
+        let Tree {
+            mut slots,
+            mut ghosts,
+            ..
+        } = tree;
         let (node, base) = slot::find_mut(&mut slots, id, 0).ok_or(SlotError::NoSlot(id))?;
         let old = base + node.range.start..base + node.range.end;
         change(node)?;
@@ -396,7 +494,6 @@ impl Document {
         let writer_edit = kind == SlotChange::WriterText && shown_changed;
         let agrees = node.level == Level::Word && shown_changed;
         let ends = node.variants.len() < 2;
-        let mut ghosts = self.ghosts.clone();
         slot::shift(
             &mut slots,
             &mut ghosts,
@@ -412,8 +509,9 @@ impl Document {
             .then(|| self.article_agreement(id, &old, &shown))
             .flatten()
         else {
+            let kept = ends.then(|| old.start..old.start + shown.len());
             self.commit(old, &shown, self.tree(slots, ghosts))?;
-            return Ok(());
+            return Ok(kept);
         };
         slot::shift(
             &mut slots,
@@ -428,12 +526,14 @@ impl Document {
             .get(article_range.end..old.start)
             .unwrap_or_default();
         let inserted = format!("{article}{gap}{shown}");
+        let start = old.start - article_range.len() + article.len();
+        let kept = ends.then(|| start..start + shown.len());
         self.commit(
             article_range.start..old.end,
             &inserted,
             self.tree(slots, ghosts),
         )?;
-        Ok(())
+        Ok(kept)
     }
 
     /// Article agreement for Word Slot `id` at `old`, now showing `shown`:
