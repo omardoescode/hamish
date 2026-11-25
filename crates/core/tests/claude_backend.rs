@@ -5,11 +5,13 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, ClaudeBackend, Document, LabCheck, LabFinding, Level, RangeError,
+    AiAdapter, AiError, AiRequest, ClaudeBackend, Document, LabCheck, LabFinding, Level,
+    RangeError, TrimLevel,
 };
 
 /// A `claude` stand-in. The selection picks its behavior; by default it answers with the
 /// args it got, the API key and auth token it saw, and the prompt, as three Variant texts.
+/// `STUB_TRIM_ECHO` fails with those three on stderr.
 const STUB: &str = r#"#!/bin/sh
 prompt=$(cat)
 case "$prompt" in
@@ -18,6 +20,7 @@ case "$prompt" in
   *STUB_DECLINED*) echo '{"type":"result","is_error":false,"result":"I will not."}'; exit 0 ;;
   *STUB_SLOW*) exec sleep 10 ;;
   *STUB_PADDED*) echo '{"is_error":false,"structured_output":{"variants":["  dog\n","fox"]}}'; exit 0 ;;
+  *STUB_TRIM_CUTS*) echo '{"is_error":false,"structured_output":{"cuts":["very","missing","","very"," it"]}}'; exit 0 ;;
   *STUB_LAB_MARKS*) echo '{"is_error":false,"structured_output":{"marks":[{"quote":"cat","note":" weak ","fix":"cats"},{"quote":"missing"},{"quote":""},{"quote":"cat","note":""}]}}'; exit 0 ;;
 esac
 esc() { printf '%s' "$1" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
@@ -26,6 +29,9 @@ for arg in "$@"; do args="$args \"$(esc "$arg")\""; done
 args=$(printf '%s' "$args" | sed 's/^ //; s/" "/", "/g')
 key="${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_AUTH_TOKEN-unset}"
 case "$prompt" in
+  *STUB_TRIM_ECHO*)
+    printf '%s | %s | %s' "$args" "$key" "$(esc "$prompt")" >&2
+    exit 4 ;;
   *STUB_LAB_ECHO*)
     printf '{"is_error":false,"structured_output":{"marks":[{"quote":"STUB_LAB_ECHO","note":"%s"},{"quote":"STUB_LAB_ECHO","note":"%s"},{"quote":"STUB_LAB_ECHO","note":"%s"}]}}' \
       "$(esc "$args")" "$(esc "$key")" "$(esc "$prompt")"
@@ -213,6 +219,62 @@ fn lab_check_reports_an_answer_without_marks_as_declined() {
 
     assert_eq!(
         backend().unwrap().lab_check(&request),
+        Err(AiError::Declined("I will not.".to_owned()))
+    );
+}
+
+#[test]
+fn trim_runs_claude_print_without_api_credentials_and_sends_the_document_and_target() {
+    let request = Document::new("STUB_TRIM_ECHO one two three four five six seven eight nine")
+        .trim_request(TrimLevel::EvenSharper)
+        .unwrap();
+
+    let Err(AiError::Exit {
+        code: Some(4),
+        message,
+    }) = backend().unwrap().trim(&request)
+    else {
+        panic!("the stub echoes on stderr");
+    };
+
+    let parts: Vec<&str> = message.split(" | ").collect();
+    assert_eq!(
+        parts[0],
+        r#""-p", "--output-format", "json", "--json-schema", "{\"type\":\"object\",\"properties\":{\"cuts\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"cuts\"]}", "--tools", "", "--no-session-persistence""#
+    );
+    assert_eq!(parts[1], "unset unset");
+    assert!(
+        parts[2].contains("about 30% shorter: about 3 words"),
+        "prompt: {}",
+        parts[2]
+    );
+    assert!(
+        parts[2].contains("STUB_TRIM_ECHO one two three four five six seven eight nine"),
+        "prompt: {}",
+        parts[2]
+    );
+}
+
+#[test]
+fn trim_maps_each_quote_to_its_next_place_on_word_edges_and_drops_the_rest() {
+    let request = Document::new("STUB_TRIM_CUTS: every very good, very good it is.")
+        .trim_request(TrimLevel::SlightTrim)
+        .unwrap();
+
+    assert_eq!(
+        backend().unwrap().trim(&request),
+        Ok(vec![22..26, 33..37, 42..45])
+    );
+}
+
+#[test]
+fn trim_reports_an_answer_without_cuts_as_declined() {
+    let request = Document::new("STUB_DECLINED")
+        .trim_request(TrimLevel::CutInHalf)
+        .unwrap();
+
+    assert_eq!(
+        backend().unwrap().trim(&request),
         Err(AiError::Declined("I will not.".to_owned()))
     );
 }
