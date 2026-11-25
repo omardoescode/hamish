@@ -2,26 +2,32 @@ use gpui::{
     Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div, linear_color_stop,
     linear_gradient, prelude::*, px,
 };
-use ka_teb_core::Document;
+use ka_teb_core::{Document, SlotId};
 
-use crate::actions::{Stash, ToggleChrome, ToggleOverflow};
+use crate::actions::{OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
+use crate::alternatives_panel::PanelEvent;
+use crate::editor::EditorEvent;
+use crate::lab::Lab;
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::save_open::Notice;
 use crate::save_open::SaveOpen;
 use crate::settings_modal::{self, SaveFailed, SettingsModal};
-use crate::{Editor, Theme};
+use crate::{AlternativesPanel, Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
+    pub(crate) lab: Lab,
     overflow_panel: Entity<OverflowPanel>,
     chrome_visible: bool,
+    alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
     overflow_open: bool,
     pub(crate) settings_modal: Entity<SettingsModal>,
     pub(crate) settings_open: bool,
     _editor_changes: Subscription,
     _settings_saves: Subscription,
+    _editor_events: Subscription,
 }
 
 impl Workspace {
@@ -29,6 +35,13 @@ impl Workspace {
         let editor = cx.new(|cx| Editor::new(document, cx));
         window.focus(&editor.focus_handle(cx));
         let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        let editor_events = cx.subscribe_in(
+            &editor,
+            window,
+            |workspace, _, event: &EditorEvent, window, cx| match *event {
+                EditorEvent::SlotClicked(slot) => workspace.show_slot(slot, window, cx),
+            },
+        );
         let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
         let settings_modal = cx.new(SettingsModal::new);
         let settings_saves =
@@ -39,12 +52,15 @@ impl Workspace {
             editor,
             overflow_panel,
             save_open: SaveOpen::with_notice(settings_modal::take_start_notice(cx)),
+            lab: Lab::new(cx),
             chrome_visible: false,
+            alternatives: None,
             overflow_open: false,
             settings_modal,
             settings_open: false,
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
+            _editor_events: editor_events,
         }
     }
 
@@ -57,6 +73,50 @@ impl Workspace {
     #[must_use]
     pub fn chrome_visible(&self) -> bool {
         self.chrome_visible
+    }
+
+    /// The open Alternatives panel; `None` when it is closed.
+    #[must_use]
+    pub fn alternatives_panel(&self) -> Option<&Entity<AlternativesPanel>> {
+        self.alternatives.as_ref().map(|(panel, _)| panel)
+    }
+
+    /// FR-19: opens the Alternatives panel on the editor target and focuses it.
+    fn open_alternatives(
+        &mut self,
+        _: &OpenAlternatives,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.clone();
+        let panel = cx.new(|cx| AlternativesPanel::new(editor, cx));
+        let events = cx.subscribe_in(
+            &panel,
+            window,
+            |workspace, _, event, window, cx| match event {
+                PanelEvent::Close => workspace.close_alternatives(window, cx),
+            },
+        );
+        window.focus(&panel.focus_handle(cx));
+        self.alternatives = Some((panel, events));
+        cx.notify();
+    }
+
+    /// FR-21: a click on a Slot while the panel is open shows that Slot in the panel.
+    fn show_slot(&mut self, slot: SlotId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.alternatives_panel() else {
+            return;
+        };
+        panel.update(cx, |panel, cx| panel.show_slot(slot, cx));
+        window.focus(&panel.focus_handle(cx));
+    }
+
+    fn close_alternatives(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.alternatives = None;
+        self.editor
+            .update(cx, |editor, cx| editor.set_spotlight(None, cx));
+        window.focus(&self.editor.focus_handle(cx));
+        cx.notify();
     }
 
     /// FR-43: the Overflow panel is open.
@@ -121,6 +181,7 @@ impl Render for Workspace {
             .font_family(theme.font_family.clone())
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
+            .on_action(cx.listener(Self::open_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
             .on_action(cx.listener(Self::show_stash))
             .on_action(cx.listener(Self::open_settings))
@@ -134,6 +195,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
+            .on_action(cx.listener(Self::toggle_lab))
             .child(
                 div()
                     .absolute()
@@ -154,6 +216,9 @@ impl Render for Workspace {
             )
             .when(self.overflow_open, |workspace| {
                 workspace.child(self.overflow_panel.clone())
+            })
+            .when_some(self.alternatives_panel().cloned(), |workspace, panel| {
+                workspace.child(panel)
             })
             .child(
                 div()
@@ -188,6 +253,7 @@ impl Render for Workspace {
                         ),
                 )
             })
+            .children(self.lab_view(&theme, cx))
             .children(self.notice_view(&theme, cx))
             .when(self.settings_open, |workspace| {
                 workspace.child(self.settings_modal.clone())

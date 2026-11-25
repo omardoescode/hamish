@@ -5,9 +5,12 @@
     reason = "gpui's Action derive builds actions from key binding JSON"
 )]
 mod actions;
+mod ai;
+mod alternatives_panel;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod lab;
 mod overflow_panel;
 mod save_open;
 mod settings_modal;
@@ -16,6 +19,10 @@ mod workspace;
 
 use std::borrow::Cow;
 
+use actions::{
+    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, SelectNextVariant,
+    SelectPreviousVariant,
+};
 use gpui::{App, KeyBinding};
 
 pub use actions::{
@@ -25,16 +32,19 @@ pub use actions::{
     SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost,
     ToggleOverflow, Undo, UseOverflowBlock,
 };
+pub use ai::Ai;
+pub use alternatives_panel::{AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings_modal::{SettingsModal, use_settings};
 pub use theme::Theme;
 pub use workspace::Workspace;
 
-/// Loads the bundled body font, sets the default settings and theme, and binds the keys.
-/// [`use_settings`] then puts in the settings from the file.
+/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the default settings
+/// and theme, and binds the keys. [`use_settings`] then puts in the settings from the file.
 ///
 /// # Errors
 /// When the bundled font does not load.
@@ -42,6 +52,8 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     cx.text_system().add_fonts(vec![
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf")),
     ])?;
     use_settings(
         None,
@@ -93,6 +105,17 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-o", Open, None),
         KeyBinding::new("ctrl-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
+        KeyBinding::new("escape", CloseLab, Some("Lab")),
+    ]);
+    let panel = Some("AlternativesPanel");
+    cx.bind_keys([
+        KeyBinding::new("up", SelectPreviousVariant, panel),
+        KeyBinding::new("down", SelectNextVariant, panel),
+        KeyBinding::new("enter", ConfirmVariant, panel),
+        KeyBinding::new("escape", ClosePanel, panel),
+        KeyBinding::new("backspace", DeleteBackward, panel),
+        KeyBinding::new("ctrl-backspace", DeleteVariant, panel),
+        KeyBinding::new("ctrl-v", Paste, panel),
     ]);
     Ok(())
 }

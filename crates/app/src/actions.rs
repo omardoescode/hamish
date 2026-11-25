@@ -33,6 +33,18 @@ gpui::actions!(
 );
 
 gpui::actions!(
+    alternatives_panel,
+    [
+        SelectPreviousVariant,
+        SelectNextVariant,
+        ConfirmVariant,
+        ClosePanel,
+        DeleteBackward,
+        DeleteVariant,
+    ]
+);
+
+gpui::actions!(
     workspace,
     [
         ToggleChrome,
