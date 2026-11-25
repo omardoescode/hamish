@@ -121,6 +121,18 @@ impl Document {
         text: &str,
         provenance: Provenance,
     ) -> Result<SlotId, SlotError> {
+        self.create_slot_with(range, level, &[text], provenance)
+    }
+
+    /// Makes a Slot over `range`: its text becomes the Original, `texts` the next Variants,
+    /// as one undoable step. The Original stays the Active variant.
+    pub(crate) fn create_slot_with(
+        &mut self,
+        range: Range<usize>,
+        level: Level,
+        texts: &[&str],
+        provenance: Provenance,
+    ) -> Result<SlotId, SlotError> {
         let original = self.text.get(range.clone()).ok_or(RangeError {
             range: range.clone(),
         })?;
@@ -128,14 +140,14 @@ impl Document {
             return Err(SlotError::EmptyRange);
         }
         let id = self.next_slot;
+        let variants = std::iter::once(Variant::new(original, Provenance::Writer))
+            .chain(texts.iter().map(|text| Variant::new(text, provenance)))
+            .collect();
         let node = SlotNode {
             id,
             level,
             range: range.clone(),
-            variants: vec![
-                Variant::new(original, Provenance::Writer),
-                Variant::new(text, provenance),
-            ],
+            variants,
             active: 0,
         };
         let mut slots = self.slots.clone();
