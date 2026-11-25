@@ -97,7 +97,7 @@ fn up_down_over_a_slot_play_the_high_tone_and_the_low_tone_back_at_the_original(
     );
 }
 
-/// Moves the cursor into "customer".
+/// Moves the caret into "customer".
 const INTO_CUSTOMER: &str = "down right right right right right";
 
 #[gpui::test]

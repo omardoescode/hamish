@@ -138,7 +138,7 @@ impl std::error::Error for SettingsError {
 }
 
 /// `$XDG_CONFIG_HOME/ka-teb/settings.json`; `~/.config` when `XDG_CONFIG_HOME` is not an
-/// absolute path (XDG Base Directory spec). `None` without either.
+/// absolute path (XDG Base Directory Specification). `None` without either.
 #[must_use]
 pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
     let config = xdg_config_home

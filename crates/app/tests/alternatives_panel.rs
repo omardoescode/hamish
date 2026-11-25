@@ -58,7 +58,7 @@ fn customer_document() -> Document {
     Document::new("Title\nThe customer waits.")
 }
 
-/// Moves the cursor into "customer".
+/// Moves the caret into "customer".
 const INTO_CUSTOMER: &str = "down right right right right right";
 
 #[gpui::test]
@@ -289,7 +289,7 @@ fn escape_while_editing_drops_the_edit_and_keeps_the_panel_open(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn ctrl_backspace_deletes_the_selected_variant_and_the_original_shows(cx: &mut TestAppContext) {
+fn ctrl_backspace_deletes_the_active_variant_and_the_original_shows(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, slot_document());
 
     cx.simulate_keystrokes(INTO_CUSTOMER);

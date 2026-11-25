@@ -237,7 +237,7 @@ fn card(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Ran
             .read(cx)
             .lab()
             .read(cx)
-            .mark_at_cursor(cx)
+            .mark_at_caret(cx)
             .map(|mark| mark.range)
     })
 }

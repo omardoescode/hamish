@@ -57,7 +57,7 @@ fn open(
     (workspace, cx)
 }
 
-/// Moves the cursor into "customer" (10..18).
+/// Moves the caret into "customer" (10..18).
 const INTO_CUSTOMER: &str = "down right right right right right";
 
 fn client_and_patron() -> FakeAdapter {

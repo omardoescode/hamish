@@ -38,7 +38,7 @@ fn zoomed(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<(Ran
     cx.read(|cx| workspace.read(cx).editor().read(cx).focus_zoom(cx))
 }
 
-/// Lets `millis` pass and paints the next frame, as the animation frame does.
+/// Lets `millis` pass and paints the next frame, as `request_animation_frame` does.
 fn wait(cx: &mut VisualTestContext, millis: u64) {
     cx.executor().advance_clock(Duration::from_millis(millis));
     cx.update(|window, _| window.refresh());
