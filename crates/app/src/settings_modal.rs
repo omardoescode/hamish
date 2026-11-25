@@ -121,7 +121,7 @@ impl SettingsModal {
         }
     }
 
-    /// A select field: the button shows `current`; when open, a list of `options` shows
+    /// A select field: the button shows `current`; when open, a list of `rows` shows
     /// under it, over the fields below.
     fn select(
         &self,
