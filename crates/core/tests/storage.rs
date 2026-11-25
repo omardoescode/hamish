@@ -8,7 +8,8 @@ use std::fs;
 use std::path::Path;
 
 use ka_teb_core::{
-    Document, Dropped, LabCheck, LabFinding, Level, Provenance, StorageError, sidecar_path,
+    Document, Dropped, LabCheck, LabFinding, Level, Provenance, StorageError, TrimLevel,
+    sidecar_path,
 };
 
 /// "The rapidly fox runs.\n\nAnother paragraph." with a Word Slot (Mixed Variant active),
@@ -351,4 +352,22 @@ fn a_slot_the_sidecar_gives_no_active_variant_is_dropped_not_a_panic() {
     );
     assert_eq!(opened.document.text(), "Pick one word.");
     assert_eq!(opened.document.slots(), []);
+}
+
+#[test]
+fn an_open_trim_proposal_is_not_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("draft.md");
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    let request = document.trim_request(TrimLevel::TightenMore).unwrap();
+    document.apply_trim_result(&request, &[13..20]).unwrap();
+    document.save(&path).unwrap();
+
+    let opened = Document::open(&path).unwrap().document;
+
+    assert_eq!(opened.trim_proposal(), None);
+    assert_eq!(
+        opened.text(),
+        "The cat sat. It was very, very good. The end."
+    );
 }
