@@ -21,7 +21,7 @@ case "$prompt" in
   *STUB_DECLINED*) echo '{"type":"result","is_error":false,"result":"I will not."}'; exit 0 ;;
   *STUB_SLOW*) exec sleep 10 ;;
   *STUB_HANG*) echo $ > "$STUB_PID_FILE"; exec sleep 10 ;;
-  *STUB_PADDED*) echo '{"is_error":false,"structured_output":{"variants":["  dog\n","fox"]}}'; exit 0 ;;
+  *STUB_PADDED*) printf '%s\n' '{"is_error":false,"structured_output":{"variants":["  dog\n","fox"]}}'; exit 0 ;;
   *STUB_TRIM_CUTS*) echo '{"is_error":false,"structured_output":{"cuts":["very","missing","","very"," it"]}}'; exit 0 ;;
   *STUB_LAB_MARKS*) echo '{"is_error":false,"structured_output":{"marks":[{"quote":"cat","note":" weak ","fix":"cats"},{"quote":"missing"},{"quote":""},{"quote":"cat","note":""}]}}'; exit 0 ;;
 esac
