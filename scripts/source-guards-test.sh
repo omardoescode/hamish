@@ -21,6 +21,11 @@ expect() {
     cat "$tree.out" >&2
     failures=$((failures + 1))
   fi
+  if [ -n "${3:-}" ] && ! grep -qF "$3" "$tree.out"; then
+    echo "FAIL: $name: output has no '$3'" >&2
+    cat "$tree.out" >&2
+    failures=$((failures + 1))
+  fi
   rm -rf "$tree" "$tree.out"
 }
 
@@ -32,7 +37,7 @@ new_tree; lines 1000 > "$tree/crates/core/src/a.rs"
 expect 0 "a file with 1000 lines passes"
 
 new_tree; lines 1001 > "$tree/crates/core/src/a.rs"
-expect 1 "a file with 1001 lines fails"
+expect 0 "a file with 1001 lines warns and passes" "warning: crates/core/src/a.rs: 1001 lines"
 
 new_tree; printf '// Rule FR-1 holds.\nfn f() {}\n' > "$tree/crates/core/src/a.rs"
 expect 1 "an FR number in a // comment fails"

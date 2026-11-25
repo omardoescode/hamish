@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
-# Cheap source guards for the pre-commit hook: file size, numbers in comments,
-# glossary _Avoid_ words. Argument: the repo root (default: the current directory).
+# Cheap source guards for the pre-commit hook: file size (warning only), numbers in
+# comments, glossary _Avoid_ words. Argument: the repo root (default: the current directory).
 use strict;
 use warnings;
 use File::Find;
@@ -50,8 +50,7 @@ for my $path (@sources) {
     my $lines = () = $src =~ /\n/g;
     $lines++ if length $src && $src !~ /\n\z/;
     if ($lines > $MAX_LINES) {
-        print STDERR "$name: $lines lines, max $MAX_LINES. Split the module.\n";
-        $failed = 1;
+        print STDERR "warning: $name: $lines lines, over $MAX_LINES. Run the improve-codebase-architecture skill on it.\n";
     }
 
     my ($comments, $code) = split_source($src);

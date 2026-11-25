@@ -44,7 +44,7 @@
 | `deny.toml` | cargo-deny: banned crates, licenses, advisories, sources. |
 | `.pedant.toml` | pedant style checks (nesting, `dead_code` suppression). |
 | `.cargo-husky/hooks/` | Git hooks: pre-commit, commit-msg, pre-push. |
-| `scripts/source-guards.pl` | Pre-commit source guards: file size, numbers and spec references in comments, glossary _Avoid_ words. Tests: `scripts/source-guards-test.sh`. |
+| `scripts/source-guards.pl` | Pre-commit source guards: file size (warning only), numbers and spec references in comments, glossary _Avoid_ words. Tests: `scripts/source-guards-test.sh`. |
 | `.glossary-allow` | Known false hits of the glossary guard, each with a reason. |
 | `crates/*/tests/` | Integration tests (public API, at the seams; `crates/app/tests/`: GPUI action dispatch with the GPUI test context). |
 | `.claude/settings.json` | Claude Code project settings: attribution off, permissions, worktree hooks. |

@@ -51,7 +51,7 @@ Each concern has one owner tool. When two tools can check the same thing, the fi
 | Unused dependencies | cargo-shear (cargo's own `unused_dependencies` lint is off: `[workspace.lints.cargo]`) | `[package.metadata.cargo-shear]` for false positives |
 | Nesting: depth > 3, nested `if`, nested `match`, `if` in `match`, `match` in `if`, long `else if` chain | pedant `check` (defaults) | `.pedant.toml` |
 | `dead_code` suppression (`allow` or `expect`) | pedant `forbidden-attribute` (clippy only asks for a reason) | `.pedant.toml` |
-| Rust file under `crates/` with more than 1000 lines | source guards | `scripts/source-guards.pl` |
+| Rust file under `crates/` with more than 1000 lines: run the improve-codebase-architecture skill on it | source guards (warning only, does not block) | `scripts/source-guards.pl` |
 | Requirement or issue numbers (`FR-12`, `NFR`, `#12`) and the word "spec" in comments | source guards | `scripts/source-guards.pl` |
 | Glossary _Avoid_ words (CONTEXT.md) in identifiers and comments | source guards; known false hits with a reason | `.glossary-allow` |
 
