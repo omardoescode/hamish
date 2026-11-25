@@ -5,6 +5,7 @@
     reason = "gpui's Action derive builds actions from key binding JSON"
 )]
 mod actions;
+mod alternatives_panel;
 mod context_menu;
 mod edit_history;
 mod editor;
@@ -13,6 +14,10 @@ mod workspace;
 
 use std::borrow::Cow;
 
+use actions::{
+    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, SelectNextVariant,
+    SelectPreviousVariant,
+};
 use gpui::{App, KeyBinding};
 
 pub use actions::{
@@ -21,6 +26,7 @@ pub use actions::{
     SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
     ToggleChrome, ToggleGhost, Undo,
 };
+pub use alternatives_panel::{AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use theme::Theme;
@@ -64,6 +70,16 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-/", ToggleGhost, editor),
         KeyBinding::new("ctrl-shift-x", Stash, editor),
         KeyBinding::new("escape", CloseMenu, editor),
+    ]);
+    let panel = Some("AlternativesPanel");
+    cx.bind_keys([
+        KeyBinding::new("up", SelectPreviousVariant, panel),
+        KeyBinding::new("down", SelectNextVariant, panel),
+        KeyBinding::new("enter", ConfirmVariant, panel),
+        KeyBinding::new("escape", ClosePanel, panel),
+        KeyBinding::new("backspace", DeleteBackward, panel),
+        KeyBinding::new("ctrl-backspace", DeleteVariant, panel),
+        KeyBinding::new("ctrl-v", Paste, panel),
     ]);
     Ok(())
 }

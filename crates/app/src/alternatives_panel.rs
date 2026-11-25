@@ -1,0 +1,377 @@
+use std::ops::Range;
+
+use gpui::{
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
+    Modifiers, Render, Subscription, Window, div, prelude::*, px,
+};
+use ka_teb_core::{Level, Provenance, SlotId};
+
+use crate::actions::{
+    ClosePanel, ConfirmVariant, DeleteBackward, Paste, SelectNextVariant, SelectPreviousVariant,
+};
+use crate::{Editor, Theme};
+
+/// Width of the left Alternatives panel (spec "Theme Mapping": about 205 px).
+const PANEL_WIDTH: f32 = 205.;
+
+/// One Variant row of the Alternatives panel (FR-22, FR-23).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantRow {
+    pub text: String,
+    pub provenance: Provenance,
+    /// The Active variant: bright, with an accent marker.
+    pub active: bool,
+}
+
+/// What the panel shows: a Slot, or text with no Slot yet (its text is the Original).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Target {
+    Slot(SlotId),
+    Text { range: Range<usize>, level: Level },
+    Nothing,
+}
+
+/// The left Alternatives panel (FR-19 to FR-27). It changes the Document only through
+/// the [`Editor`], so each change is one editor undo step.
+pub struct AlternativesPanel {
+    editor: Entity<Editor>,
+    focus_handle: FocusHandle,
+    target: Target,
+    /// The selected row: a Variant, or `rows().len()` for the last row, which takes a new one.
+    row: usize,
+    /// The text typed in the last row.
+    draft: String,
+    /// The text of the selected Variant while the writer edits it (FR-26).
+    editing: Option<String>,
+    _editor_changes: Subscription,
+}
+
+impl AlternativesPanel {
+    pub(crate) fn new(editor: Entity<Editor>, cx: &mut Context<Self>) -> Self {
+        let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        let mut panel = Self {
+            editor,
+            focus_handle: cx.focus_handle(),
+            target: Target::Nothing,
+            row: 0,
+            draft: String::new(),
+            editing: None,
+            _editor_changes: editor_changes,
+        };
+        panel.target = panel.target_at_editor(cx);
+        panel.row = panel.rows(cx).len();
+        panel
+    }
+
+    /// The Slot that holds the editor target (innermost first), else the target text.
+    fn target_at_editor(&self, cx: &App) -> Target {
+        let editor = self.editor.read(cx);
+        let range = editor.target();
+        let document = editor.document();
+        let slot = document
+            .slots()
+            .into_iter()
+            .rev()
+            .find(|slot| slot.range.start <= range.start && range.end <= slot.range.end);
+        if let Some(slot) = slot {
+            return Target::Slot(slot.id);
+        }
+        if range.is_empty() {
+            return Target::Nothing;
+        }
+        let level = level_for(document.text(), &range);
+        Target::Text { range, level }
+    }
+
+    /// The Level tab that is active (FR-20). `None` with nothing to show.
+    #[must_use]
+    pub fn level(&self, cx: &App) -> Option<Level> {
+        match &self.target {
+            Target::Slot(id) => self
+                .editor
+                .read(cx)
+                .document()
+                .slot(*id)
+                .map(|slot| slot.level),
+            Target::Text { level, .. } => Some(*level),
+            Target::Nothing => None,
+        }
+    }
+
+    /// The Variants in order, the Original first (FR-22).
+    #[must_use]
+    pub fn rows(&self, cx: &App) -> Vec<VariantRow> {
+        let document = self.editor.read(cx).document();
+        match &self.target {
+            Target::Slot(id) => document.slot(*id).map_or_default(|slot| {
+                slot.variants
+                    .iter()
+                    .enumerate()
+                    .map(|(index, variant)| VariantRow {
+                        text: variant.text().to_owned(),
+                        provenance: variant.provenance(),
+                        active: index == slot.active,
+                    })
+                    .collect()
+            }),
+            Target::Text { range, .. } => document
+                .text()
+                .get(range.clone())
+                .map(|text| VariantRow {
+                    text: text.to_owned(),
+                    provenance: Provenance::Writer,
+                    active: true,
+                })
+                .into_iter()
+                .collect(),
+            Target::Nothing => Vec::new(),
+        }
+    }
+}
+
+impl AlternativesPanel {
+    /// FR-24, FR-26: Return saves the edit in progress, starts an edit on a Variant row,
+    /// or adds the draft of the last row as a Variant.
+    fn confirm(&mut self, _: &ConfirmVariant, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(text) = self.editing.take() {
+            self.save_edit(&text, cx);
+            return;
+        }
+        let rows = self.rows(cx);
+        let Some(row) = rows.get(self.row) else {
+            self.add(cx);
+            return;
+        };
+        if matches!(self.target, Target::Slot(_)) {
+            self.editing = Some(row.text.clone());
+            cx.notify();
+        }
+    }
+
+    /// FR-26: sets the text of the selected Variant, as a writer edit.
+    fn save_edit(&mut self, text: &str, cx: &mut Context<Self>) {
+        cx.notify();
+        let Target::Slot(id) = self.target else {
+            return;
+        };
+        let row = self.row;
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.change_document(|document| document.edit_variant(id, row, text), cx)
+            })
+            .ok();
+    }
+
+    /// FR-24: adds the draft as a Variant. With no Slot yet, it makes one over the target
+    /// text, the Original first. The Active variant stays.
+    fn add(&mut self, cx: &mut Context<Self>) {
+        if self.draft.is_empty() {
+            return;
+        }
+        let draft = self.draft.clone();
+        let added = match self.target.clone() {
+            Target::Slot(id) => self
+                .editor
+                .update(cx, |editor, cx| {
+                    editor.change_document(
+                        |document| document.add_variant(id, &draft, Provenance::Writer),
+                        cx,
+                    )
+                })
+                .is_ok(),
+            Target::Text { range, level } => {
+                let created = self.editor.update(cx, |editor, cx| {
+                    editor.change_document(
+                        |document| document.create_slot(range, level, &draft, Provenance::Writer),
+                        cx,
+                    )
+                });
+                created.map(|id| self.target = Target::Slot(id)).is_ok()
+            }
+            Target::Nothing => false,
+        };
+        if added {
+            self.draft.clear();
+            self.row = self.rows(cx).len();
+            cx.notify();
+        }
+    }
+
+    fn select_previous(
+        &mut self,
+        _: &SelectPreviousVariant,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select(self.row.saturating_sub(1), cx);
+    }
+
+    fn select_next(&mut self, _: &SelectNextVariant, _: &mut Window, cx: &mut Context<Self>) {
+        self.select(self.row + 1, cx);
+    }
+
+    /// FR-25: selects row `row`. A Variant row shows that Variant in the Document at once,
+    /// as one undo step; the last row changes nothing.
+    fn select(&mut self, row: usize, cx: &mut Context<Self>) {
+        let row = row.min(self.rows(cx).len());
+        self.row = row;
+        self.editing = None;
+        cx.notify();
+        let Target::Slot(id) = self.target else {
+            return;
+        };
+        let active = self
+            .editor
+            .read(cx)
+            .document()
+            .slot(id)
+            .map(|slot| slot.active);
+        if active.is_none_or(|active| active == row) {
+            return;
+        }
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.change_document(|document| document.set_active(id, row), cx)
+            })
+            .ok();
+    }
+
+    /// FR-24: Esc closes the panel.
+    /// Esc while editing drops the edit.
+    fn close(&mut self, _: &ClosePanel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.editing.take().is_some() {
+            cx.notify();
+            return;
+        }
+        cx.emit(PanelEvent::Close);
+    }
+
+    fn delete_backward(&mut self, _: &DeleteBackward, _: &mut Window, cx: &mut Context<Self>) {
+        let text = match self.editing.as_mut() {
+            Some(text) => text,
+            None => &mut self.draft,
+        };
+        text.pop();
+        cx.notify();
+    }
+
+    fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        self.type_text(&text, cx);
+    }
+
+    /// Typed text goes into the draft of the last row.
+    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        let Some(typed) = keystroke.key_char.as_ref() else {
+            return;
+        };
+        if !keystroke.modifiers.is_subset_of(&Modifiers::shift()) {
+            return;
+        }
+        self.type_text(typed, cx);
+        cx.stop_propagation();
+    }
+
+    /// Typed text goes into the edit in progress, else into the last row, which it selects.
+    fn type_text(&mut self, typed: &str, cx: &mut Context<Self>) {
+        let typed = typed.replace('\n', " ");
+        cx.notify();
+        if let Some(text) = self.editing.as_mut() {
+            text.push_str(&typed);
+            return;
+        }
+        self.row = self.rows(cx).len();
+        self.draft.push_str(&typed);
+    }
+}
+
+/// The Level a new Slot over `range` of `text` gets: Paragraph for a whole paragraph or
+/// more, Sentence for text with sentence-end punctuation, else Word (a word or short phrase).
+fn level_for(text: &str, range: &Range<usize>) -> Level {
+    let selected = text.get(range.clone()).unwrap_or_default();
+    let start = text
+        .get(..range.start)
+        .and_then(|before| before.rfind('\n'))
+        .map_or(0, |newline| newline + 1);
+    let end = text
+        .get(range.end..)
+        .and_then(|after| after.find('\n'))
+        .map_or(text.len(), |newline| range.end + newline);
+    let paragraph = text.get(start..end).unwrap_or_default().trim();
+    if selected.contains('\n') || (!paragraph.is_empty() && selected.trim() == paragraph) {
+        return Level::Paragraph;
+    }
+    if selected.contains(['.', '!', '?']) {
+        return Level::Sentence;
+    }
+    Level::Word
+}
+
+impl EventEmitter<PanelEvent> for AlternativesPanel {}
+
+/// What the panel asks of the Workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PanelEvent {
+    Close,
+}
+
+impl Focusable for AlternativesPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for AlternativesPanel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = *cx.global::<Theme>();
+        div()
+            .id("alternatives-panel")
+            .key_context("AlternativesPanel")
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(Self::close))
+            .on_action(cx.listener(Self::select_previous))
+            .on_action(cx.listener(Self::select_next))
+            .on_action(cx.listener(Self::delete_backward))
+            .on_action(cx.listener(Self::paste))
+            .on_key_down(cx.listener(Self::on_key_down))
+            .occlude()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left_0()
+            .w(px(PANEL_WIDTH))
+            .bg(theme.panel_background)
+            .border_r_1()
+            .border_color(theme.panel_border)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ka_teb_core::Level;
+
+    use super::level_for;
+
+    const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
+
+    #[test]
+    fn a_word_or_short_phrase_is_word_level() {
+        assert_eq!(level_for(TEXT, &(10..18)), Level::Word);
+        assert_eq!(level_for(TEXT, &(6..18)), Level::Word);
+    }
+
+    #[test]
+    fn text_with_sentence_end_punctuation_is_sentence_level() {
+        assert_eq!(level_for(TEXT, &(6..25)), Level::Sentence);
+    }
+
+    #[test]
+    fn a_whole_paragraph_or_text_across_lines_is_paragraph_level() {
+        assert_eq!(level_for(TEXT, &(6..37)), Level::Paragraph);
+        assert_eq!(level_for(TEXT, &(26..42)), Level::Paragraph);
+    }
+}

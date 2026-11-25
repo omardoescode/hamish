@@ -276,11 +276,25 @@ impl Editor {
         let Some(id) = self.hovered else {
             return false;
         };
-        let old_text = self.document.text().to_owned();
-        if self.document.cycle_active(id, cycle).is_err() {
+        if self
+            .change_document(|document| document.cycle_active(id, cycle), cx)
+            .is_err()
+        {
             self.hovered = None;
             return false;
         }
+        true
+    }
+
+    /// Runs one Document API call that makes at most one core undo step, as one editor
+    /// undo step. The selection follows the text change.
+    pub(crate) fn change_document<T, E>(
+        &mut self,
+        change: impl FnOnce(&mut Document) -> Result<T, E>,
+        cx: &mut Context<Self>,
+    ) -> Result<T, E> {
+        let old_text = self.document.text().to_owned();
+        let done = change(&mut self.document)?;
         let new_text = self.document.text();
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
@@ -290,7 +304,7 @@ impl Editor {
             .record(EditKind::Other, before, self.selection.clone());
         self.history.close();
         cx.notify();
-        true
+        Ok(done)
     }
 
     fn move_to_line_start(&mut self, _: &MoveToLineStart, _: &mut Window, cx: &mut Context<Self>) {
@@ -455,7 +469,7 @@ impl Editor {
 
     /// What the menu actions act on: the selection, else the word at the cursor (FR-29),
     /// else the cursor.
-    fn target(&self) -> Range<usize> {
+    pub(crate) fn target(&self) -> Range<usize> {
         if !self.selection.is_empty() {
             return self.selection.clone();
         }

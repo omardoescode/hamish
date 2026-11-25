@@ -4,13 +4,15 @@ use gpui::{
 };
 use ka_teb_core::Document;
 
-use crate::actions::ToggleChrome;
-use crate::{Editor, Theme};
+use crate::actions::{OpenAlternatives, ToggleChrome};
+use crate::alternatives_panel::PanelEvent;
+use crate::{AlternativesPanel, Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
 pub struct Workspace {
     editor: Entity<Editor>,
     chrome_visible: bool,
+    alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
     _editor_changes: Subscription,
 }
 
@@ -22,6 +24,7 @@ impl Workspace {
         Self {
             editor,
             chrome_visible: false,
+            alternatives: None,
             _editor_changes: editor_changes,
         }
     }
@@ -35,6 +38,39 @@ impl Workspace {
     #[must_use]
     pub fn chrome_visible(&self) -> bool {
         self.chrome_visible
+    }
+
+    /// The open Alternatives panel; `None` when it is closed.
+    #[must_use]
+    pub fn alternatives_panel(&self) -> Option<&Entity<AlternativesPanel>> {
+        self.alternatives.as_ref().map(|(panel, _)| panel)
+    }
+
+    /// FR-19: opens the Alternatives panel on the editor target and focuses it.
+    fn open_alternatives(
+        &mut self,
+        _: &OpenAlternatives,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.clone();
+        let panel = cx.new(|cx| AlternativesPanel::new(editor, cx));
+        let events = cx.subscribe_in(
+            &panel,
+            window,
+            |workspace, _, event, window, cx| match event {
+                PanelEvent::Close => workspace.close_alternatives(window, cx),
+            },
+        );
+        window.focus(&panel.focus_handle(cx));
+        self.alternatives = Some((panel, events));
+        cx.notify();
+    }
+
+    fn close_alternatives(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.alternatives = None;
+        window.focus(&self.editor.focus_handle(cx));
+        cx.notify();
     }
 
     fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
@@ -60,6 +96,7 @@ impl Render for Workspace {
             .bg(theme.background)
             .font_family(theme.font_family)
             .on_action(cx.listener(Self::toggle_chrome))
+            .on_action(cx.listener(Self::open_alternatives))
             .child(self.editor.clone())
             .child(
                 div()
@@ -91,6 +128,9 @@ impl Render for Workspace {
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
                     .child(counter_label),
             )
+            .when_some(self.alternatives_panel().cloned(), |workspace, panel| {
+                workspace.child(panel)
+            })
             .when(self.chrome_visible, |workspace| {
                 workspace.child(
                     div()
