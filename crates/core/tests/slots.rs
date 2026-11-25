@@ -536,3 +536,50 @@ fn refused_or_empty_operations_add_no_undo_step() {
     expect_state(&document, "The cat sat.", &[]);
     assert!(!document.undo());
 }
+
+#[test]
+fn variant_switch_in_a_nested_slot_keeps_the_outer_ai_variant_ai() {
+    let mut document = Document::new("The cat sat.");
+    let paragraph = document
+        .create_slot(0..12, Level::Paragraph, "A dog ran.", Provenance::Ai)
+        .unwrap();
+    document.set_active(paragraph, 1).unwrap();
+    let word = document
+        .create_slot(2..5, Level::Word, "wolf", Provenance::Writer)
+        .unwrap();
+    document.set_active(word, 1).unwrap();
+    document.cycle_active(word, Cycle::Next).unwrap();
+    document.set_active(word, 1).unwrap();
+    assert_eq!(document.text(), "A wolf ran.");
+    assert_eq!(
+        variant_texts(&document, paragraph),
+        ["The cat sat.", "A wolf ran."]
+    );
+    assert_eq!(
+        document.slot(paragraph).unwrap().variants[1].provenance(),
+        Provenance::Ai
+    );
+}
+
+#[test]
+fn writer_edit_of_a_nested_active_variant_makes_the_outer_ai_variant_mixed() {
+    let mut document = Document::new("The cat sat.");
+    let paragraph = document
+        .create_slot(0..12, Level::Paragraph, "A dog ran.", Provenance::Ai)
+        .unwrap();
+    document.set_active(paragraph, 1).unwrap();
+    let word = document
+        .create_slot(2..5, Level::Word, "wolf", Provenance::Writer)
+        .unwrap();
+    document.edit_variant(word, 1, "fox").unwrap();
+    assert_eq!(
+        document.slot(paragraph).unwrap().variants[1].provenance(),
+        Provenance::Ai
+    );
+    document.edit_variant(word, 0, "pup").unwrap();
+    assert_eq!(document.text(), "A pup ran.");
+    assert_eq!(
+        document.slot(paragraph).unwrap().variants[1].provenance(),
+        Provenance::Mixed
+    );
+}

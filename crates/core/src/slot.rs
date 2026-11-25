@@ -194,7 +194,7 @@ impl SlotNode {
         &mut self,
         edit: &Range<usize>,
         inserted: usize,
-        changed: bool,
+        writer_edit: bool,
         except: Option<SlotId>,
     ) {
         let removed = edit.len();
@@ -204,7 +204,7 @@ impl SlotNode {
                     self.range.start + inserted - removed..self.range.end + inserted - removed;
             }
             Relation::After | Relation::Covered => {}
-            Relation::Within => self.take_within(edit, inserted, changed, except),
+            Relation::Within => self.take_within(edit, inserted, writer_edit, except),
             Relation::PartialLeft => self.lose_left(edit, inserted),
             Relation::PartialRight => self.lose_right(edit),
         }
@@ -214,15 +214,15 @@ impl SlotNode {
         &mut self,
         edit: &Range<usize>,
         inserted: usize,
-        changed: bool,
+        writer_edit: bool,
         except: Option<SlotId>,
     ) {
         let local = offset_back(edit, self.range.start);
         if let Ok(children) = self.children_mut() {
-            shift(children, &local, inserted, changed, except);
+            shift(children, &local, inserted, writer_edit, except);
         }
         self.range.end = self.range.end + inserted - edit.len();
-        self.mark_edited(changed);
+        self.mark_edited(writer_edit);
     }
 
     fn lose_left(&mut self, edit: &Range<usize>, inserted: usize) {
@@ -243,12 +243,12 @@ impl SlotNode {
         self.mark_edited(true);
     }
 
-    fn mark_edited(&mut self, changed: bool) {
+    fn mark_edited(&mut self, writer_edit: bool) {
         let active = self.active;
         let Some(variant) = self.variants.get_mut(active) else {
             return;
         };
-        if changed {
+        if writer_edit {
             variant.mark_edited();
         }
     }
@@ -357,19 +357,20 @@ pub(crate) fn dissolve(slots: &mut Vec<SlotNode>, id: SlotId) {
 }
 
 /// Moves, trims, or removes Slots for a text edit: `edit` (relative to the text that holds
-/// `slots`) was replaced by `inserted` bytes. `changed`: the edit changed the text.
+/// `slots`) was replaced by `inserted` bytes. `writer_edit`: the writer changed the text,
+/// so an AI Variant that holds the edit becomes Mixed.
 /// Slot `except` is left as it is. A Slot inside the removed text ends.
 pub(crate) fn shift(
     slots: &mut Vec<SlotNode>,
     edit: &Range<usize>,
     inserted: usize,
-    changed: bool,
+    writer_edit: bool,
     except: Option<SlotId>,
 ) {
     slots
         .retain(|node| Some(node.id) == except || relation(&node.range, edit) != Relation::Covered);
     for node in slots.iter_mut().filter(|node| Some(node.id) != except) {
-        node.follow(edit, inserted, changed, except);
+        node.follow(edit, inserted, writer_edit, except);
     }
 }
 
