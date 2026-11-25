@@ -2793,6 +2793,8 @@ dependencies = [
  "cargo-husky",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

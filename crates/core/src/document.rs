@@ -633,6 +633,40 @@ impl Document {
         step.inverse()
     }
 
+    /// A Document with no edit history, as open restores it. The Active variant texts
+    /// of `slots` must match their ranges of `text`.
+    pub(crate) fn restored(
+        text: String,
+        slots: Vec<SlotNode>,
+        ghosts: Vec<Range<usize>>,
+        overflow: Overflow,
+        lab_marks: Vec<LabMark>,
+    ) -> Self {
+        let next_slot = SlotId(slot::max_id(&slots)).next();
+        let last_mark = lab_marks.iter().map(|mark| mark.id.0).max().unwrap_or(0);
+        Self {
+            text,
+            slots,
+            ghosts,
+            overflow,
+            next_slot,
+            lab_marks,
+            next_lab_mark: LabMarkId(last_mark).next(),
+            undo_steps: Vec::new(),
+            redo_steps: Vec::new(),
+        }
+    }
+
+    /// The top-level Slots of the tree (ADR 0006).
+    pub(crate) fn slot_nodes(&self) -> &[SlotNode] {
+        &self.slots
+    }
+
+    /// The Ghost ranges that are not nested in a Slot.
+    pub(crate) fn top_ghosts(&self) -> &[Range<usize>] {
+        &self.ghosts
+    }
+
     /// A Tree with `slots`, `ghosts`, and the current Overflow.
     fn tree(&self, slots: Vec<SlotNode>, ghosts: Vec<Range<usize>>) -> Tree {
         Tree {

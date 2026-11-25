@@ -38,6 +38,10 @@ impl From<RangeError> for OverflowError {
 }
 
 impl Overflow {
+    pub(crate) fn new(text: String) -> Self {
+        Self { text }
+    }
+
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
