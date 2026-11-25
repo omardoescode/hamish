@@ -74,3 +74,42 @@ fn a_ghost_boundary_splits_words_for_the_counter() {
     document.ghost(1..3).unwrap();
     assert_eq!(document.counter().to_string(), "2 words 2 chars");
 }
+
+#[test]
+fn editing_inside_a_ghost_range_keeps_it_ghost() {
+    let mut document = Document::new("Keep this aside now.");
+    document.ghost(5..15).unwrap();
+    document.replace(10..15, "away").unwrap();
+    assert_eq!(document.text(), "Keep this away now.");
+    assert_eq!(document.ghost_ranges(), [5..14]);
+    document.replace(5..14, "it").unwrap();
+    assert_eq!(document.text(), "Keep it now.");
+    assert_eq!(document.ghost_ranges(), [5..7]);
+}
+
+#[test]
+fn ghost_ranges_move_with_text_edits_around_them() {
+    let mut document = Document::new("Keep this aside now.");
+    document.ghost(5..15).unwrap();
+    document.insert(0, "Do ").unwrap();
+    assert_eq!(document.ghost_ranges(), [8..18]);
+    document.insert(18, " right").unwrap();
+    assert_eq!(document.text(), "Do Keep this aside right now.");
+    assert_eq!(document.ghost_ranges(), [8..18]);
+    document.insert(8, "all ").unwrap();
+    assert_eq!(document.ghost_ranges(), [12..22]);
+}
+
+#[test]
+fn deleting_part_of_a_ghost_range_trims_it_and_deleting_all_of_it_ends_it() {
+    let mut document = Document::new("Keep this aside now.");
+    document.ghost(5..15).unwrap();
+    document.delete(0..7).unwrap();
+    assert_eq!(document.text(), "is aside now.");
+    assert_eq!(document.ghost_ranges(), [0..8]);
+    document.delete(0..9).unwrap();
+    assert_eq!(document.text(), "now.");
+    assert_eq!(document.ghost_ranges(), []);
+    assert!(document.undo());
+    assert_eq!(document.ghost_ranges(), [0..8]);
+}

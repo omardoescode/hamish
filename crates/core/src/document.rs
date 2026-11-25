@@ -390,7 +390,8 @@ impl Document {
         let writer_edit = removed != text;
         let mut slots = self.slots.clone();
         slot::shift(&mut slots, &range, text.len(), writer_edit, None);
-        let ghosts = self.ghosts.clone();
+        let mut ghosts = self.ghosts.clone();
+        slot::shift_ghosts(&mut ghosts, &range, text.len());
         self.commit(range, text, Tree { slots, ghosts })
     }
 

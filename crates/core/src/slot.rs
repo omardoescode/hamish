@@ -386,6 +386,23 @@ pub(crate) fn shift(
     }
 }
 
+/// Moves, trims, or removes Ghost ranges for a text edit, as [`shift`] does for Slots.
+/// A Ghost range left empty ends.
+pub(crate) fn shift_ghosts(ghosts: &mut Vec<Range<usize>>, edit: &Range<usize>, inserted: usize) {
+    let removed = edit.len();
+    for ghost in ghosts.iter_mut() {
+        *ghost = match relation(ghost, edit) {
+            Relation::Before => ghost.start + inserted - removed..ghost.end + inserted - removed,
+            Relation::After => ghost.clone(),
+            Relation::Within => ghost.start..ghost.end + inserted - removed,
+            Relation::PartialLeft => edit.start + inserted..ghost.end + inserted - removed,
+            Relation::PartialRight => ghost.start..edit.start,
+            Relation::Covered => 0..0,
+        };
+    }
+    ghosts.retain(|ghost| !ghost.is_empty());
+}
+
 /// Where a text edit lies, seen from a Slot range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Relation {
