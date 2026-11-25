@@ -813,6 +813,11 @@ impl CaretView for Editor {
     }
 
     fn select(&mut self, caret: Caret, cx: &mut Context<Self>) {
+        let caret = if vim_on(cx) {
+            self.vim.settle(self.session.document().text(), caret)
+        } else {
+            caret
+        };
         self.session.select(caret);
         self.autoscroll = true;
         cx.notify();

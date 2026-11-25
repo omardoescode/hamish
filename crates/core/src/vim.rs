@@ -93,6 +93,16 @@ impl Vim {
         format!("{} {pending}", self.mode.label())
     }
 
+    /// `caret` as Vim mode shows it in `text`. In Normal mode an empty caret past the
+    /// last char of a line goes onto that char; on an empty line it stays.
+    #[must_use]
+    pub fn settle(&self, text: &str, caret: Caret) -> Caret {
+        if self.mode == VimMode::Insert || !caret.selection().is_empty() {
+            return caret;
+        }
+        Caret::at(normal_offset(text, caret.clamped(text).offset()))
+    }
+
     /// Reads `key` with `caret` in `text` and gives the command for it. In Normal mode
     /// a caret on a line end acts from the last char of the line.
     pub fn key(&mut self, key: VimKey, text: &str, caret: &Caret) -> VimCommand {

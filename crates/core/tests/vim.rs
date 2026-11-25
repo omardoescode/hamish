@@ -200,3 +200,22 @@ fn the_mode_labels_read_normal_and_insert() {
     assert_eq!(VimMode::Normal.label(), "NORMAL");
     assert_eq!(VimMode::Insert.label(), "INSERT");
 }
+
+#[test]
+fn in_normal_mode_a_caret_set_past_the_last_char_settles_on_it() {
+    let text = "ab\n\ncd";
+    let vim = Vim::default();
+    let settled = |caret: Caret| vim.settle(text, caret).selection();
+    assert_eq!(settled(Caret::at(2)), 1..1);
+    assert_eq!(settled(Caret::at(6)), 5..5);
+    assert_eq!(settled(Caret::at(3)), 3..3);
+    assert_eq!(settled(Caret::at(1)), 1..1);
+    assert_eq!(settled(Caret::over(0..2)), 0..2);
+}
+
+#[test]
+fn in_insert_mode_a_caret_set_on_the_line_end_stays() {
+    let mut vim = Vim::default();
+    vim.key(VimKey::Char('i'), "ab", &Caret::at(0));
+    assert_eq!(vim.settle("ab", Caret::at(2)).selection(), 2..2);
+}
