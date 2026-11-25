@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use gpui::{App, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window};
-use ka_teb_core::{Level, MarkdownSpan, MarkdownStyle};
+use hamish_core::{Level, MarkdownSpan, MarkdownStyle};
 
 use super::Editor;
 use crate::Theme;
@@ -146,26 +146,48 @@ pub(super) fn spans(
     );
     edges.sort_unstable();
     edges.dedup();
-    let within = |ranges: &[Range<usize>], start: usize, end: usize| {
-        ranges
-            .iter()
-            .any(|range| range.start <= start && end <= range.end)
+    let count = edges.len().saturating_sub(1);
+    // Span i runs from edges[i] to edges[i + 1]; each range edge is an edge, so a range
+    // holds a run of whole spans.
+    let spans_in = |range: &Range<usize>| {
+        edges.partition_point(|&edge| edge < range.start)
+            ..edges.partition_point(|&edge| edge < range.end)
     };
+    let within = |ranges: &[Range<usize>]| {
+        let mut inside = vec![false; count];
+        for index in ranges.iter().flat_map(spans_in) {
+            if let Some(flag) = inside.get_mut(index) {
+                *flag = true;
+            }
+        }
+        inside
+    };
+    let (underlined, ghost, faded) = (within(underlined), within(ghosts), within(cuts));
+    let bright = bright.map(|bright| within(std::slice::from_ref(bright)));
+    let mut styles: Vec<Vec<MarkdownStyle>> = vec![Vec::new(); count];
+    for span in markdown {
+        for index in spans_in(&span.range) {
+            if let Some(over) = styles.get_mut(index) {
+                over.push(span.style);
+            }
+        }
+    }
     edges
         .iter()
         .zip(edges.iter().skip(1))
-        .map(|(&start, &end)| Span {
-            range: start..end,
-            title: end <= title_end,
-            underlined: within(underlined, start, end),
-            ghost: within(ghosts, start, end),
-            markdown: markdown
-                .iter()
-                .filter(|span| span.range.start <= start && end <= span.range.end)
-                .map(|span| span.style)
-                .collect(),
-            faded: within(cuts, start, end),
-            dimmed: bright.is_some_and(|bright| !within(std::slice::from_ref(bright), start, end)),
+        .zip(styles)
+        .enumerate()
+        .map(|(index, ((&start, &end), markdown))| {
+            let flag = |flags: &[bool]| flags.get(index).copied().unwrap_or_default();
+            Span {
+                range: start..end,
+                title: end <= title_end,
+                underlined: flag(&underlined),
+                ghost: flag(&ghost),
+                markdown,
+                faded: flag(&faded),
+                dimmed: bright.as_ref().is_some_and(|bright| !flag(bright)),
+            }
         })
         .collect()
 }
@@ -262,7 +284,7 @@ fn faded_runs(runs: &[TextRun], range: &Range<usize>, opacity: f32) -> Vec<TextR
 
 #[cfg(test)]
 mod tests {
-    use ka_teb_core::{MarkdownSpan, MarkdownStyle};
+    use hamish_core::{MarkdownSpan, MarkdownStyle};
 
     use gpui::{TextRun, font, hsla};
 
@@ -353,7 +375,7 @@ mod tests {
     #[test]
     fn heading_lines_start_at_the_line_of_each_heading() {
         let text = "# Top\nbody\n> ## Quoted\n### Low";
-        let styles = ka_teb_core::Document::new(text).markdown_styles();
+        let styles = hamish_core::Document::new(text).markdown_styles();
         assert_eq!(
             heading_lines(text, &styles),
             vec![

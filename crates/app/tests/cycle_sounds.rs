@@ -4,7 +4,7 @@ use app::{SoundSink, Sounds, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings, Sound};
+use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings, Sound};
 
 /// A fake audio device: it keeps the sounds the app asks for.
 #[derive(Default)]

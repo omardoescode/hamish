@@ -9,12 +9,13 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style,
     Window, fill, point, px, relative, size,
 };
-use ka_teb_core::{Level, Slot};
+use hamish_core::{Level, Slot, SlotId};
 
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
 use super::runs::text_runs;
-use super::{Editor, Marker, MarkerKind, focus_zoom};
+use super::synthetic_bold::{self, BoldGlyph};
+use super::{Editor, Marker, MarkerKind, Spotlight, focus_zoom};
 use crate::Theme;
 use crate::caret;
 use crate::effects::Particles;
@@ -32,6 +33,9 @@ const HOVER_RADIUS: Pixels = px(3.);
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
 
+/// One Variant dot of the Marker of a Slot (window coordinates).
+pub(super) type MarkerDot = (SlotId, Bounds<Pixels>);
+
 pub(super) struct EditorElement {
     pub(super) editor: Entity<Editor>,
 }
@@ -47,6 +51,8 @@ pub(super) struct EditorPrepaint {
     pub(super) underlines: Vec<PenStroke>,
     pub(super) caret: Option<PaintQuad>,
     pub(super) zoom: focus_zoom::Frame,
+    /// Synthetic bold glyphs of the lines that are not zoomed.
+    pub(super) bold: Vec<BoldGlyph>,
 }
 
 impl EditorElement {
@@ -66,7 +72,7 @@ impl EditorElement {
             .into_iter()
             .map(|(playing, progress)| {
                 let rows = painted
-                    .selection_quads(&playing.playing.range, Hsla::default())
+                    .text_quads(&playing.playing.range, Hsla::default())
                     .into_iter()
                     .map(|quad| quad.bounds)
                     .collect();
@@ -176,41 +182,66 @@ impl Element for EditorElement {
             painted.selection_quads(&editor.to_shown(&editor.selection()), theme.selection);
         let lab_marks = lab_mark_quads(&painted, editor, &theme);
         let slots = shown.slots();
-        let hover = editor
+        let shown_in_panel = match editor.spotlight {
+            Some(Spotlight::Slot(id)) => Some(id),
+            Some(Spotlight::Text(_)) | None => None,
+        };
+        let tinted = editor
             .hovered
-            .and_then(|id| slots.iter().find(|slot| slot.id == id))
-            .map_or_default(|slot| {
+            .into_iter()
+            .chain(shown_in_panel.filter(|id| editor.hovered != Some(*id)));
+        let hover: Vec<PaintQuad> = tinted
+            .filter_map(|id| slots.iter().find(|slot| slot.id == id))
+            .flat_map(|slot| {
                 hover_quads(
                     &painted,
                     &slot.range,
                     slot.level,
                     theme.slot_hover_background,
                 )
-            });
-        let (markers, marker_quads) = slot_markers(&painted, &slots, &theme);
-        let underlines = pen_strokes(&painted, editor, &slots, &theme);
-        let caret = editor
-            .selection()
-            .is_empty()
-            .then(|| {
-                let shown = editor
-                    .to_shown(&(editor.caret_offset()..editor.caret_offset()))
-                    .start;
-                caret::caret_quad(&painted, shown, theme.accent)
             })
-            .flatten();
+            .collect();
+        let (markers, marker_quads, marker_dots) =
+            slot_markers(&painted, shown.text(), &slots, &theme);
+        let underlines = pen_strokes(&painted, editor, &slots, &theme);
+        let caret = match editor.drop_target {
+            Some(at) => caret::caret_quad(&painted, editor.to_shown(&(at..at)).start, theme.accent),
+            None => editor
+                .selection()
+                .is_empty()
+                .then(|| {
+                    let shown = editor
+                        .to_shown(&(editor.caret_offset()..editor.caret_offset()))
+                        .start;
+                    caret::caret_quad(&painted, shown, theme.accent)
+                })
+                .flatten(),
+        };
         if editor.autoscroll {
             caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), cx);
             window.request_animation_frame();
         }
+        let text_font = runs
+            .first()
+            .map_or_else(SharedString::default, |run| run.font.family.clone());
+        let bold_ranges = synthetic_bold::ranges(&runs, window);
+        let zoom = self.focus_zoom(&painted, (&runs, &bold_ranges), window, cx);
+        let mut bold = synthetic_bold::glyphs(&painted, &runs, &bold_ranges);
+        let synthetic_bold: Vec<usize> = bold.iter().map(|glyph| glyph.offset).collect();
+        bold.retain(|glyph| !zoom.lines.iter().any(|zoomed| zoomed.line == glyph.line));
         self.editor.update(cx, |editor, _| {
+            editor.text_font = text_font;
+            editor.synthetic_bold = synthetic_bold;
             editor.autoscroll = false;
             editor.markers = markers;
+            editor.marker_dots = marker_dots;
+            editor.hover_tint = hover.iter().map(|quad| quad.bounds).collect();
             editor.underlines.clone_from(&underlines);
         });
         EditorPrepaint {
             effects: self.effect_frames(&painted, window, cx),
-            zoom: self.focus_zoom(&painted, &runs, window, cx),
+            zoom,
+            bold,
             lines: painted.lines,
             hover,
             lab_marks,
@@ -233,6 +264,7 @@ impl Element for EditorElement {
         cx: &mut App,
     ) {
         let focus_handle = self.editor.read(cx).focus_handle.clone();
+        let dropping = self.editor.read(cx).drop_target.is_some();
         window.handle_input(
             &focus_handle,
             ElementInputHandler::new(bounds, self.editor.clone()),
@@ -248,6 +280,9 @@ impl Element for EditorElement {
             window.paint_quad(quad);
         }
         let line_height = window.line_height();
+        let visible = window.content_mask().bounds;
+        let in_view =
+            |top: Pixels, bottom: Pixels| top <= visible.bottom() && bottom >= visible.top();
         let normal = prepaint.lines.iter().enumerate().filter(|(index, _)| {
             !prepaint
                 .zoom
@@ -257,11 +292,17 @@ impl Element for EditorElement {
         });
         for (_, painted) in normal {
             let origin = bounds.origin + point(px(0.), painted.top);
+            if !in_view(origin.y, origin.y + painted.line.size(line_height).height) {
+                continue;
+            }
             // A failed glyph paint leaves that line blank; the next frame tries again.
             painted
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        for glyph in &prepaint.bold {
+            glyph.paint(window);
         }
         for zoomed in &prepaint.zoom.lines {
             zoomed.paint(window);
@@ -270,12 +311,18 @@ impl Element for EditorElement {
         for (playing, progress, rows) in prepaint.effects.drain(..) {
             playing.paint(&rows, line_height, progress, background, window);
         }
-        for stroke in &prepaint.underlines {
+        let strokes = prepaint.underlines.iter().filter(|stroke| {
+            stroke
+                .centre
+                .iter()
+                .any(|at| in_view(at.y - line_height, at.y + line_height))
+        });
+        for stroke in strokes {
             if let Some(path) = stroke.path() {
                 window.paint_path(path, stroke.color);
             }
         }
-        if focus_handle.is_focused(window)
+        if (focus_handle.is_focused(window) || dropping)
             && let Some(caret) = prepaint.caret.take()
         {
             window.paint_quad(caret);
@@ -345,7 +392,7 @@ fn hover_quads(
         return vec![fill(bounds, color).corner_radii(HOVER_RADIUS)];
     }
     painted
-        .selection_quads(range, color)
+        .text_quads(range, color)
         .into_iter()
         .map(|quad| {
             let bounds = Bounds::from_corners(
@@ -357,19 +404,23 @@ fn hover_quads(
         .collect()
 }
 
-/// The Marker of each Slot in `slots` and the quads that draw them (window coordinates).
+/// The Marker of each Slot in `slots`, the quads that draw them and the bounds of each
+/// Variant dot (window coordinates).
 fn slot_markers(
     painted: &PaintedText,
+    text: &str,
     slots: &[Slot],
     theme: &Theme,
-) -> (Vec<Marker>, Vec<PaintQuad>) {
+) -> (Vec<Marker>, Vec<PaintQuad>, Vec<MarkerDot>) {
     let mut markers = Vec::new();
     let mut marker_quads = Vec::new();
+    let mut marker_dots = Vec::new();
     for (index, slot) in slots.iter().enumerate() {
         let marker = Marker {
             slot: slot.id,
             kind: match slot.level {
-                Level::Word | Level::Sentence => MarkerKind::Underline,
+                Level::Word => MarkerKind::Underline,
+                Level::Sentence => MarkerKind::SentenceUnderline,
                 Level::Paragraph => MarkerKind::MarginLine,
             },
             dots: slot.variants.len(),
@@ -384,22 +435,20 @@ fn slot_markers(
                     && slot.range.end <= outer.range.end
             })
             .count();
-        marker_quads.extend(marker_quads_for(
-            painted,
-            &slot.range,
-            &marker,
-            depth,
-            theme,
-        ));
+        let quads = marker_quads_for(painted, text, &slot.range, &marker, depth, theme);
+        let dots = quads.iter().rev().take(marker.dots).rev();
+        marker_dots.extend(dots.map(|quad| (slot.id, quad.bounds)));
+        marker_quads.extend(quads);
         markers.push(marker);
     }
-    (markers, marker_quads)
+    (markers, marker_quads, marker_dots)
 }
 
 /// The Marker of a Slot over `range` (window coordinates), less the underline, which is
 /// a text run. `depth`: how many Paragraph Slots hold it; each moves a margin line left.
 fn marker_quads_for(
     painted: &PaintedText,
+    text: &str,
     range: &Range<usize>,
     marker: &Marker,
     depth: usize,
@@ -419,6 +468,11 @@ fn marker_quads_for(
                 (row_left + end.x - dots_length) / 2.,
                 bottom - DOT_SIZE - px(1.),
             ),
+            point(DOT_SIZE + DOT_GAP, px(0.)),
+            None,
+        ),
+        MarkerKind::SentenceUnderline => (
+            sentence_dots_at(painted, text, range.end, end, dots_length),
             point(DOT_SIZE + DOT_GAP, px(0.)),
             None,
         ),
@@ -454,20 +508,64 @@ fn marker_quads_for(
     line.into_iter().chain(dots).collect()
 }
 
-/// The Lab marks and the Trim cut being walked through, as highlight quads.
+/// Where the first Variant dot of a Sentence Marker goes (local coordinates): after the
+/// sentence's last char, in the middle of its row. When the gap to the next text on the
+/// row or to the right edge is too narrow, the dots go under the row and end at the last char.
+fn sentence_dots_at(
+    painted: &PaintedText,
+    text: &str,
+    end_offset: usize,
+    end: Point<Pixels>,
+    dots_length: Pixels,
+) -> Point<Pixels> {
+    let after = end.x + DOT_GAP * 2.;
+    let next_text = text
+        .get(end_offset..)
+        .unwrap_or_default()
+        .trim_start_matches(' ');
+    let next_on_line = !next_text.is_empty() && !next_text.starts_with('\n');
+    let room = painted
+        .position_for(text.len() - next_text.len())
+        .filter(|next| next_on_line && next.y == end.y)
+        .map_or(painted.bounds.size.width, |next| next.x - DOT_GAP * 2.);
+    if after + dots_length <= room {
+        return point(after, end.y + (painted.line_height - DOT_SIZE) / 2.);
+    }
+    point(
+        (end.x - dots_length).max(px(0.)),
+        end.y + painted.line_height - DOT_SIZE - px(1.),
+    )
+}
+
+/// The Lab marks and the Trim cut being walked through, as highlight quads. The selected
+/// Lab mark gets an accent outline.
 fn lab_mark_quads(painted: &PaintedText, editor: &Editor, theme: &Theme) -> Vec<PaintQuad> {
     let walked = editor.document().trim_proposal().and_then(|proposal| {
         proposal
             .current()
             .and_then(|current| proposal.cuts().get(current))
     });
-    editor
+    let selected = editor.selected_lab_mark().map(|mark| mark.id);
+    let marks = editor
         .document()
         .lab_marks()
         .iter()
-        .map(|mark| &mark.range)
-        .chain(walked.map(|cut| &cut.range))
-        .flat_map(|range| painted.selection_quads(range, theme.lab_mark))
+        .map(|mark| (&mark.range, Some(mark.id) == selected));
+    marks
+        .chain(walked.map(|cut| (&cut.range, false)))
+        .flat_map(|(range, outlined)| {
+            painted
+                .text_quads(range, theme.lab_mark)
+                .into_iter()
+                .map(move |quad| {
+                    if outlined {
+                        quad.border_widths(px(1.))
+                            .border_color(theme.accent_outline)
+                    } else {
+                        quad
+                    }
+                })
+        })
         .collect()
 }
 

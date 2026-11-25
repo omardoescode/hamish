@@ -1,15 +1,13 @@
-//! The right-click context menu of the editor and the word and Ghost tests its rows use.
-
-use std::ops::Range;
+//! The right-click context menu of the editor.
 
 use gpui::{
     Action, App, Corner, IntoElement, MouseDownEvent, Pixels, Point, Window, anchored, deferred,
     div, prelude::*, px,
 };
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleGhost};
+use crate::chrome::{clickable_row, popover_surface};
 
 /// One row of the context menu: its label and its shortcut.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,16 +75,13 @@ impl ContextMenu {
                 .zip(actions)
                 .enumerate()
                 .map(|(index, (item, action))| {
-                    div()
+                    clickable_row(theme)
                         .id(("context-menu-row", index))
                         .debug_selector(|| format!("context-menu-row-{index}"))
                         .flex()
                         .justify_between()
                         .gap(px(24.))
                         .px(px(12.))
-                        .rounded(theme.elevated_radius)
-                        .cursor_pointer()
-                        .hover(|row| row.bg(theme.elevated_row_hover))
                         .on_click(move |_, window, cx| {
                             window.dispatch_action(action.boxed_clone(), cx);
                         })
@@ -99,64 +94,13 @@ impl ContextMenu {
                 .anchor(Corner::TopLeft)
                 .snap_to_window()
                 .child(
-                    div()
+                    popover_surface(theme)
                         .id("context-menu")
                         .occlude()
                         .p(px(4.))
-                        .bg(theme.elevated_background)
-                        .rounded(theme.elevated_radius)
-                        .shadow_md()
                         .on_mouse_down_out(dismiss)
                         .children(rows),
                 ),
         )
-    }
-}
-
-/// The word at `offset`: the run of word chars `offset` lies in or on an edge of.
-pub(crate) fn word_at(text: &str, offset: usize) -> Option<Range<usize>> {
-    text.split_word_bound_indices()
-        .filter(|(_, word)| word.chars().any(char::is_alphanumeric))
-        .map(|(start, word)| start..start + word.len())
-        .find(|word| word.start <= offset && offset <= word.end)
-}
-
-/// `target` touches a Ghost range: it overlaps one, or as a caret lies in or on an edge of one.
-pub(crate) fn touches_ghost(ghosts: &[Range<usize>], target: &Range<usize>) -> bool {
-    ghosts.iter().any(|ghost| {
-        let overlaps = ghost.start < target.end && target.start < ghost.end;
-        let holds_caret =
-            target.is_empty() && ghost.start <= target.start && target.start <= ghost.end;
-        overlaps || holds_caret
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{touches_ghost, word_at};
-
-    #[test]
-    fn the_word_at_an_offset_includes_its_edges() {
-        let text = "The customer waits.";
-        assert_eq!(word_at(text, 7), Some(4..12));
-        assert_eq!(word_at(text, 4), Some(4..12));
-        assert_eq!(word_at(text, 12), Some(4..12));
-        assert_eq!(word_at(text, 0), Some(0..3));
-    }
-
-    #[test]
-    fn spaces_and_punctuation_are_no_word() {
-        assert_eq!(word_at("a  . b", 2), None);
-        assert_eq!(word_at("a  . b", 4), None);
-    }
-
-    #[test]
-    fn a_caret_on_the_edge_of_a_ghost_touches_it_and_a_range_beside_it_does_not() {
-        let ghosts = [4..12, 20..25];
-        assert!(touches_ghost(&ghosts, &(12..12)));
-        assert!(touches_ghost(&ghosts, &(10..14)));
-        assert!(!touches_ghost(&ghosts, &(12..14)));
-        assert!(!touches_ghost(&ghosts, &(0..3)));
-        assert!(touches_ghost(&ghosts, &(24..30)));
     }
 }

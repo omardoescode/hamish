@@ -1,4 +1,4 @@
-//! Ka-teb app: thin GPUI views over the core Document API.
+//! Hamish app: thin GPUI views over the core Document API.
 
 #[expect(
     clippy::disallowed_types,
@@ -8,6 +8,7 @@ mod actions;
 mod ai;
 mod alternatives_panel;
 mod caret;
+mod chrome;
 mod context_menu;
 mod editor;
 mod effects;
@@ -25,23 +26,25 @@ mod workspace;
 use std::borrow::Cow;
 
 use actions::{
-    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, SelectNextVariant,
-    SelectPreviousVariant,
+    ClosePanel, CloseSelect, ConfirmVariant, DeleteBackward, DeleteQueryBackward, DeleteVariant,
+    MoveWordLeft, MoveWordRight, NextRow, PickRow, PreviousRow, SelectNextVariant,
+    SelectPreviousVariant, SelectWordLeft, SelectWordRight,
 };
 use gpui::{App, KeyBinding};
 
 pub use actions::{
     AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, DeleteActiveVariant,
-    LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline,
-    Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs, SelectAll, SelectDown,
-    SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome,
-    ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
+    LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp,
+    NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs,
+    SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp,
+    Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};
-pub use alternatives_panel::{AiAlternativesError, AlternativesPanel, VariantRow};
+pub use alternatives_panel::AlternativesPanel;
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
+pub use hamish_core::{AiAlternativesError, VariantRow};
 pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
@@ -52,7 +55,7 @@ pub use theme::Theme;
 pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
 pub use workspace::Workspace;
 
-/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the default settings
+/// Loads the bundled font (Regular, Bold, Italic, Bold Italic), sets the default settings
 /// and theme, and binds the keys. [`use_settings`] then puts in the settings from the file.
 ///
 /// # Errors
@@ -66,8 +69,8 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     ])?;
     use_settings(
         None,
-        ka_teb_core::LoadedSettings {
-            settings: ka_teb_core::Settings::default(),
+        hamish_core::LoadedSettings {
+            settings: hamish_core::Settings::default(),
             problem: None,
         },
         cx,
@@ -77,12 +80,16 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         cx.bind_keys([
             KeyBinding::new("left", MoveLeft, context),
             KeyBinding::new("right", MoveRight, context),
+            KeyBinding::new("ctrl-left", MoveWordLeft, context),
+            KeyBinding::new("ctrl-right", MoveWordRight, context),
             KeyBinding::new("up", MoveUp, context),
             KeyBinding::new("down", MoveDown, context),
             KeyBinding::new("home", MoveToLineStart, context),
             KeyBinding::new("end", MoveToLineEnd, context),
             KeyBinding::new("shift-left", SelectLeft, context),
             KeyBinding::new("shift-right", SelectRight, context),
+            KeyBinding::new("ctrl-shift-left", SelectWordLeft, context),
+            KeyBinding::new("ctrl-shift-right", SelectWordRight, context),
             KeyBinding::new("shift-up", SelectUp, context),
             KeyBinding::new("shift-down", SelectDown, context),
             KeyBinding::new("shift-home", SelectToLineStart, context),
@@ -113,6 +120,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-s", Save, None),
         KeyBinding::new("ctrl-shift-s", SaveAs, None),
         KeyBinding::new("ctrl-o", Open, None),
+        KeyBinding::new("ctrl-n", NewDocument, None),
         KeyBinding::new("ctrl-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
@@ -134,6 +142,14 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-backspace", DeleteVariant, panel),
         KeyBinding::new("ctrl-shift-g", AiAlternatives, panel),
         KeyBinding::new("ctrl-v", Paste, panel),
+    ]);
+    let select = Some("SettingsSelect");
+    cx.bind_keys([
+        KeyBinding::new("up", PreviousRow, select),
+        KeyBinding::new("down", NextRow, select),
+        KeyBinding::new("enter", PickRow, select),
+        KeyBinding::new("escape", CloseSelect, select),
+        KeyBinding::new("backspace", DeleteQueryBackward, select),
     ]);
     Ok(())
 }

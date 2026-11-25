@@ -2,10 +2,10 @@ use std::ops::Range;
 
 use app::{AlternativesPanel, Workspace};
 use gpui::{
-    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, TestAppContext,
-    VisualTestContext, point, px,
+    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, ScrollDelta,
+    ScrollWheelEvent, TestAppContext, VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -133,48 +133,6 @@ fn the_preview_ends_when_the_draft_is_added_or_the_panel_closes(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn after_return_a_new_empty_row_takes_the_next_variant(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("client");
-    cx.simulate_keystrokes("enter");
-
-    cx.simulate_input("patron");
-    cx.simulate_keystrokes("enter");
-
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![
-            row("customer", false),
-            row("client", false),
-            row("patron", true)
-        ]
-    );
-    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
-}
-
-#[gpui::test]
-fn one_undo_removes_a_variant_added_with_return(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("client");
-    cx.simulate_keystrokes("enter");
-    cx.simulate_input("patron");
-    cx.simulate_keystrokes("enter");
-
-    cx.simulate_keystrokes("escape ctrl-z");
-
-    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
-    let variants = cx.read(|cx| {
-        let document = workspace.read(cx).editor().read(cx).document();
-        document.slots().first().map(|slot| slot.variants.len())
-    });
-    assert_eq!(variants, Some(2));
-}
-
-#[gpui::test]
 fn undo_and_redo_work_while_the_panel_has_focus(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, customer_document());
     cx.simulate_keystrokes(INTO_CUSTOMER);
@@ -212,6 +170,38 @@ fn escape_closes_the_panel_and_the_editor_takes_the_keys_again(cx: &mut TestAppC
     assert!(focused_on_editor(&workspace, cx));
 }
 
+#[gpui::test]
+fn escape_in_the_editor_closes_the_open_panel(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+
+    let title = point_at(&workspace, cx, 2);
+    cx.simulate_click(title, Modifiers::none());
+    assert!(focused_on_editor(&workspace, cx));
+    assert!(panel(&workspace, cx).is_some());
+
+    cx.simulate_keystrokes("escape");
+
+    assert!(panel(&workspace, cx).is_none());
+}
+
+#[gpui::test]
+fn the_panel_text_follows_editor_edits_before_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+
+    let title = point_at(&workspace, cx, 2);
+    cx.simulate_click(title, Modifiers::none());
+    cx.simulate_input("xy");
+    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
+
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
+}
+
 /// "Title\nThe customer waits." with a Word Slot on "customer": "customer", "client", "patron".
 #[expect(clippy::expect_used, reason = "test fixture")]
 fn slot_document() -> Document {
@@ -246,46 +236,6 @@ fn up_and_down_in_the_panel_show_each_variant_in_the_document(cx: &mut TestAppCo
 
     cx.simulate_keystrokes("down down");
     assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
-}
-
-#[expect(clippy::expect_used, reason = "test fixture")]
-fn provenances(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Provenance> {
-    let panel = panel(workspace, cx).expect("the panel is open");
-    cx.read(|cx| {
-        panel
-            .read(cx)
-            .rows(cx)
-            .into_iter()
-            .map(|row| row.provenance)
-            .collect()
-    })
-}
-
-#[gpui::test]
-fn return_on_a_variant_edits_it_and_an_edited_ai_variant_is_mixed(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, slot_document());
-
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up enter backspace backspace backspace backspace");
-    cx.simulate_input("rty");
-    cx.simulate_keystrokes("enter");
-
-    assert_eq!(text(&workspace, cx), "Title\nThe party waits.");
-    assert_eq!(
-        provenances(&workspace, cx),
-        vec![Provenance::Writer, Provenance::Writer, Provenance::Mixed]
-    );
-}
-
-#[gpui::test]
-fn escape_while_editing_drops_the_edit_and_keeps_the_panel_open(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, slot_document());
-
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up enter backspace escape");
-
-    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
-    assert!(panel(&workspace, cx).is_some());
 }
 
 #[gpui::test]
@@ -329,37 +279,9 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span(cx: &mut TestAppC
     assert_eq!(
         effects,
         vec![app::PlayingEffect {
-            effect: ka_teb_core::Effect::Explosion,
+            effect: hamish_core::Effect::Explosion,
             range: 10..16
         }]
-    );
-}
-
-#[gpui::test]
-fn deleting_all_but_one_variant_ends_the_slot_and_the_panel_keeps_its_text(
-    cx: &mut TestAppContext,
-) {
-    let (workspace, cx) = open(cx, slot_document());
-
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up ctrl-backspace up ctrl-backspace");
-    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
-    let slots = cx.read(|cx| {
-        workspace
-            .read(cx)
-            .editor()
-            .read(cx)
-            .document()
-            .slots()
-            .len()
-    });
-    assert_eq!(slots, 0);
-
-    cx.simulate_input("buyer");
-    cx.simulate_keystrokes("enter");
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![row("customer", false), row("buyer", true)]
     );
 }
 
@@ -523,4 +445,111 @@ fn with_reduced_motion_a_row_delete_plays_no_explosion(cx: &mut TestAppContext) 
     assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), None);
     let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
     assert_eq!(effects, Vec::new());
+}
+
+#[gpui::test]
+fn a_long_variant_row_wraps_inside_the_panel(cx: &mut TestAppContext) {
+    let sentence = "The customer waits at the counter for a long time while the clerk counts every coin twice.";
+    let (_workspace, cx) = open(cx, Document::new(&format!("Title\n{sentence}")));
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let tab = cx
+        .debug_bounds("alternatives-tab-sentence")
+        .expect("the panel shows the Sentence tab");
+    cx.simulate_click(tab.center(), Modifiers::none());
+    cx.run_until_parked();
+
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let row = cx
+        .debug_bounds("alternatives-row-0")
+        .expect("the panel shows the Original");
+    let text = cx
+        .debug_bounds("alternatives-row-text-0")
+        .expect("the row shows its text");
+    assert!(row.right() <= panel.right(), "row {row:?} panel {panel:?}");
+    assert!(text.right() <= row.right(), "text {text:?} row {row:?}");
+    assert!(
+        row.size.height > px(46.),
+        "the row has more than one line: {row:?}"
+    );
+}
+
+/// "customer" as a Word Slot with 40 long AI Variants after the Original: more rows than
+/// the panel height.
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn long_slot_document() -> Document {
+    let mut document = customer_document();
+    let long =
+        "a patient buyer who stands at the counter and counts every coin twice before paying";
+    let slot = document
+        .create_slot(10..18, Level::Word, long, Provenance::Ai)
+        .expect("valid range");
+    for _ in 0..39 {
+        document
+            .add_variant(slot, long, Provenance::Ai)
+            .expect("the Slot exists");
+    }
+    document
+}
+
+#[gpui::test]
+fn the_wheel_scrolls_the_panel_rows(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, long_slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let before = cx
+        .debug_bounds("alternatives-row-1")
+        .expect("the panel shows the second Variant");
+    let last = cx
+        .debug_bounds("alternatives-row-41")
+        .expect("the panel has the last row");
+    assert!(
+        last.bottom() > panel.bottom(),
+        "the rows do not fit: {last:?}"
+    );
+    cx.simulate_mouse_move(before.center(), None, Modifiers::none());
+    cx.simulate_event(ScrollWheelEvent {
+        position: before.center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-100.))),
+        ..ScrollWheelEvent::default()
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+
+    let after = cx
+        .debug_bounds("alternatives-row-1")
+        .expect("the panel shows the second Variant");
+    assert_eq!(
+        after.origin.y,
+        before.origin.y - px(100.),
+        "panel {panel:?}"
+    );
+}
+
+#[gpui::test]
+fn typing_scrolls_the_last_row_into_the_panel(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, long_slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up");
+    cx.simulate_input("buyer");
+    cx.run_until_parked();
+
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let row = cx
+        .debug_bounds("alternatives-row-41")
+        .expect("the panel shows the last row");
+    assert!(
+        row.bottom() <= panel.bottom(),
+        "row {row:?} panel {panel:?}"
+    );
 }

@@ -25,6 +25,27 @@ pub struct MarkdownSpan {
     pub style: MarkdownStyle,
 }
 
+/// `line` with its Markdown syntax marks dropped: the text a reader sees.
+pub(crate) fn plain_text(line: &str) -> String {
+    Parser::new_ext(line, Options::empty())
+        .filter_map(|event| match event {
+            Event::Text(text) | Event::Code(text) => Some(text),
+            Event::Start(_)
+            | Event::End(_)
+            | Event::InlineMath(_)
+            | Event::DisplayMath(_)
+            | Event::Html(_)
+            | Event::InlineHtml(_)
+            | Event::FootnoteReference(_)
+            | Event::SoftBreak
+            | Event::HardBreak
+            | Event::Rule
+            | Event::TaskListMarker(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .concat()
+}
+
 /// The Markdown styles of `text` (`CommonMark`), in document order, outer before inner.
 pub(crate) fn spans(text: &str) -> Vec<MarkdownSpan> {
     Parser::new_ext(text, Options::empty())

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use app::{Ai, AiAlternativesError, AiFailure, AiStatus, AlternativesPanel, Workspace};
 use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, Document, LabFinding, LabRequest, Level,
     LoadedSettings, Provenance, Settings, TrimRequest,
 };

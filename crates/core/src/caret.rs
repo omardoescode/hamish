@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
 use crate::EditKind;
 
@@ -22,6 +22,14 @@ pub enum Motion {
     Left,
     /// One grapheme on.
     Right,
+    /// To the start of the word before.
+    WordLeft,
+    /// To the end of the word after.
+    WordRight,
+    /// To the start of the line: just after the newline before, else the text start.
+    LineStart,
+    /// To the end of the line: the newline after, else the text end.
+    LineEnd,
     /// A byte offset the app found, for example from the painted rows or the pointer.
     To(usize),
 }
@@ -70,6 +78,13 @@ impl Caret {
         }
     }
 
+    /// The word at byte `offset` of `text` selected (see [`word_at`]), the caret at its
+    /// end; with no word there, the caret at `offset`.
+    #[must_use]
+    pub fn word(text: &str, offset: usize) -> Self {
+        word_at(text, offset).map_or_else(|| Self::at(floor_boundary(text, offset)), Self::over)
+    }
+
     /// The whole of `text` selected, the caret at its end.
     #[must_use]
     pub fn all(text: &str) -> Self {
@@ -101,11 +116,15 @@ impl Caret {
     pub fn moved(&self, text: &str, motion: Motion) -> Self {
         let caret = self.clamped(text);
         let offset = match motion {
-            Motion::Left if caret.selection.is_empty() => previous_boundary(text, caret.offset()),
-            Motion::Left => caret.selection.start,
-            Motion::Right if caret.selection.is_empty() => next_boundary(text, caret.offset()),
-            Motion::Right => caret.selection.end,
-            Motion::To(offset) => floor_boundary(text, offset),
+            Motion::Left if !caret.selection.is_empty() => caret.selection.start,
+            Motion::Right if !caret.selection.is_empty() => caret.selection.end,
+            Motion::Left
+            | Motion::Right
+            | Motion::WordLeft
+            | Motion::WordRight
+            | Motion::LineStart
+            | Motion::LineEnd
+            | Motion::To(_) => target(text, caret.offset(), motion),
         };
         Self::at(offset)
     }
@@ -115,11 +134,7 @@ impl Caret {
     #[must_use]
     pub fn extended(&self, text: &str, motion: Motion) -> Self {
         let caret = self.clamped(text);
-        let offset = match motion {
-            Motion::Left => previous_boundary(text, caret.offset()),
-            Motion::Right => next_boundary(text, caret.offset()),
-            Motion::To(offset) => floor_boundary(text, offset),
-        };
+        let offset = target(text, caret.offset(), motion);
         let anchor = if caret.reversed {
             caret.selection.end
         } else {
@@ -229,9 +244,9 @@ impl Caret {
     /// [`follow_change`]); the composed text ends.
     #[must_use]
     pub fn followed(&self, old: &str, new: &str) -> Self {
+        let change = Change::between(old, new);
         Self {
-            selection: follow_change(self.selection.start, old, new)
-                ..follow_change(self.selection.end, old, new),
+            selection: change.follow(self.selection.start)..change.follow(self.selection.end),
             reversed: self.reversed,
             marked: None,
         }
@@ -252,6 +267,70 @@ impl Caret {
     }
 }
 
+/// Where `motion` goes from `offset` in `text`, as if nothing is selected.
+fn target(text: &str, offset: usize, motion: Motion) -> usize {
+    match motion {
+        Motion::Left => previous_boundary(text, offset),
+        Motion::Right => next_boundary(text, offset),
+        Motion::WordLeft => word_start_before(text, offset),
+        Motion::WordRight => words_from(text, line_start(text, offset))
+            .find(|word| word.end > offset)
+            .map_or(text.len(), |word| word.end),
+        Motion::LineStart => line_start(text, offset),
+        Motion::LineEnd => text
+            .get(offset..)
+            .and_then(|after| after.find('\n'))
+            .map_or(text.len(), |newline| offset + newline),
+        Motion::To(offset) => floor_boundary(text, offset),
+    }
+}
+
+/// The byte ranges of the words of `text`: word-bound runs with a letter or digit.
+fn words(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    text.split_word_bound_indices()
+        .filter(|(_, word)| word.chars().any(char::is_alphanumeric))
+        .map(|(start, word)| start..start + word.len())
+}
+
+/// The words of `text` from byte `start`, a line start. A word boundary always falls at a
+/// line start (UAX 29 breaks after each newline), so the words match those of all of `text`.
+fn words_from(text: &str, start: usize) -> impl Iterator<Item = Range<usize>> + '_ {
+    words(text.get(start..).unwrap_or_default())
+        .map(move |word| start + word.start..start + word.end)
+}
+
+/// Start of the line that holds byte `offset`: just after the newline before it, else 0.
+fn line_start(text: &str, offset: usize) -> usize {
+    text.get(..offset)
+        .and_then(|before| before.rfind('\n'))
+        .map_or(0, |newline| newline + 1)
+}
+
+/// Start of the last word that starts before `offset`; 0 when there is none.
+fn word_start_before(text: &str, offset: usize) -> usize {
+    let mut from = line_start(text, offset);
+    loop {
+        let last = words_from(text, from)
+            .take_while(|word| word.start < offset)
+            .last();
+        if let Some(word) = last {
+            return word.start;
+        }
+        if from == 0 {
+            return 0;
+        }
+        from = line_start(text, from - 1);
+    }
+}
+
+/// The word at byte `offset` of `text`: the word `offset` lies in or on an edge of.
+#[must_use]
+pub fn word_at(text: &str, offset: usize) -> Option<Range<usize>> {
+    words_from(text, line_start(text, offset))
+        .take_while(|word| word.start <= offset)
+        .find(|word| word.start <= offset && offset <= word.end)
+}
+
 fn floor_boundary(text: &str, offset: usize) -> usize {
     (0..=offset.min(text.len()))
         .rev()
@@ -259,16 +338,21 @@ fn floor_boundary(text: &str, offset: usize) -> usize {
         .unwrap_or(0)
 }
 
+/// The last grapheme start before `offset` (a char boundary); 0 when there is none.
 fn previous_boundary(text: &str, offset: usize) -> usize {
-    text.grapheme_indices(true)
-        .rev()
-        .find_map(|(index, _)| (index < offset).then_some(index))
+    GraphemeCursor::new(offset, text.len(), true)
+        .prev_boundary(text, 0)
+        .ok()
+        .flatten()
         .unwrap_or(0)
 }
 
+/// The first grapheme start after `offset` (a char boundary); the text end when there is none.
 fn next_boundary(text: &str, offset: usize) -> usize {
-    text.grapheme_indices(true)
-        .find_map(|(index, _)| (index > offset).then_some(index))
+    GraphemeCursor::new(offset, text.len(), true)
+        .next_boundary(text, 0)
+        .ok()
+        .flatten()
         .unwrap_or(text.len())
 }
 
@@ -305,29 +389,74 @@ pub fn byte_range(text: &str, units: &Range<usize>) -> Range<usize> {
 /// an offset past `old` gives an offset past `new`.
 #[must_use]
 pub fn follow_change(offset: usize, old: &str, new: &str) -> usize {
-    let prefix = old
-        .char_indices()
-        .zip(new.chars())
-        .find(|((_, a), b)| a != b)
-        .map_or(old.len().min(new.len()), |((index, _), _)| index);
-    let suffix = old
-        .get(prefix..)
-        .unwrap_or_default()
-        .chars()
-        .rev()
-        .zip(new.get(prefix..).unwrap_or_default().chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(a, _)| a.len_utf8())
-        .sum::<usize>();
-    if offset <= prefix {
-        return offset;
+    Change::between(old, new).follow(offset)
+}
+
+/// The one changed span between two texts: the bytes they share at the start and at the
+/// end, each on a char boundary, with the shared end not reaching into the shared start.
+struct Change {
+    prefix: usize,
+    old_end: usize,
+    new_end: usize,
+}
+
+impl Change {
+    fn between(old: &str, new: &str) -> Self {
+        let (old_bytes, new_bytes) = (old.as_bytes(), new.as_bytes());
+        let mut prefix = shared_prefix(old_bytes, new_bytes);
+        while !old.is_char_boundary(prefix) {
+            prefix -= 1;
+        }
+        let old_rest = old_bytes.get(prefix..).unwrap_or_default();
+        let new_rest = new_bytes.get(prefix..).unwrap_or_default();
+        let mut suffix = shared_suffix(old_rest, new_rest);
+        while !old.is_char_boundary(old.len() - suffix) {
+            suffix -= 1;
+        }
+        Self {
+            prefix,
+            old_end: old.len() - suffix,
+            new_end: new.len() - suffix,
+        }
     }
-    let old_end = old.len() - suffix;
-    let new_end = new.len() - suffix;
-    if offset >= old_end {
-        return offset - old_end + new_end;
+
+    /// Where `offset` in the old text lands in the new one (see [`follow_change`]).
+    fn follow(&self, offset: usize) -> usize {
+        if offset <= self.prefix {
+            return offset;
+        }
+        if offset >= self.old_end {
+            return offset - self.old_end + self.new_end;
+        }
+        self.new_end
     }
-    new_end
+}
+
+/// Blocks of this many bytes compare as one slice before the bytes compare one by one.
+const BLOCK: usize = 1024;
+
+/// How many bytes `a` and `b` share at their start.
+fn shared_prefix(a: &[u8], b: &[u8]) -> usize {
+    let blocks = a.chunks(BLOCK).zip(b.chunks(BLOCK));
+    let same = (blocks.take_while(|(a, b)| a == b).count() * BLOCK).min(a.len().min(b.len()));
+    let (Some(a), Some(b)) = (a.get(same..), b.get(same..)) else {
+        return same;
+    };
+    same + shared(a.iter(), b.iter())
+}
+
+/// How many bytes `a` and `b` share at their end.
+fn shared_suffix(a: &[u8], b: &[u8]) -> usize {
+    let blocks = a.rchunks(BLOCK).zip(b.rchunks(BLOCK));
+    let same = (blocks.take_while(|(a, b)| a == b).count() * BLOCK).min(a.len().min(b.len()));
+    let (Some(a), Some(b)) = (a.get(..a.len() - same), b.get(..b.len() - same)) else {
+        return same;
+    };
+    same + shared(a.iter().rev(), b.iter().rev())
+}
+
+fn shared<'a>(a: impl Iterator<Item = &'a u8>, b: impl Iterator<Item = &'a u8>) -> usize {
+    a.zip(b).take_while(|(a, b)| a == b).count()
 }
 
 #[cfg(test)]
@@ -341,6 +470,27 @@ mod tests {
         assert_eq!(follow_change(3, old, new), 3);
         assert_eq!(follow_change(21, old, new), 23);
         assert_eq!(follow_change(10, old, new), 17);
+    }
+
+    #[test]
+    fn a_change_inside_a_multibyte_char_moves_offsets_by_whole_chars() {
+        let old = "αβγ";
+        let new = "αδεγ";
+        assert_eq!(follow_change(2, old, new), 2);
+        assert_eq!(follow_change(4, old, new), 6);
+        assert_eq!(follow_change(6, old, new), 8);
+        assert_eq!(follow_change(1, "xж", "xyö"), 1);
+        assert_eq!(follow_change(3, "xж", "xyö"), 4);
+    }
+
+    #[test]
+    fn long_texts_with_one_change_follow_it_past_whole_blocks() {
+        let old = format!("{}ab{}", "q".repeat(3000), "z".repeat(2500));
+        let new = format!("{}abc{}", "q".repeat(3000), "z".repeat(2500));
+        assert_eq!(follow_change(1500, &old, &new), 1500);
+        assert_eq!(follow_change(3002, &old, &new), 3002);
+        assert_eq!(follow_change(5502, &old, &new), 5503);
+        assert_eq!(follow_change(5502, &old, &old), 5502);
     }
 
     #[test]

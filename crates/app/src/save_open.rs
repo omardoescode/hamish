@@ -1,5 +1,5 @@
-//! Save and Open: file dialogs, the unsaved sign, and the notice that shows
-//! errors and what an open dropped (ADR 0003). File I/O runs on the background executor.
+//! New, Save, and Open: file dialogs, the unsaved sign, and the notice that shows
+//! errors and what an open dropped (ADR 0007). File I/O runs on the background executor.
 
 use std::path::{Path, PathBuf};
 
@@ -7,9 +7,10 @@ use gpui::{
     AnyElement, Context, IntoElement, PathPromptOptions, PromptLevel, SharedString, Window, div,
     prelude::*, px,
 };
-use ka_teb_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
+use hamish_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
 
-use crate::actions::{Open, Save, SaveAs};
+use crate::actions::{NewDocument, Open, Save, SaveAs};
+use crate::chrome::elevated_surface;
 use crate::{Theme, Workspace};
 
 /// What the writer must know after a save or an open.
@@ -17,7 +18,7 @@ use crate::{Theme, Workspace};
 pub enum Notice {
     SaveFailed(String),
     OpenFailed(String),
-    /// The open could not put these items back on the `.md` text (ADR 0003).
+    /// The open could not put these items back on the Document text (ADR 0007).
     Dropped(Vec<Dropped>),
     /// The settings file did not load at start; the defaults are in use.
     SettingsNotLoaded(String),
@@ -31,11 +32,21 @@ pub(crate) struct SaveOpen {
     notice: Option<Notice>,
     saving: bool,
     /// A save asked for while one runs; it starts when that one ends, so two saves never
-    /// write the same files at once.
+    /// write the same file at once.
     queued: Option<PathBuf>,
+    /// Counts the Documents that replaced the first one. A save that ends after a New or an
+    /// Open belongs to a Document that is gone, so it changes nothing.
+    generation: u64,
 }
 
 impl SaveOpen {
+    fn replaced(&self) -> Self {
+        Self {
+            generation: self.generation + 1,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn with_notice(notice: Option<Notice>) -> Self {
         Self {
             notice,
@@ -100,10 +111,15 @@ impl Workspace {
         self.save_open.saving = true;
         let (document, at) = self.editor.update(cx, |editor, _| editor.snapshot());
         let target = path.clone();
+        let generation = self.save_open.generation;
         let saving = cx.background_spawn(async move { document.save(&target) });
         cx.spawn(async move |this, cx| {
             let result = saving.await;
-            this.update(cx, |workspace, cx| workspace.saved(path, at, result, cx))
+            this.update(cx, |workspace, cx| {
+                if workspace.save_open.generation == generation {
+                    workspace.saved(path, at, result, cx);
+                }
+            })
         })
         .detach();
     }
@@ -131,9 +147,13 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Ctrl+O: asks to discard unsaved changes, then for a `.md` file, then opens it.
-    pub(crate) fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
-        let discard = self.editor.read(cx).is_unsaved().then(|| {
+    /// Resolves `true` when the Document has no unsaved changes, or the writer discards them.
+    fn ask_discard(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl Future<Output = bool> + use<> {
+        let answer = self.editor.read(cx).is_unsaved().then(|| {
             window.prompt(
                 PromptLevel::Warning,
                 "Discard unsaved changes?",
@@ -142,10 +162,43 @@ impl Workspace {
                 cx,
             )
         });
+        async move {
+            match answer {
+                Some(answer) => answer.await == Ok(0),
+                None => true,
+            }
+        }
+    }
+
+    /// Ctrl+N: asks to discard unsaved changes, then shows an empty Untitled Document with no
+    /// path and no undo steps. The panels close as on app start.
+    pub(crate) fn new_document(
+        &mut self,
+        _: &NewDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let discard = self.ask_discard(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            if !discard.await {
+                return Ok(());
+            }
+            this.update_in(cx, |workspace, window, cx| {
+                workspace
+                    .editor
+                    .update(cx, |editor, cx| editor.load(Document::default(), cx));
+                workspace.save_open = workspace.save_open.replaced();
+                workspace.reset_panels(window, cx);
+            })
+        })
+        .detach();
+    }
+
+    /// Ctrl+O: asks to discard unsaved changes, then for a `.md` file, then opens it.
+    pub(crate) fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
+        let discard = self.ask_discard(window, cx);
         cx.spawn(async move |this, cx| {
-            if let Some(answer) = discard
-                && answer.await != Ok(0)
-            {
+            if !discard.await {
                 return Ok(());
             }
             let chosen = cx.update(|cx| {
@@ -171,7 +224,7 @@ impl Workspace {
         .detach();
     }
 
-    /// Opens the `.md` file `path` and its sidecar in place of the Document. Unsaved
+    /// Opens the `.md` file `path` with its Hamish comment in place of the Document. Unsaved
     /// changes are lost: [`Open`] asks first.
     pub fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let source = path.clone();
@@ -198,6 +251,7 @@ impl Workspace {
         };
         self.editor
             .update(cx, |editor, cx| editor.load(document, cx));
+        self.save_open = self.save_open.replaced();
         self.save_open.path = Some(path);
         self.save_open.notice = (!dropped.is_empty()).then_some(Notice::Dropped(dropped));
         cx.notify();
@@ -208,7 +262,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The Save and Open icons, bottom-left in the Chrome. Save is in the accent color
+    /// The New, Save, and Open icons, bottom-left in the Chrome. Save is in the accent color
     /// while the Document has unsaved changes.
     pub(crate) fn save_open_icons(&self, theme: &Theme, cx: &Context<Self>) -> impl IntoElement {
         let unsaved = self.editor.read(cx).is_unsaved();
@@ -223,7 +277,17 @@ impl Workspace {
             .text_size(theme.font_size_hint)
             .child(
                 div()
+                    .id("new")
+                    .debug_selector(|| "new".to_owned())
+                    .cursor_pointer()
+                    .text_color(theme.text_muted)
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewDocument), cx))
+                    .child("New"),
+            )
+            .child(
+                div()
                     .id("save")
+                    .debug_selector(|| "save".to_owned())
                     .cursor_pointer()
                     .text_color(save_color)
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(Save), cx))
@@ -247,15 +311,13 @@ impl Workspace {
             cx.notify();
         });
         Some(
-            div()
+            elevated_surface(theme)
                 .id("notice")
                 .absolute()
-                .bottom(px(56.))
+                .bottom(crate::workspace::chrome_bar_height(cx) + px(16.))
                 .left(px(24.))
                 .max_w(theme.column_width)
                 .p(px(10.))
-                .rounded(theme.elevated_radius)
-                .bg(theme.elevated_background)
                 .text_size(theme.font_size_hint)
                 .text_color(theme.text)
                 .cursor_pointer()
@@ -275,7 +337,7 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
         }
         Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
         Notice::Dropped(dropped) => {
-            std::iter::once("The .md file changed outside Ka-teb. Not found again:".into())
+            std::iter::once("The .md file changed outside Hamish. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))
                 .collect()
         }
@@ -311,7 +373,7 @@ fn check_name(check: LabCheck) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use ka_teb_core::{Dropped, LabCheck, Level};
+    use hamish_core::{Dropped, LabCheck, Level};
 
     use super::{Notice, notice_lines};
 
@@ -334,7 +396,7 @@ mod tests {
         assert_eq!(
             notice_lines(&notice),
             [
-                "The .md file changed outside Ka-teb. Not found again:",
+                "The .md file changed outside Hamish. Not found again:",
                 "Sentence Slot \"It rains.\"",
                 "Ghost \"maybe\"",
                 "Hedges and filler mark \"really\"",

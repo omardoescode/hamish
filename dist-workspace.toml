@@ -10,11 +10,11 @@ ci = "github"
 # The installers to generate for each app
 installers = []
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-gnu"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
 # Where to host releases
 hosting = "github"
 # Release workflow runs on version tags only (no PR runs; saves CI minutes)
-pr-run-mode = "skip"
+pr-run-mode = "upload"
 
 # GPUI build libraries (Linux): xkbcommon-x11, wayland-client, fontconfig, freetype;
 # ALSA for the cycle sounds (cpal)

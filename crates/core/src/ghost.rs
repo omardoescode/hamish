@@ -3,7 +3,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use crate::RangeError;
+use crate::{Document, RangeError};
 
 /// Why a Ghost or Revive was refused. A refused operation changes nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +32,29 @@ impl std::error::Error for GhostError {}
 impl From<RangeError> for GhostError {
     fn from(error: RangeError) -> Self {
         Self::Range(error)
+    }
+}
+
+impl Document {
+    /// `target` touches a visible Ghost range: it overlaps one, or as a caret lies in or on
+    /// an edge of one.
+    #[must_use]
+    pub fn touches_ghost(&self, target: &Range<usize>) -> bool {
+        self.ghost_ranges()
+            .iter()
+            .any(|ghost| touches(ghost, target))
+    }
+
+    /// Revives `target` when it touches a Ghost range, else Ghosts it.
+    ///
+    /// # Errors
+    /// The error of [`Document::revive`] or [`Document::ghost`].
+    pub fn toggle_ghost(&mut self, target: Range<usize>) -> Result<(), GhostError> {
+        if self.touches_ghost(&target) {
+            self.revive(target)
+        } else {
+            self.ghost(target)
+        }
     }
 }
 

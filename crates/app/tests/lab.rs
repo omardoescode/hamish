@@ -1,14 +1,14 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, AiFailure, LabRow, LabStatus, RunLabCheck, ToggleChrome, Workspace};
+use app::{Ai, AiFailure, LabRow, LabStatus, RunLabCheck, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
 };
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabCheck, LabFinding, LabRequest,
-    TrimRequest,
+    LoadedSettings, Settings, TrimRequest,
 };
 
 /// Gives fixed findings for each Lab check, or fails, as an AI backend would.
@@ -70,7 +70,6 @@ fn open(
     }
     let (workspace, cx) =
         cx.add_window_view(|window, cx| Workspace::new(Document::new(TEXT), window, cx));
-    cx.dispatch_action(ToggleChrome);
     cx.run_until_parked();
     (workspace, cx)
 }
@@ -288,6 +287,65 @@ fn dismiss_on_the_mark_card_removes_the_mark_and_keeps_the_text(cx: &mut TestApp
     );
 }
 
+/// The clicked mark at the caret is the selected one, and its card sits just under it.
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn assert_the_card_sits_under_the_selected_mark(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    range: Range<usize>,
+) {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    let selected = cx.read(|cx| {
+        editor
+            .read(cx)
+            .selected_lab_mark()
+            .map(|mark| mark.range.clone())
+    });
+    assert_eq!(selected, Some(range));
+    let mark = cx
+        .read(|cx| editor.read(cx).selected_lab_mark_bounds())
+        .expect("the editor painted the selected mark");
+    let card = bounds(cx, "lab-mark-card");
+    assert!(
+        mark.bottom() <= card.top() && card.top() <= mark.bottom() + px(12.),
+        "the card {card:?} is not just under the mark {mark:?}"
+    );
+    assert!(
+        (card.left() - mark.left()).abs() <= px(1.),
+        "the card {card:?} does not start at the mark {mark:?}"
+    );
+}
+
+#[gpui::test]
+fn a_clicked_mark_is_selected_and_its_card_shows_under_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+    run_checks(cx, &["lab-check-0", "lab-check-5"]);
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    assert!(cx.read(|cx| editor.read(cx).selected_lab_mark().is_none()));
+
+    click_text(&workspace, cx, 27);
+
+    assert_the_card_sits_under_the_selected_mark(&workspace, cx, 26..30);
+}
+
+#[gpui::test]
+fn a_clicked_mark_shows_its_card_while_the_lab_popover_is_open(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+    run_checks(cx, &["lab-check-0"]);
+    click(cx, "lab-button");
+
+    click_text(&workspace, cx, 13);
+
+    assert!(lab_open(&workspace, cx));
+    assert!(cx.debug_bounds("lab-popover").is_some());
+    assert_the_card_sits_under_the_selected_mark(&workspace, cx, 12..15);
+    click(cx, "lab-mark-accept");
+    assert_eq!(
+        text(&workspace, cx),
+        "Title\nI saw the cat. It was very good."
+    );
+}
+
 #[gpui::test]
 fn an_ai_failure_shows_in_the_row_and_changes_nothing(cx: &mut TestAppContext) {
     let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
@@ -317,4 +375,125 @@ fn a_click_on_the_header_shows_what_each_check_does(cx: &mut TestAppContext) {
         Some("Proposes small fixes; you accept or dismiss each.")
     );
     assert!(rows(&workspace, cx).iter().all(|row| row.guide.is_some()));
+}
+
+const TRIM_LEVEL_BUTTONS: [&str; 5] = [
+    "trim-level-0",
+    "trim-level-1",
+    "trim-level-2",
+    "trim-level-3",
+    "trim-level-4",
+];
+
+#[gpui::test]
+fn the_trim_level_buttons_fit_the_popover_and_do_not_overlap(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx, None);
+    click(cx, "lab-button");
+
+    let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
+    let buttons: Vec<_> = TRIM_LEVEL_BUTTONS
+        .into_iter()
+        .map(|selector| {
+            cx.debug_bounds(selector)
+                .expect("the popover shows the button")
+        })
+        .collect();
+    for (index, button) in buttons.iter().enumerate() {
+        assert!(
+            popover.left() <= button.left() && button.right() <= popover.right(),
+            "trim-level-{index} {button:?} is outside the popover {popover:?}"
+        );
+        for (other_index, other) in buttons.iter().enumerate().skip(index + 1) {
+            assert!(
+                !button.intersects(other),
+                "trim-level-{index} {button:?} overlaps trim-level-{other_index} {other:?}"
+            );
+        }
+    }
+}
+
+fn open_scaled(
+    cx: &mut TestAppContext,
+    ui_scale: f32,
+) -> (Entity<Workspace>, &mut VisualTestContext) {
+    assert!(cx.update(app::init).is_ok(), "bundled font loads");
+    cx.update(|cx| {
+        app::use_settings(
+            None,
+            LoadedSettings {
+                settings: Settings {
+                    ui_scale,
+                    ..Settings::default()
+                },
+                problem: None,
+            },
+            cx,
+        );
+        cx.set_global(Ai(Arc::new(typo_and_hedge())));
+    });
+    let (workspace, cx) =
+        cx.add_window_view(|window, cx| Workspace::new(Document::new(TEXT), window, cx));
+    cx.run_until_parked();
+    (workspace, cx)
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<gpui::Pixels> {
+    cx.debug_bounds(selector)
+        .expect("the window shows the element")
+}
+
+/// Runs "Mark hedges and filler" to its end, then starts "Mark words that don't fit the
+/// tone" and checks its progress at `ui_scale` while the AI works.
+fn assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(
+    cx: &mut TestAppContext,
+    ui_scale: f32,
+) {
+    let (workspace, cx) = open_scaled(cx, ui_scale);
+    click(cx, "lab-button");
+    click(cx, "lab-check-5");
+    assert_eq!(cx.debug_bounds("ai-bar"), None);
+
+    cx.update(|window, cx| {
+        window.dispatch_action(Box::new(RunLabCheck(LabCheck::OffToneWords)), cx);
+    });
+    assert_eq!(
+        status(&workspace, cx, LabCheck::OffToneWords),
+        LabStatus::Running
+    );
+
+    let bar = bounds(cx, "ai-bar");
+    let popover = bounds(cx, "lab-popover");
+    assert!(
+        bar.bottom() <= popover.top(),
+        "the AI bar {bar:?} overlaps the popover {popover:?}"
+    );
+    let label = bounds(cx, "lab-check-label-4");
+    assert!(
+        popover.left() <= label.left() && label.right() <= popover.right(),
+        "the running label {label:?} is outside the popover {popover:?}"
+    );
+    let marked_label = bounds(cx, "lab-check-label-5");
+    let marked_status = bounds(cx, "lab-check-status-5");
+    assert!(
+        !marked_label.intersects(&marked_status),
+        "the label {marked_label:?} overlaps its status {marked_status:?}"
+    );
+    assert!(
+        marked_status.right() <= popover.right(),
+        "the status {marked_status:?} is outside the popover {popover:?}"
+    );
+
+    cx.run_until_parked();
+    assert_eq!(cx.debug_bounds("ai-bar"), None);
+}
+
+#[gpui::test]
+fn a_running_check_shows_the_ai_bar_clear_of_the_rows(cx: &mut TestAppContext) {
+    assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 1.);
+}
+
+#[gpui::test]
+fn a_running_check_shows_the_ai_bar_clear_of_the_rows_at_a_large_ui_scale(cx: &mut TestAppContext) {
+    assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 2.);
 }

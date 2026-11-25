@@ -1,12 +1,12 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, RunTrim, ToggleChrome, TrimBar, Workspace};
+use app::{Ai, RunTrim, TrimBar, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
 };
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, TrimCut,
     TrimLevel, TrimRequest,
 };
@@ -69,7 +69,6 @@ fn open(
     }
     let (workspace, cx) =
         cx.add_window_view(|window, cx| Workspace::new(Document::new(TEXT), window, cx));
-    cx.dispatch_action(ToggleChrome);
     cx.run_until_parked();
     (workspace, cx)
 }
@@ -319,4 +318,24 @@ fn an_ai_failure_shows_in_the_bar_and_changes_nothing(cx: &mut TestAppContext) {
     assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
     click(cx, "trim-done");
     assert_eq!(bar(&workspace, cx), None);
+}
+
+#[gpui::test]
+fn a_running_trim_shows_the_ai_bar_above_the_popover(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx, Some(two_levels()));
+    click(cx, "lab-button");
+    assert_eq!(cx.debug_bounds("ai-bar"), None);
+
+    cx.update(|window, cx| {
+        window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
+    });
+
+    let bar = cx
+        .debug_bounds("ai-bar")
+        .expect("a running Trim shows the AI bar");
+    let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
+    assert!(
+        bar.bottom() <= popover.top(),
+        "the AI bar {bar:?} overlaps the popover {popover:?}"
+    );
 }

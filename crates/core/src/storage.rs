@@ -1,5 +1,5 @@
-//! Save and open (ADR 0003): the active text goes to the `.md` file, all other state to a
-//! sidecar JSON next to it.
+//! Save and open (ADR 0007): one `.md` file holds the active text, then all other state
+//! as JSON in the Hamish comment at its end.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -12,25 +12,27 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::slot::{self, SlotNode};
+use crate::slot::SlotNode;
+use crate::tree::Tree;
 use crate::{Document, LabCheck, LabMark, LabMarkId, Level, Overflow, Provenance, SlotId, Variant};
 
-/// The sidecar schema this build writes and reads.
+/// The Hamish comment schema this build writes and reads.
 const SCHEMA_VERSION: u32 = 1;
 
 /// Slot and Lab mark ids above this are refused, so new ids never overflow.
 const MAX_ID: u64 = 1 << 32;
 
-/// The sidecar JSON path of the `.md` file `md`: its name plus `.ka-teb.json`.
-#[must_use]
-pub fn sidecar_path(md: &Path) -> PathBuf {
-    let mut name = OsString::from(md);
-    name.push(".ka-teb.json");
-    PathBuf::from(name)
-}
+/// The start of the Hamish comment, up to its first whitespace.
+const COMMENT_OPEN: &str = "<!-- hamish";
 
-/// Why a save or open failed. A failed open gives no Document; a failed save can leave
-/// the `.md` file written and the sidecar not.
+/// The end of an HTML comment.
+const COMMENT_CLOSE: &str = "-->";
+
+/// Between the Document text and the Hamish comment, so Markdown tools see a new block.
+const SEPARATOR: &str = "\n\n";
+
+/// Why a save or open failed. A failed open gives no Document; a failed save leaves the
+/// `.md` file as it was.
 #[derive(Debug)]
 pub enum StorageError {
     Io {
@@ -39,12 +41,12 @@ pub enum StorageError {
     },
     /// The `.md` file is not UTF-8 text.
     NotUtf8(PathBuf),
-    /// The sidecar is not sidecar JSON.
-    BadSidecar {
+    /// The Hamish comment does not hold its JSON.
+    BadHamishComment {
         path: PathBuf,
         reason: String,
     },
-    /// The sidecar has a schema version this build does not know.
+    /// The Hamish comment has a schema version this build does not know.
     UnknownVersion {
         path: PathBuf,
         version: u32,
@@ -56,11 +58,15 @@ impl fmt::Display for StorageError {
         match self {
             Self::Io { path, error } => write!(f, "{}: {error}", path.display()),
             Self::NotUtf8(path) => write!(f, "{}: not UTF-8 text", path.display()),
-            Self::BadSidecar { path, reason } => {
-                write!(f, "{}: bad sidecar: {reason}", path.display())
+            Self::BadHamishComment { path, reason } => {
+                write!(f, "{}: bad Hamish comment: {reason}", path.display())
             }
             Self::UnknownVersion { path, version } => {
-                write!(f, "{}: unknown sidecar version {version}", path.display())
+                write!(
+                    f,
+                    "{}: unknown Hamish comment version {version}",
+                    path.display()
+                )
             }
         }
     }
@@ -70,13 +76,13 @@ impl std::error::Error for StorageError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { error, .. } => Some(error),
-            Self::NotUtf8(_) | Self::BadSidecar { .. } | Self::UnknownVersion { .. } => None,
+            Self::NotUtf8(_) | Self::BadHamishComment { .. } | Self::UnknownVersion { .. } => None,
         }
     }
 }
 
-/// An item of the sidecar that open could not put back: its text is not in the `.md` file
-/// any more, or it does not fit the other items (ADR 0003, ADR 0006).
+/// An item of the Hamish comment that open could not put back: its text is not in the
+/// Document text any more, or it does not fit the other items (ADR 0006, ADR 0007).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dropped {
     /// A Slot, with the text of its Active variant.
@@ -101,46 +107,67 @@ pub struct Opened {
 }
 
 impl Document {
-    /// Saves the active text to `path` and all other state to [`sidecar_path`] of it.
-    /// The edit history is not saved.
+    /// Saves the active text to `path`, then all other state as JSON in the Hamish comment
+    /// at the end of the file. The edit history is not saved.
     ///
     /// # Errors
-    /// [`StorageError::Io`] when a file cannot be written.
+    /// [`StorageError::Io`] when the file cannot be written.
     pub fn save(&self, path: &Path) -> Result<(), StorageError> {
-        let sidecar = Sidecar::of(self);
-        let sidecar_path = sidecar_path(path);
-        let json = serde_json::to_string_pretty(&sidecar).map_err(|error| StorageError::Io {
-            path: sidecar_path.clone(),
-            error: error.into(),
-        })?;
-        write_whole(path, self.text())?;
-        write_whole(&sidecar_path, &json)
+        let json = serde_json::to_string_pretty(&SavedState::of(self))
+            .map_err(|error| io_error(path, error.into()))?;
+        let contents = format!(
+            "{}{SEPARATOR}{COMMENT_OPEN}\n{}\n{COMMENT_CLOSE}\n",
+            self.text(),
+            escape_comment_ends(&json)
+        );
+        write_whole(path, &contents)
     }
 
-    /// Opens the `.md` file `path` and its sidecar. With no sidecar, the Document is the plain
-    /// text. When the `.md` changed since the save, each top-level Slot, Ghost range, and
-    /// Lab mark is found again by its text; the ones not found are dropped and returned.
-    /// The Document has no edit history.
+    /// Opens the `.md` file `path`. Only its last HTML comment, when it is the Hamish
+    /// comment, holds state; all other content is the Document text. With no Hamish
+    /// comment, the Document is the plain text. When the text changed since the save, each
+    /// top-level Slot, Ghost range, and Lab mark is found again by its text; the ones not
+    /// found are dropped and returned. The Document has no edit history.
     ///
     /// # Errors
-    /// [`StorageError`] when a file cannot be read, the `.md` is not UTF-8, or the sidecar
-    /// is not sidecar JSON of a known version.
+    /// [`StorageError`] when the file cannot be read, is not UTF-8, or its Hamish comment
+    /// does not hold JSON of a known version.
     pub fn open(path: &Path) -> Result<Opened, StorageError> {
         let bytes = fs::read(path).map_err(|error| io_error(path, error))?;
-        let text =
+        let contents =
             String::from_utf8(bytes).map_err(|_utf8| StorageError::NotUtf8(path.to_owned()))?;
-        let sidecar_path = sidecar_path(path);
-        let json = fs::read_to_string(&sidecar_path)
-            .map(Some)
-            .or_else(|error| missing(&sidecar_path, error))?;
-        let Some(json) = json else {
+        let Some((text, json)) = split_hamish_comment(&contents) else {
             return Ok(Opened {
-                document: Document::new(&text),
+                document: Document::new(&contents),
                 dropped: Vec::new(),
             });
         };
-        Ok(Sidecar::parse(&sidecar_path, &json)?.restore(text))
+        Ok(SavedState::parse(path, json)?.restore(text.to_owned()))
     }
+}
+
+/// Writes each `-` of `json` as a JSON escape, so no `--` can end the comment.
+/// The schema has no negative numbers, so each `-` is in a string.
+fn escape_comment_ends(json: &str) -> String {
+    json.replace('-', "\\u002d")
+}
+
+/// The Document text and the JSON of the Hamish comment, when the last thing in
+/// `contents` (past trailing whitespace) is that comment. `None` when it is not.
+fn split_hamish_comment(contents: &str) -> Option<(&str, &str)> {
+    let head = contents.trim_end().strip_suffix(COMMENT_CLOSE)?;
+    let start = head.rfind("<!--")?;
+    let json = head.get(start..)?.strip_prefix(COMMENT_OPEN)?;
+    let tagged = json.starts_with(char::is_whitespace);
+    if !tagged || json.contains(COMMENT_CLOSE) {
+        return None;
+    }
+    let text = contents.get(..start)?;
+    let text = text
+        .strip_suffix(SEPARATOR)
+        .or_else(|| text.strip_suffix('\n'))
+        .unwrap_or(text);
+    Some((text, json))
 }
 
 fn io_error(path: &Path, error: io::Error) -> StorageError {
@@ -148,14 +175,6 @@ fn io_error(path: &Path, error: io::Error) -> StorageError {
         path: path.to_owned(),
         error,
     }
-}
-
-/// `None` when the sidecar does not exist, else the read error.
-fn missing(path: &Path, error: io::Error) -> Result<Option<String>, StorageError> {
-    if error.kind() == io::ErrorKind::NotFound {
-        return Ok(None);
-    }
-    Err(io_error(path, error))
 }
 
 /// Writes `contents` to a new file next to `path`, then renames it to `path`,
@@ -172,18 +191,18 @@ fn sha256(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
-/// Only the schema version, read before the rest so a newer sidecar gives a clear error.
+/// Only the schema version, read before the rest so a newer schema gives a clear error.
 #[derive(Deserialize)]
 struct Header {
     version: u32,
 }
 
-/// The sidecar JSON. Ranges of top-level items are byte ranges of the `.md` text;
-/// ranges nested in a Variant are byte ranges of that Variant's text.
+/// The JSON of the Hamish comment. Ranges of top-level items are byte ranges of the
+/// Document text; ranges nested in a Variant are byte ranges of that Variant's text.
 #[derive(Serialize, Deserialize)]
-struct Sidecar {
+struct SavedState {
     version: u32,
-    /// SHA-256 of the `.md` text at save, lowercase hex.
+    /// SHA-256 of the Document text at save, lowercase hex.
     md_sha256: String,
     slots: Vec<SlotRecord>,
     ghosts: Vec<GhostRecord>,
@@ -208,7 +227,7 @@ struct VariantRecord {
     ghosts: Vec<Range<usize>>,
 }
 
-/// A top-level Ghost range with its text, to find it again when the `.md` changed.
+/// A top-level Ghost range with its text, to find it again when the text changed.
 #[derive(Serialize, Deserialize)]
 struct GhostRecord {
     range: Range<usize>,
@@ -249,22 +268,23 @@ impl VariantRecord {
         Self {
             text: variant.text.clone(),
             provenance: variant.provenance,
-            slots: variant.slots.iter().map(SlotRecord::of).collect(),
-            ghosts: variant.ghosts.clone(),
+            slots: variant.tree.slots().iter().map(SlotRecord::of).collect(),
+            ghosts: variant.tree.ghosts().to_vec(),
         }
     }
 }
 
-impl Sidecar {
+impl SavedState {
     fn of(document: &Document) -> Self {
         let text = document.text();
         let text_of = |range: &Range<usize>| text.get(range.clone()).unwrap_or_default().to_owned();
         Self {
             version: SCHEMA_VERSION,
             md_sha256: sha256(text),
-            slots: document.slot_nodes().iter().map(SlotRecord::of).collect(),
+            slots: document.tree().slots().iter().map(SlotRecord::of).collect(),
             ghosts: document
-                .top_ghosts()
+                .tree()
+                .ghosts()
                 .iter()
                 .map(|range| GhostRecord {
                     range: range.clone(),
@@ -288,7 +308,7 @@ impl Sidecar {
     }
 
     fn parse(path: &Path, json: &str) -> Result<Self, StorageError> {
-        let bad = |error: serde_json::Error| StorageError::BadSidecar {
+        let bad = |error: serde_json::Error| StorageError::BadHamishComment {
             path: path.to_owned(),
             reason: error.to_string(),
         };
@@ -307,8 +327,7 @@ impl Sidecar {
             unchanged: sha256(&text) == self.md_sha256,
             text: &text,
             slot_ids: HashSet::new(),
-            slots: Vec::new(),
-            ghosts: Vec::new(),
+            tree: Tree::default(),
             dropped: Vec::new(),
         };
         for record in self.slots {
@@ -318,35 +337,29 @@ impl Sidecar {
             restore.top_ghost(record);
         }
         let marks = restore.lab_marks(self.lab_marks);
-        let Restore {
-            slots,
-            ghosts,
-            dropped,
-            ..
-        } = restore;
+        let Restore { tree, dropped, .. } = restore;
         Opened {
-            document: Document::restored(text, slots, ghosts, Overflow::new(self.overflow), marks),
+            document: Document::restored(text, tree, Overflow::new(self.overflow), marks),
             dropped,
         }
     }
 }
 
-/// Puts the sidecar items back on the `.md` text, one at a time.
+/// Puts the Hamish comment items back on the Document text, one at a time.
 struct Restore<'a> {
-    /// The `.md` text is the one the sidecar was saved with.
+    /// The Document text is the one the Hamish comment was saved with.
     unchanged: bool,
     text: &'a str,
     slot_ids: HashSet<u64>,
-    slots: Vec<SlotNode>,
-    ghosts: Vec<Range<usize>>,
+    tree: Tree,
     dropped: Vec<Dropped>,
 }
 
 impl Restore<'_> {
     /// Where a top-level item with `anchor` text, saved at `saved`, may go, best first.
-    /// Unchanged `.md`: the saved range when it still holds `anchor`. Changed `.md`: each
-    /// place of `anchor` in the text, nearest to the saved start first (ADR 0003).
-    /// An empty `anchor` has no place in a changed `.md`.
+    /// Unchanged text: the saved range when it still holds `anchor`. Changed text: each
+    /// place of `anchor` in the text, nearest to the saved start first (ADR 0007).
+    /// An empty `anchor` has no place in a changed text.
     fn places(&self, anchor: &str, saved: &Range<usize>) -> Vec<Range<usize>> {
         if self.unchanged {
             let fits = self.text.get(saved.clone()) == Some(anchor);
@@ -368,11 +381,7 @@ impl Restore<'_> {
         let level = record.level;
         let anchor = record.active_text().to_owned();
         let places = self.places(&anchor, &record.range);
-        let free = places.into_iter().find(|place| {
-            self.slots
-                .iter()
-                .all(|kept| slot::disjoint(&kept.range, place))
-        });
+        let free = places.into_iter().find(|place| self.tree.is_free(place));
         let node = free.and_then(|place| Some((place, self.node(record)?)));
         let Some((place, mut node)) = node else {
             self.dropped.push(Dropped::Slot {
@@ -382,8 +391,7 @@ impl Restore<'_> {
             return;
         };
         node.range = place;
-        self.slots.push(node);
-        self.slots.sort_by_key(|node| node.range.start);
+        self.tree.add(node);
     }
 
     fn top_ghost(&mut self, record: GhostRecord) {
@@ -392,17 +400,15 @@ impl Restore<'_> {
             .into_iter()
             .filter(|place| !place.is_empty())
             .find_map(|place| {
-                let mut slots = self.slots.clone();
-                let mut ghosts = self.ghosts.clone();
-                slot::place_ghost(&mut slots, &mut ghosts, place).ok()?;
-                Some((slots, ghosts))
+                let mut tree = self.tree.clone();
+                tree.place_ghost(place).ok()?;
+                Some(tree)
             });
-        let Some((slots, ghosts)) = placed else {
+        let Some(tree) = placed else {
             self.dropped.push(Dropped::Ghost { text: record.text });
             return;
         };
-        self.slots = slots;
-        self.ghosts = ghosts;
+        self.tree = tree;
     }
 
     fn lab_marks(&mut self, records: Vec<LabMarkRecord>) -> Vec<LabMark> {
@@ -454,30 +460,24 @@ impl Restore<'_> {
     }
 
     fn variant(&mut self, record: VariantRecord) -> Option<Variant> {
-        let mut slots: Vec<SlotNode> = Vec::new();
+        let mut tree = Tree::default();
         for child in record.slots {
             let on_text = record.text.get(child.range.clone()) == Some(child.active_text());
-            let free = slots
-                .iter()
-                .all(|kept| slot::disjoint(&kept.range, &child.range));
-            if !on_text || !free {
+            if !on_text || !tree.is_free(&child.range) {
                 return None;
             }
-            slots.push(self.node(child)?);
+            tree.add(self.node(child)?);
         }
-        slots.sort_by_key(|node| node.range.start);
-        let mut ghosts = Vec::new();
         for ghost in record.ghosts {
             if ghost.is_empty() || record.text.get(ghost.clone()).is_none() {
                 return None;
             }
-            slot::place_ghost(&mut slots, &mut ghosts, ghost).ok()?;
+            tree.place_ghost(ghost).ok()?;
         }
         Some(Variant {
             text: record.text,
             provenance: record.provenance,
-            slots,
-            ghosts,
+            tree,
         })
     }
 }

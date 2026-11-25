@@ -1,4 +1,4 @@
-use ka_teb_core::Document;
+use hamish_core::{Document, MarkdownSpan, MarkdownStyle};
 
 #[test]
 fn insert_text_reads_back_as_active_text() {
@@ -157,4 +157,42 @@ fn undo_restores_the_counter_and_title() {
     assert!(document.undo());
     assert_eq!(document.title(), Some("Title"));
     assert_eq!(document.counter().to_string(), "2 words 10 chars");
+}
+
+#[test]
+fn counter_and_markdown_styles_follow_a_ghost_an_edit_and_their_undo() {
+    let mut document = Document::new("one two three");
+    assert_eq!(document.counter().words, 3);
+
+    assert!(document.ghost(4..7).is_ok());
+    assert_eq!(document.counter().words, 2);
+    assert!(document.undo());
+    assert_eq!(document.counter().words, 3);
+
+    assert!(document.replace(0..3, "**one**").is_ok());
+    assert_eq!(
+        document.markdown_styles(),
+        vec![MarkdownSpan {
+            range: 0..7,
+            style: MarkdownStyle::Bold
+        }]
+    );
+    assert!(document.undo());
+    assert_eq!(document.markdown_styles(), Vec::new());
+    assert!(document.redo());
+    assert_eq!(document.markdown_styles().len(), 1);
+}
+
+#[test]
+fn a_copy_without_history_keeps_the_text_and_ghost_ranges_and_has_no_undo() {
+    let mut document = Document::new("one two three");
+    assert!(document.ghost(4..7).is_ok());
+
+    let mut copy = document.without_history();
+
+    assert_eq!(copy.text(), "one two three");
+    assert_eq!(copy.ghost_ranges(), vec![4..7]);
+    assert_eq!(copy.counter().words, 2);
+    assert!(!copy.undo());
+    assert!(document.undo());
 }

@@ -9,19 +9,19 @@ use crate::actions::{
     AiAlternatives, CloseMenu, DeleteActiveVariant, OpenAlternatives, Redo, Stash, ToggleGhost,
     Undo,
 };
-use crate::caret::{self, CaretView, caret_actions, caret_input_handler};
-use crate::context_menu::{self, ContextMenu, ContextMenuItem};
+use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
+use crate::context_menu::{ContextMenu, ContextMenuItem};
 use crate::effects::{self, EffectPlayer, PlayingEffect};
 use crate::settings;
 use crate::sounds;
 use gpui::{
     App, Bounds, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, ScrollHandle,
-    Window, div, prelude::*,
+    SharedString, Window, div, prelude::*,
 };
-use ka_teb_core::{
-    Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, Level, SlotError, SlotId,
-    Sound, follow_change, paragraph_around,
+use hamish_core::{
+    Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
+    SlotId, Sound, TrimProposal, follow_change, paragraph_around,
 };
 
 use element::EditorElement;
@@ -33,14 +33,18 @@ mod focus_zoom;
 mod painted_text;
 mod pen;
 mod runs;
+mod synthetic_bold;
 
 pub(crate) use painted_text::{PaintedText, shape};
 
 /// How a Slot shows that it has Variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerKind {
-    /// Word and Sentence: underline plus a row of Variant dots.
+    /// Word: underline plus a row of Variant dots under the word.
     Underline,
+    /// Sentence: underline under the rows of the sentence only, plus a row of Variant dots
+    /// after its last char.
+    SentenceUnderline,
     /// Paragraph: a line in the left margin plus a column of Variant dots.
     MarginLine,
 }
@@ -67,6 +71,9 @@ pub struct Editor {
     autoscroll: bool,
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
+    /// The Variant dots of each Marker as last painted (window coordinates).
+    marker_dots: Vec<element::MarkerDot>,
+    hover_tint: Vec<Bounds<Pixels>>,
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
@@ -80,6 +87,13 @@ pub struct Editor {
     focus_zoom: FocusZoom,
     /// The zoomed paragraphs as last painted.
     zooms: Vec<focus_zoom::Zoom>,
+    column: Option<Column>,
+    /// Where a dragged Overflow block goes in if it drops now.
+    drop_target: Option<usize>,
+    /// The font family of the text as last painted.
+    text_font: SharedString,
+    /// Offsets of the glyphs last painted with synthetic bold.
+    synthetic_bold: Vec<usize>,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims.
@@ -113,6 +127,8 @@ impl Editor {
             autoscroll: false,
             hovered: None,
             markers: Vec::new(),
+            marker_dots: Vec::new(),
+            hover_tint: Vec::new(),
             underlines: Vec::new(),
             context_menu: None,
             spotlight: None,
@@ -121,7 +137,24 @@ impl Editor {
             effects: EffectPlayer::default(),
             focus_zoom: FocusZoom::default(),
             zooms: Vec::new(),
+            column: None,
+            drop_target: None,
+            text_font: SharedString::default(),
+            synthetic_bold: Vec::new(),
         }
+    }
+
+    /// The font family of the text as last painted.
+    #[must_use]
+    pub fn text_font(&self) -> &SharedString {
+        &self.text_font
+    }
+
+    /// Byte offsets (in the shown Document) of the glyphs last painted with synthetic bold:
+    /// bold text in a font with no bold face.
+    #[must_use]
+    pub fn synthetic_bold(&self) -> Vec<usize> {
+        self.synthetic_bold.clone()
     }
 
     #[must_use]
@@ -161,10 +194,52 @@ impl Editor {
         self.session.selection()
     }
 
+    /// The Lab mark at the caret (see [`Document::lab_mark_at`]), which shows as selected.
+    /// `None` when text is selected.
+    #[must_use]
+    pub fn selected_lab_mark(&self) -> Option<&LabMark> {
+        let selection = self.selection();
+        if !selection.is_empty() {
+            return None;
+        }
+        self.document().lab_mark_at(selection.start)
+    }
+
+    /// The box around the rows of the selected Lab mark as last painted (window
+    /// coordinates); `None` with no selected mark.
+    #[must_use]
+    pub fn selected_lab_mark_bounds(&self) -> Option<Bounds<Pixels>> {
+        let mark = self.selected_lab_mark()?;
+        self.painted
+            .as_ref()?
+            .text_quads(&mark.range, gpui::Hsla::default())
+            .into_iter()
+            .map(|quad| self.zoomed(quad.bounds))
+            .reduce(|all, row| all.union(&row))
+    }
+
     /// The Markers as last painted, in document order, each parent before the Slots in it.
     #[must_use]
     pub fn markers(&self) -> &[Marker] {
         &self.markers
+    }
+
+    /// The Variant dots of the Marker of `slot` as last painted (window coordinates), in
+    /// Variant order; empty when it has none.
+    #[must_use]
+    pub fn marker_dots(&self, slot: SlotId) -> Vec<Bounds<Pixels>> {
+        self.marker_dots
+            .iter()
+            .filter(|(id, _)| *id == slot)
+            .map(|(_, dot)| *dot)
+            .collect()
+    }
+
+    /// The tint boxes behind the hovered Slot and the Slot the Alternatives panel shows, as
+    /// last painted (window coordinates); empty when there is neither.
+    #[must_use]
+    pub fn hover_tint(&self) -> Vec<Bounds<Pixels>> {
+        self.hover_tint.clone()
     }
 
     /// The effects that play now, oldest first.
@@ -262,14 +337,16 @@ impl Editor {
         )
     }
 
-    /// The paragraph that stays bright while the Alternatives panel is open; the
-    /// rest of the text dims. `None` when nothing dims.
+    /// The paragraph that stays bright while the Alternatives panel is open, or the one
+    /// under a dragged Overflow block; the rest of the text dims. `None` when nothing dims.
     #[must_use]
     pub fn bright_paragraph(&self) -> Option<Range<usize>> {
         let shown = self.shown_document();
-        let range = match self.spotlight.as_ref()? {
-            Spotlight::Slot(id) => shown.slot(*id)?.range,
-            Spotlight::Text(range) => self.to_shown(range),
+        let range = match (self.drop_target, self.spotlight.as_ref()) {
+            (Some(at), _) => self.to_shown(&(at..at)),
+            (None, Some(Spotlight::Slot(id))) => shown.slot(*id)?.range,
+            (None, Some(Spotlight::Text(range))) => self.to_shown(range),
+            (None, None) => return None,
         };
         Some(paragraph_around(shown.text(), &range))
     }
@@ -289,7 +366,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.preview = preview.and_then(|(range, text)| {
-            let mut shown = self.session.document().clone();
+            let mut shown = self.session.document().without_history();
             shown.replace(range, text).ok().map(|()| shown)
         });
         cx.notify();
@@ -313,30 +390,13 @@ impl Editor {
         self.session
             .document()
             .trim_proposal()
-            .map_or_else(Vec::new, |proposal| {
-                proposal
-                    .cuts()
-                    .iter()
-                    .filter(|cut| !cut.kept)
-                    .map(|cut| cut.range.clone())
-                    .collect()
-            })
+            .map_or_else(Vec::new, TrimProposal::open_ranges)
     }
 
     /// Counter text: the Document, or the selection with "selected".
     #[must_use]
     pub fn counter_label(&self) -> String {
-        if self.session.selection().is_empty() {
-            return self.session.document().counter().to_string();
-        }
-        match self
-            .session
-            .document()
-            .selection_counter(self.session.selection())
-        {
-            Ok(counter) => format!("{counter} selected"),
-            Err(_) => self.session.document().counter().to_string(),
-        }
+        self.session.counter_label()
     }
 
     fn caret_offset(&self) -> usize {
@@ -417,12 +477,7 @@ impl Editor {
             .session
             .document()
             .trim_proposal()
-            .and_then(|proposal| {
-                proposal
-                    .cuts()
-                    .iter()
-                    .position(|cut| !cut.kept && cut.range.contains(&glyph))
-            });
+            .and_then(|proposal| proposal.open_cut_at(glyph));
         index.is_some_and(|index| {
             self.change_document(|document| document.keep_trim_cut(index), cx)
                 .is_ok()
@@ -467,6 +522,17 @@ impl Editor {
         let Some(changes) = self.session.redo() else {
             return;
         };
+        let len = self.session.document().text().len();
+        for span in &changes.deleted {
+            self.effects.play(
+                Effect::Explosion,
+                span.start.min(len)..span.end.min(len),
+                cx,
+            );
+        }
+        if !changes.deleted.is_empty() {
+            sounds::play(Sound::Explosion, cx);
+        }
         self.fade_in(changes.switched, Duration::ZERO, cx);
         self.autoscroll = true;
         cx.notify();
@@ -488,7 +554,8 @@ impl Editor {
 
     /// Ctrl+Return puts the Overflow block at Overflow offset `caret` at the caret.
     pub(crate) fn use_overflow_block(&mut self, caret: usize, cx: &mut Context<Self>) -> bool {
-        self.insert_overflow_block(caret, self.caret_offset(), cx)
+        let at = self.caret_offset();
+        self.insert_overflow_block(at, |document| document.use_block(caret, at), cx)
     }
 
     /// A block dragged into the page goes in at the drop point.
@@ -498,19 +565,43 @@ impl Editor {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.insert_overflow_block(caret, caret::offset_at(self, position, cx), cx)
+        self.drop_target = None;
+        let at = caret::offset_at(self, position, cx);
+        self.insert_overflow_block(at, |document| document.drop_block(caret, at), cx)
     }
 
-    /// Inserts a copy of the block at Overflow offset `caret` at `at`, as one undo step;
-    /// the caret goes after it.
-    fn insert_overflow_block(&mut self, caret: usize, at: usize, cx: &mut Context<Self>) -> bool {
-        let inserted = self.session.change_then_select(
-            |document| document.use_block(caret, at),
-            |old, new| {
-                let after = (at + new.text().len()).saturating_sub(old.len());
-                after..after
-            },
-        );
+    /// Where a dragged Overflow block goes in if it drops now; `None` with no drag over
+    /// the page.
+    #[must_use]
+    pub fn drop_caret(&self) -> Option<usize> {
+        self.drop_target
+    }
+
+    /// A dragged Overflow block is at window `position` over the page, or `None` off it.
+    pub(crate) fn drag_block_over(
+        &mut self,
+        position: Option<Point<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        let target = position.map(|position| caret::offset_at(self, position, cx));
+        if self.drop_target != target {
+            self.drop_target = target;
+            cx.notify();
+        }
+    }
+
+    /// Inserts a copy of an Overflow block at `at` with `insert`, as one undo step; the
+    /// caret goes after it.
+    fn insert_overflow_block(
+        &mut self,
+        at: usize,
+        insert: impl FnOnce(&mut Document) -> Result<(), hamish_core::OverflowError>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let inserted = self.session.change_then_select(insert, |old, new| {
+            let after = (at + new.text().len()).saturating_sub(old.len());
+            after..after
+        });
         if inserted.is_err() {
             return false;
         }
@@ -528,7 +619,11 @@ impl Editor {
         window.focus(&self.focus_handle);
         self.keep_trim_cut_at(event.position, cx);
         self.selecting = true;
-        caret::press(self, event.position, event.modifiers.shift, cx);
+        if event.click_count == 2 {
+            caret::select_word(self, event.position, cx);
+        } else {
+            caret::press(self, event.position, event.modifiers.shift, cx);
+        }
         if let Some(slot) = self.slot_at(event.position) {
             cx.emit(EditorEvent::SlotClicked(slot));
         }
@@ -560,11 +655,7 @@ impl Editor {
     /// What the menu actions act on: the selection, else the word at the caret,
     /// else the caret.
     pub(crate) fn target(&self) -> Range<usize> {
-        if !self.session.selection().is_empty() {
-            return self.session.selection();
-        }
-        let caret = self.caret_offset();
-        context_menu::word_at(self.session.document().text(), caret).unwrap_or(caret..caret)
+        self.session.target()
     }
 
     /// A right-click opens the context menu. Outside the selection it moves the
@@ -583,8 +674,7 @@ impl Editor {
             caret::press(self, event.position, false, cx);
         }
         let target = self.target();
-        let in_ghost =
-            context_menu::touches_ghost(&self.session.document().ghost_ranges(), &target);
+        let in_ghost = self.session.document().touches_ghost(&target);
         if target.is_empty() && !in_ghost {
             self.context_menu = None;
             return;
@@ -605,9 +695,12 @@ impl Editor {
         cx.notify();
     }
 
+    /// Esc closes the context menu; with none open, a view up the tree takes it.
     fn close_menu(&mut self, _: &CloseMenu, _: &mut Window, cx: &mut Context<Self>) {
         if self.context_menu.take().is_some() {
             cx.notify();
+        } else {
+            cx.propagate();
         }
     }
 
@@ -616,15 +709,8 @@ impl Editor {
     fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
         let target = self.target();
-        let ghosted = context_menu::touches_ghost(&self.session.document().ghost_ranges(), &target);
         self.session
-            .change(|document| {
-                if ghosted {
-                    document.revive(target)
-                } else {
-                    document.ghost(target)
-                }
-            })
+            .change(|document| document.toggle_ghost(target))
             .ok();
         cx.notify();
     }
@@ -695,6 +781,10 @@ impl CaretView for Editor {
         self.painted.as_ref()
     }
 
+    fn column(&mut self) -> &mut Option<Column> {
+        &mut self.column
+    }
+
     fn to_painted(&self, position: Point<Pixels>) -> Point<Pixels> {
         self.unzoomed(position)
     }
@@ -718,6 +808,10 @@ impl Focusable for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A drag that ends off the page sends no event; the end of the drag clears it.
+        if !cx.has_active_drag() {
+            self.drop_target = None;
+        }
         let theme = cx.global::<Theme>().clone();
         let editor = div()
             .id("editor")
@@ -741,6 +835,7 @@ impl Render for Editor {
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll_handle)
+            .font_family(theme.text_font.clone())
             .text_size(theme.font_size_body)
             .line_height(theme.line_height_body)
             .text_color(theme.text)

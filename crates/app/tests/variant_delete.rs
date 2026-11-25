@@ -1,6 +1,6 @@
 use app::{PlayingEffect, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Effect, Level, LoadedSettings, Provenance, Settings, SlotId};
+use hamish_core::{Document, Effect, Level, LoadedSettings, Provenance, Settings, SlotId};
 
 fn open(
     cx: &mut TestAppContext,
@@ -137,6 +137,25 @@ fn undo_puts_the_deleted_variant_back_as_active_with_a_burst(cx: &mut TestAppCon
     assert_eq!(
         effects(&workspace, cx).last(),
         Some(&effect(Effect::UndoBurst, 10..16))
+    );
+}
+
+#[gpui::test]
+fn redo_of_a_delete_plays_the_explosion_again(cx: &mut TestAppContext) {
+    let (document, slot) = slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("down ctrl-shift-backspace ctrl-z ctrl-shift-z");
+
+    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
+    assert_eq!(
+        variants(&workspace, cx, slot),
+        Some((strings(&["customer", "patron"]), 1))
+    );
+    assert_eq!(
+        effects(&workspace, cx).last(),
+        Some(&effect(Effect::Explosion, 10..16))
     );
 }
 

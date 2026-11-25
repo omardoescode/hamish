@@ -1,5 +1,5 @@
 [package]
-name = "ka-teb-core"
+name = "hamish-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,6 +16,10 @@ unicode-segmentation = "1.12.0"
 [dev-dependencies]
 cargo-husky = { version = "=1.5.0", default-features = false, features = ["user-hooks"] }
 tempfile = "3.23.0"
+
+[[bench]]
+name = "document"
+harness = false
 
 [package.metadata.cargo-shear]
 ignored = ["cargo-husky"]

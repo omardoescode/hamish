@@ -7,7 +7,7 @@ use std::fmt;
 /// Words are runs of non-whitespace. Chars are Unicode scalar values, whitespace included.
 ///
 /// ```
-/// use ka_teb_core::Counter;
+/// use hamish_core::Counter;
 ///
 /// assert_eq!(Counter::of("Hello, dear world").to_string(), "3 words 17 chars");
 /// assert_eq!(Counter::of("I").to_string(), "1 word 1 char");

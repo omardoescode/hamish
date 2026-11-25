@@ -7,17 +7,25 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, Hsla, InteractiveElement, PaintQuad, Pixels, Point,
     ScrollHandle, UTF16Selection, fill, point, px, size,
 };
-use ka_teb_core::{Caret, CaretEdit, Cycle, Motion, byte_range, utf16_range};
+use hamish_core::{Caret, CaretEdit, Cycle, Motion, byte_range, utf16_range};
 
 use crate::Theme;
 use crate::actions::{
     Backspace, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart,
-    MoveUp, Newline, Paste, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
-    SelectToLineStart, SelectUp,
+    MoveUp, MoveWordLeft, MoveWordRight, Newline, Paste, SelectAll, SelectDown, SelectLeft,
+    SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, SelectWordLeft, SelectWordRight,
 };
 use crate::editor::PaintedText;
 
 const CARET_WIDTH: Pixels = px(2.);
+
+/// The x a run of Up and Down keeps, and the offset where the last of them put the caret.
+/// A caret at another offset starts a new run.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Column {
+    x: Pixels,
+    at: usize,
+}
 
 /// A view that edits one text with a [`Caret`].
 pub(crate) trait CaretView: Sized + 'static {
@@ -35,6 +43,9 @@ pub(crate) trait CaretView: Sized + 'static {
 
     /// The text as last painted; `None` before the first paint.
     fn painted(&self) -> Option<&PaintedText>;
+
+    /// The column of the last Up or Down; `None` before the first.
+    fn column(&mut self) -> &mut Option<Column>;
 
     /// `position` (window) where the painted text has it.
     fn to_painted(&self, position: Point<Pixels>) -> Point<Pixels> {
@@ -67,23 +78,25 @@ pub(crate) fn caret_actions<V: CaretView, E: InteractiveElement>(
         }))
         .on_action(cx.listener(|view: &mut V, _: &MoveUp, _, cx| {
             if !view.take_vertical_key(Cycle::Previous, cx) {
-                let motion = row_away(view, -1., cx);
-                go(view, motion, false, cx);
+                vertical(view, -1., false, cx);
             }
         }))
         .on_action(cx.listener(|view: &mut V, _: &MoveDown, _, cx| {
             if !view.take_vertical_key(Cycle::Next, cx) {
-                let motion = row_away(view, 1., cx);
-                go(view, motion, false, cx);
+                vertical(view, 1., false, cx);
             }
         }))
+        .on_action(cx.listener(|view: &mut V, _: &MoveWordLeft, _, cx| {
+            go(view, Motion::WordLeft, false, cx);
+        }))
+        .on_action(cx.listener(|view: &mut V, _: &MoveWordRight, _, cx| {
+            go(view, Motion::WordRight, false, cx);
+        }))
         .on_action(cx.listener(|view: &mut V, _: &MoveToLineStart, _, cx| {
-            let motion = row_edge(view, px(0.), cx);
-            go(view, motion, false, cx);
+            go(view, Motion::LineStart, false, cx);
         }))
         .on_action(cx.listener(|view: &mut V, _: &MoveToLineEnd, _, cx| {
-            let motion = row_edge(view, Pixels::MAX, cx);
-            go(view, motion, false, cx);
+            go(view, Motion::LineEnd, false, cx);
         }))
         .on_action(cx.listener(|view: &mut V, _: &SelectLeft, _, cx| {
             go(view, Motion::Left, true, cx);
@@ -91,21 +104,23 @@ pub(crate) fn caret_actions<V: CaretView, E: InteractiveElement>(
         .on_action(cx.listener(|view: &mut V, _: &SelectRight, _, cx| {
             go(view, Motion::Right, true, cx);
         }))
+        .on_action(cx.listener(|view: &mut V, _: &SelectWordLeft, _, cx| {
+            go(view, Motion::WordLeft, true, cx);
+        }))
+        .on_action(cx.listener(|view: &mut V, _: &SelectWordRight, _, cx| {
+            go(view, Motion::WordRight, true, cx);
+        }))
         .on_action(cx.listener(|view: &mut V, _: &SelectUp, _, cx| {
-            let motion = row_away(view, -1., cx);
-            go(view, motion, true, cx);
+            vertical(view, -1., true, cx);
         }))
         .on_action(cx.listener(|view: &mut V, _: &SelectDown, _, cx| {
-            let motion = row_away(view, 1., cx);
-            go(view, motion, true, cx);
+            vertical(view, 1., true, cx);
         }))
         .on_action(cx.listener(|view: &mut V, _: &SelectToLineStart, _, cx| {
-            let motion = row_edge(view, px(0.), cx);
-            go(view, motion, true, cx);
+            go(view, Motion::LineStart, true, cx);
         }))
         .on_action(cx.listener(|view: &mut V, _: &SelectToLineEnd, _, cx| {
-            let motion = row_edge(view, Pixels::MAX, cx);
-            go(view, motion, true, cx);
+            go(view, Motion::LineEnd, true, cx);
         }))
         .on_action(cx.listener(|view: &mut V, _: &SelectAll, _, cx| {
             let all = view.read_text(cx, |text, _| Caret::all(text));
@@ -146,6 +161,17 @@ pub(crate) fn press<V: CaretView>(
     go(view, motion, extend, cx);
 }
 
+/// A double press at window `position` selects the word there.
+pub(crate) fn select_word<V: CaretView>(
+    view: &mut V,
+    position: Point<Pixels>,
+    cx: &mut Context<V>,
+) {
+    let offset = offset_at(view, position, cx);
+    let word = view.read_text(cx, |text, _| Caret::word(text, offset));
+    view.select(word, cx);
+}
+
 /// The text offset at window `position`; the caret offset before the first paint.
 pub(crate) fn offset_at<V: CaretView>(view: &V, position: Point<Pixels>, cx: &App) -> usize {
     view.read_text(cx, |text, caret| {
@@ -183,33 +209,26 @@ fn copy<V: CaretView>(view: &mut V, cx: &mut Context<V>) {
     }
 }
 
-/// The offset `rows` painted rows above (negative) or below the caret, at the same x.
-fn row_away<V: CaretView>(view: &V, rows: f32, cx: &App) -> Motion {
-    in_caret_row(view, cx, |painted, caret| {
-        point(caret.x, caret.y + painted.line_height * (rows + 0.5))
-    })
-}
-
-/// The offset at the start (`x` = 0) or end (`x` = MAX) of the caret's painted row.
-fn row_edge<V: CaretView>(view: &V, x: Pixels, cx: &App) -> Motion {
-    in_caret_row(view, cx, |painted, caret| {
-        point(x, caret.y + painted.line_height * 0.5)
-    })
-}
-
-fn in_caret_row<V: CaretView>(
-    view: &V,
-    cx: &App,
-    target: impl FnOnce(&PaintedText, Point<Pixels>) -> Point<Pixels>,
-) -> Motion {
-    view.read_text(cx, |text, caret| {
-        let offset = caret.clamped(text).offset();
-        let found = view.painted().and_then(|painted| {
-            let position = painted.position_for(offset)?;
-            Some(painted.offset_for_local(target(painted, position), text.len()))
-        });
-        Motion::To(found.unwrap_or(offset))
-    })
+/// Moves the caret `rows` painted rows up (negative) or down, at the x of its [`Column`].
+/// Nothing moves before the first paint.
+fn vertical<V: CaretView>(view: &mut V, rows: f32, extend: bool, cx: &mut Context<V>) {
+    let (offset, len) =
+        view.read_text(cx, |text, caret| (caret.clamped(text).offset(), text.len()));
+    let kept = view
+        .column()
+        .filter(|column| column.at == offset)
+        .map(|column| column.x);
+    let Some((x, to)) = view.painted().and_then(|painted| {
+        let caret = painted.position_for(offset)?;
+        let x = kept.unwrap_or(caret.x);
+        let target = point(x, caret.y + painted.line_height * (rows + 0.5));
+        Some((x, painted.offset_for_local(target, len)))
+    }) else {
+        return;
+    };
+    go(view, Motion::To(to), extend, cx);
+    let at = view.read_text(cx, |text, caret| caret.clamped(text).offset());
+    *view.column() = Some(Column { x, at });
 }
 
 /// The caret quad at `offset` of the painted text.

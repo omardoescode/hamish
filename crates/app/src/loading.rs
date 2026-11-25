@@ -2,7 +2,7 @@
 //! the AI works, for a quick fill and for "AI alternatives".
 
 use gpui::{Animation, AnimationExt, AnyElement, FontWeight, Hsla, div, prelude::*, px};
-use ka_teb_core::Effect;
+use hamish_core::Effect;
 
 /// The poses of each "??" glyph in one round: the glyph and how far it lifts.
 const POSES: [[(&str, f32); 4]; 2] = [

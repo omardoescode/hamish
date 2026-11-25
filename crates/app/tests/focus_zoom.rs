@@ -6,7 +6,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Pixels, TestAppContext, VisualTestContext,
     point, px,
 };
-use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
 /// "Title" is 0..5, the long paragraph 6..60, "Short." 61..67.
 const TEXT: &str = "Title\nabcdefghij abcdefghij abcdefghij abcdefghij abcdefghij\nShort.";

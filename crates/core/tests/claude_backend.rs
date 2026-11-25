@@ -5,7 +5,7 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, ClaudeBackend, Document, LabCheck,
     LabFinding, Level, Provenance, RangeError, TrimLevel,
 };

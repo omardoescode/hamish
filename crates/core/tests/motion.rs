@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use ka_teb_core::Effect;
+use hamish_core::Effect;
 
 fn ms(millis: u64) -> Duration {
     Duration::from_millis(millis)

@@ -1,9 +1,9 @@
 //! The Theme global: colors and sizes for each view, made from the Settings.
 
 use gpui::{Global, Hsla, Pixels, SharedString, hsla, px, rgb};
-use ka_teb_core::{Settings, ThemeName};
+use hamish_core::{Palette, Settings};
 
-/// Theme values. Dark is the default; light uses the same roles on paper colors. Sizes come from [`Settings`].
+/// Theme values: the colors of the named theme in [`Settings`], and sizes from them.
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub background: Hsla,
@@ -31,7 +31,7 @@ pub struct Theme {
     pub slot_dot: Hsla,
     pub slot_dot_filled: Hsla,
     pub slot_paragraph_line: Hsla,
-    /// Background + about 4% white (dark) or black (light).
+    /// Background + about 4% white (dark theme) or black (light theme).
     pub slot_hover_background: Hsla,
     pub selection: Hsla,
     /// Background of Lab marks (mark style inferred).
@@ -42,7 +42,10 @@ pub struct Theme {
     /// Text outside the current paragraph while the Alternatives panel is open.
     pub panel_open_dim_opacity: f32,
     pub edge_fade_height: Pixels,
-    pub font_family: SharedString,
+    /// Font family of the Chrome, panels, Settings, menus and popovers.
+    pub ui_font: SharedString,
+    /// Font family of the Document text and the Overflow text.
+    pub text_font: SharedString,
     pub font_size_body: Pixels,
     /// Markdown heading sizes, `#` to `###`; they share the body line height.
     pub font_size_heading: [Pixels; 3],
@@ -56,21 +59,19 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// The theme for `settings`: its colors, body font, and the Chrome at its UI scale.
+    /// The theme for `settings`: its colors, fonts, and the Chrome at its UI scale.
     #[must_use]
     pub fn new(settings: &Settings) -> Self {
         let scale = settings.ui_scale;
-        let base = match settings.theme {
-            ThemeName::Dark => Self::dark(),
-            ThemeName::Light => Self::light(),
-        };
+        let base = Self::from_palette(settings.theme.palette());
         Self {
             panel_width: base.panel_width * scale,
             elevated_radius: base.elevated_radius * scale,
             font_size_hint: base.font_size_hint * scale,
             font_size_overflow: base.font_size_overflow * scale,
             line_height_overflow: base.line_height_overflow * scale,
-            font_family: settings.font_family.clone().into(),
+            ui_font: settings.ui_font.clone().into(),
+            text_font: settings.text_font_family().to_owned().into(),
             font_size_body: px(settings.font_size),
             font_size_heading: base
                 .font_size_heading
@@ -81,37 +82,40 @@ impl Theme {
         }
     }
 
-    fn dark() -> Self {
+    fn from_palette(palette: Palette) -> Self {
+        let color = |value: u32| -> Hsla { rgb(value).into() };
+        let (wash, lab_alpha) = if palette.dark { (1., 0.18) } else { (0., 0.16) };
         Self {
-            background: rgb(0x0007_0a1e).into(),
-            panel_background: rgb(0x000c_0f21).into(),
-            panel_border: rgb(0x001a_1d30).into(),
+            background: color(palette.background),
+            panel_background: color(palette.panel_background),
+            panel_border: color(palette.panel_border),
             panel_width: px(205.),
-            elevated_background: rgb(0x0012_1424).into(),
-            elevated_row_hover: rgb(0x0027_2531).into(),
+            elevated_background: color(palette.elevated_background),
+            elevated_row_hover: color(palette.elevated_row_hover),
             elevated_radius: px(6.),
-            text: rgb(0x00e6_d2c6).into(),
-            text_title: rgb(0x00fb_e5df).into(),
-            text_muted: rgb(0x005a_5a6a).into(),
-            text_faint: rgb(0x001e_2437).into(),
-            text_heading: rgb(0x00fb_e5df).into(),
-            text_quote: rgb(0x00a3_96a0).into(),
-            list_marker: rgb(0x008a_85cf).into(),
-            code_background: hsla(0., 0., 1., 0.06),
-            accent: rgb(0x008a_85cf).into(),
-            accent_outline: rgb(0x007f_7db3).into(),
-            slot_underline: rgb(0x0065_6b97).into(),
-            slot_dot: rgb(0x0065_6b97).into(),
-            slot_dot_filled: rgb(0x008a_8eba).into(),
-            slot_paragraph_line: rgb(0x0082_6359).into(),
-            slot_hover_background: hsla(0., 0., 1., 0.04),
-            selection: rgb(0x0026_2a54).into(),
-            lab_mark: hsla(0.68, 0.4, 0.66, 0.18),
+            text: color(palette.text),
+            text_title: color(palette.text_title),
+            text_muted: color(palette.text_muted),
+            text_faint: color(palette.text_faint),
+            text_heading: color(palette.text_title),
+            text_quote: color(palette.text_quote),
+            list_marker: color(palette.list_marker),
+            code_background: hsla(0., 0., wash, 0.06),
+            accent: color(palette.accent),
+            accent_outline: color(palette.accent_outline),
+            slot_underline: color(palette.slot_underline),
+            slot_dot: color(palette.slot_underline),
+            slot_dot_filled: color(palette.slot_dot_filled),
+            slot_paragraph_line: color(palette.slot_paragraph_line),
+            slot_hover_background: hsla(0., 0., wash, 0.04),
+            selection: color(palette.selection),
+            lab_mark: color(palette.lab_mark).opacity(lab_alpha),
             ghost_opacity: 0.10,
             trim_fade_opacity: 0.22,
             panel_open_dim_opacity: 0.40,
             edge_fade_height: px(30.),
-            font_family: "IBM Plex Mono".into(),
+            ui_font: "IBM Plex Mono".into(),
+            text_font: "IBM Plex Mono".into(),
             font_size_body: px(15.),
             font_size_heading: [px(21.), px(18.), px(16.)],
             font_size_hint: px(10.),
@@ -120,31 +124,6 @@ impl Theme {
             line_height_overflow: px(18.),
             column_width: px(585.),
             column_top: px(170.),
-        }
-    }
-
-    fn light() -> Self {
-        Self {
-            background: rgb(0x00f7_f3ec).into(),
-            panel_background: rgb(0x00ef_eae1).into(),
-            panel_border: rgb(0x00de_d7ca).into(),
-            elevated_background: rgb(0x00fd_fbf7).into(),
-            elevated_row_hover: rgb(0x00ea_e4d8).into(),
-            text: rgb(0x002b_2824).into(),
-            text_title: rgb(0x0017_1512).into(),
-            text_heading: rgb(0x0017_1512).into(),
-            text_muted: rgb(0x0086_8072).into(),
-            text_faint: rgb(0x00c9_c2b4).into(),
-            accent: rgb(0x0056_50ad).into(),
-            accent_outline: rgb(0x006c_68a6).into(),
-            slot_underline: rgb(0x008f_94b8).into(),
-            slot_dot: rgb(0x008f_94b8).into(),
-            slot_dot_filled: rgb(0x004f_5590).into(),
-            slot_paragraph_line: rgb(0x00b0_8a7e).into(),
-            slot_hover_background: hsla(0., 0., 0., 0.04),
-            selection: rgb(0x00d8_d5f0).into(),
-            lab_mark: hsla(0.68, 0.4, 0.45, 0.16),
-            ..Self::dark()
         }
     }
 }

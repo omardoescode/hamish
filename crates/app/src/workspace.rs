@@ -2,12 +2,12 @@
 //! actions between them.
 
 use gpui::{
-    Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div, linear_color_stop,
-    linear_gradient, prelude::*, px,
+    App, Context, DragMoveEvent, Entity, Focusable, IntoElement, Pixels, Render, SharedString,
+    Subscription, Window, canvas, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
-use ka_teb_core::{Document, SlotId};
+use hamish_core::{Document, SlotId, document_title};
 
-use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
+use crate::actions::{AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
 use crate::lab::{self, Lab};
@@ -18,21 +18,32 @@ use crate::settings;
 use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
-/// The root view: the text column, the Counter, and the Chrome.
+/// The root view: the text column, the Document title, the Counter, and the Chrome.
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
     lab: Entity<Lab>,
     overflow_panel: Entity<OverflowPanel>,
-    chrome_visible: bool,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
     overflow_open: bool,
     pub(crate) settings_modal: Entity<SettingsModal>,
     pub(crate) settings_open: bool,
+    /// The title last set on the window, so a frame sets it only when it changes.
+    window_title: String,
+    /// The font family of the Chrome bar as last painted.
+    chrome_font: SharedString,
     _editor_changes: Subscription,
     _settings_saves: Subscription,
     _editor_events: Subscription,
-    _lab_changes: Subscription,
+    lab_changes: Subscription,
+}
+
+/// Height of the Chrome bar at UI scale 1.
+const CHROME_BAR_HEIGHT: Pixels = px(40.);
+
+/// Height of the Chrome bar at the window bottom, at the UI scale in use.
+pub(crate) fn chrome_bar_height(cx: &gpui::App) -> Pixels {
+    CHROME_BAR_HEIGHT * settings::ui_scale(cx)
 }
 
 impl Workspace {
@@ -61,15 +72,16 @@ impl Workspace {
             overflow_panel,
             save_open: SaveOpen::with_notice(settings::take_start_notice(cx)),
             lab,
-            chrome_visible: false,
             alternatives: None,
             overflow_open: false,
             settings_modal,
             settings_open: false,
+            window_title: String::new(),
+            chrome_font: SharedString::default(),
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
             _editor_events: editor_events,
-            _lab_changes: lab_changes,
+            lab_changes,
         }
     }
 
@@ -78,15 +90,27 @@ impl Workspace {
         &self.editor
     }
 
+    /// The font family of the Chrome bar as last painted.
+    #[must_use]
+    pub fn chrome_font(&self) -> &SharedString {
+        &self.chrome_font
+    }
+
     #[must_use]
     pub fn lab(&self) -> &Entity<Lab> {
         &self.lab
     }
 
-    /// Hidden on open; a click on the Counter toggles it.
+    /// The Document title at the top center and on the window, with " •" while unsaved.
     #[must_use]
-    pub fn chrome_visible(&self) -> bool {
-        self.chrome_visible
+    pub fn title_label(&self, cx: &App) -> String {
+        let editor = self.editor.read(cx);
+        let title = document_title(self.document_path(), editor.document());
+        if editor.is_unsaved() {
+            format!("{title} •")
+        } else {
+            title
+        }
     }
 
     /// The open Alternatives panel; `None` when it is closed.
@@ -149,6 +173,13 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Esc in the editor with no context menu open closes the Alternatives panel.
+    fn close_menu(&mut self, _: &CloseMenu, window: &mut Window, cx: &mut Context<Self>) {
+        if self.alternatives.is_some() {
+            self.close_alternatives(window, cx);
+        }
+    }
+
     /// The Overflow panel is open.
     #[must_use]
     pub fn overflow_open(&self) -> bool {
@@ -187,6 +218,32 @@ impl Workspace {
         });
     }
 
+    /// A block dragged over the page shows where it goes in.
+    fn drag_block_over(
+        &mut self,
+        event: &DragMoveEvent<OverflowBlockDrag>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let position = event.event.position;
+        let over = event.bounds.contains(&position).then_some(position);
+        self.editor
+            .update(cx, |editor, cx| editor.drag_block_over(over, cx));
+    }
+
+    /// Closes the panels and starts a new Lab and Overflow panel, as on app start. The
+    /// Document gets the keyboard.
+    pub(crate) fn reset_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.alternatives = None;
+        self.overflow_open = false;
+        let editor = self.editor.clone();
+        self.overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
+        self.lab = cx.new(|cx| Lab::new(editor, cx));
+        self.lab_changes = cx.observe(&self.lab, |_, _, cx| cx.notify());
+        window.focus(&self.editor.focus_handle(cx));
+        cx.notify();
+    }
+
     /// Lab actions that reach the Workspace (the focus is outside the Lab) go to the Lab.
     fn route_lab_actions(&self, root: gpui::Div) -> gpui::Div {
         let lab = &self.lab;
@@ -197,11 +254,6 @@ impl Workspace {
             .on_action(to_lab(lab, Lab::walk_keep))
             .on_action(to_lab(lab, Lab::walk_cut))
             .on_action(to_lab(lab, Lab::close_trim))
-    }
-
-    fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
-        self.chrome_visible = !self.chrome_visible;
-        cx.notify();
     }
 }
 
@@ -214,10 +266,91 @@ fn to_lab<A: 'static>(
     move |action, window, cx| lab.update(cx, |lab, cx| handle(lab, action, window, cx))
 }
 
+impl Workspace {
+    /// The Chrome bar: New, Save, and Open left, LAB center, Settings and Overflow right.
+    fn chrome_bar(&self, theme: &Theme, height: Pixels, cx: &Context<Self>) -> impl IntoElement {
+        div()
+            .id("chrome")
+            .debug_selector(|| "chrome-bar".to_owned())
+            .occlude()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .h(height)
+            .px(px(24.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .bg(theme.elevated_background)
+            .border_t_1()
+            .border_color(theme.panel_border)
+            .child(chrome_font_probe(cx))
+            .child(self.save_open_icons(theme, cx))
+            .child(lab::lab_button(&self.lab, theme, cx))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .child(settings_modal::settings_button(theme))
+                    .child(overflow_panel::overflow_button(self.overflow_open, theme)),
+            )
+    }
+}
+
+/// An empty element that keeps the font family the Chrome bar paints with.
+fn chrome_font_probe(cx: &Context<Workspace>) -> impl IntoElement {
+    let workspace = cx.weak_entity();
+    canvas(
+        move |_, window, cx| {
+            let font = window.text_style().font_family;
+            workspace
+                .update(cx, |workspace, _| workspace.chrome_font = font)
+                .ok();
+        },
+        |_, (), _, _| {},
+    )
+    .absolute()
+}
+
+/// The Document title, small at the top center.
+fn title_view(label: String, theme: &Theme) -> impl IntoElement {
+    div()
+        .absolute()
+        .top(px(22.))
+        .left_0()
+        .right_0()
+        .flex()
+        .justify_center()
+        .text_size(theme.font_size_hint)
+        .text_color(theme.text_muted)
+        .child(label)
+}
+
+/// The Counter, top left.
+fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
+    div()
+        .id("counter")
+        .debug_selector(|| "counter".to_owned())
+        .occlude()
+        .absolute()
+        .top(px(22.))
+        .left(px(24.))
+        .text_size(theme.font_size_hint)
+        .text_color(theme.text_muted)
+        .child(label)
+}
+
 impl Render for Workspace {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
         let counter_label = self.editor.read(cx).counter_label();
+        let bar_height = chrome_bar_height(cx);
+        let title_label = self.title_label(cx);
+        if title_label != self.window_title {
+            window.set_window_title(&title_label);
+            self.window_title.clone_from(&title_label);
+        }
         let fade = |angle| {
             linear_gradient(
                 angle,
@@ -229,24 +362,26 @@ impl Render for Workspace {
             .size_full()
             .relative()
             .bg(theme.background)
-            .font_family(theme.font_family.clone())
+            .font_family(theme.ui_font.clone())
             .key_context("Workspace")
-            .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::open_alternatives))
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
             .on_action(cx.listener(Self::show_stash))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::close_settings))
+            .on_action(cx.listener(Self::close_menu))
             .child(
                 div()
                     .size_full()
+                    .on_drag_move(cx.listener(Self::drag_block_over))
                     .on_drop(cx.listener(Self::drop_block))
                     .child(self.editor.clone()),
             )
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
+            .on_action(cx.listener(Self::new_document))
             .map(|workspace| self.route_lab_actions(workspace))
             .child(
                 div()
@@ -266,49 +401,21 @@ impl Render for Workspace {
                     .h(theme.edge_fade_height)
                     .bg(fade(0.)),
             )
-            .when(self.overflow_open, |workspace| {
-                workspace.child(self.overflow_panel.clone())
-            })
-            .when_some(self.alternatives_panel().cloned(), |workspace, panel| {
-                workspace.child(panel)
-            })
             .child(
                 div()
-                    .id("counter")
                     .absolute()
-                    .top(px(22.))
-                    .left(px(24.))
-                    .text_size(theme.font_size_hint)
-                    .text_color(theme.text_faint)
-                    .cursor_pointer()
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
-                    .child(counter_label),
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom(bar_height)
+                    .when(self.overflow_open, |panels| {
+                        panels.child(self.overflow_panel.clone())
+                    })
+                    .children(self.alternatives_panel().cloned()),
             )
-            .when(self.chrome_visible, |workspace| {
-                workspace.child(
-                    div()
-                        .id("chrome")
-                        .absolute()
-                        .bottom(px(24.))
-                        .left(px(24.))
-                        .right(px(24.))
-                        .h(px(16.))
-                        .flex()
-                        .justify_between()
-                        .child(self.save_open_icons(&theme, cx))
-                        .child(
-                            div()
-                                .flex()
-                                .gap(px(16.))
-                                .child(settings_modal::settings_button(&theme))
-                                .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
-                        ),
-                )
-            })
-            .children(
-                self.chrome_visible
-                    .then(|| lab::lab_button(&self.lab, &theme, cx)),
-            )
+            .child(title_view(title_label, &theme))
+            .child(counter_view(counter_label, &theme))
+            .child(self.chrome_bar(&theme, bar_height, cx))
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
             .when(self.settings_open, |workspace| {

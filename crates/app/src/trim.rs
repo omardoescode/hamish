@@ -3,9 +3,11 @@
 //! writer makes them.
 
 use gpui::{AnyElement, App, Context, IntoElement, SharedString, Window, div, prelude::*, px};
-use ka_teb_core::{TrimError, TrimLevel};
+use hamish_core::{TrimError, TrimLevel};
 
 use crate::ai::{AiRun, AiStatus};
+use crate::chrome::text_button;
+use crate::lab::ai_bar;
 use crate::{Lab, Theme};
 
 #[expect(
@@ -14,7 +16,7 @@ use crate::{Lab, Theme};
 )]
 mod actions {
     use gpui::Action;
-    use ka_teb_core::TrimLevel;
+    use hamish_core::TrimLevel;
 
     gpui::actions!(trim, [MakeTrimCuts, WalkTrim, WalkKeep, WalkCut, CloseTrim]);
 
@@ -25,9 +27,6 @@ mod actions {
 }
 
 pub use actions::{CloseTrim, MakeTrimCuts, RunTrim, WalkCut, WalkKeep, WalkTrim};
-
-/// Width of the trim bar.
-const BAR_WIDTH: gpui::Pixels = px(390.);
 
 /// What the trim bar shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +65,7 @@ impl Lab {
             .read(cx)
             .document()
             .trim_proposal()
-            .map_or(TrimLevel::Original, ka_teb_core::TrimProposal::level)
+            .map_or(TrimLevel::Original, hamish_core::TrimProposal::level)
     }
 
     /// The trim bar; `None` when no Trim runs, failed, or has a proposal open.
@@ -136,7 +135,7 @@ impl Lab {
     /// Runs a Trim `step` in the editor. A failed step changes nothing, so it is dropped.
     fn trim_step(
         &mut self,
-        step: impl FnOnce(&mut ka_teb_core::Document) -> Result<(), TrimError>,
+        step: impl FnOnce(&mut hamish_core::Document) -> Result<(), TrimError>,
         cx: &mut Context<Self>,
     ) {
         let done = self
@@ -159,22 +158,22 @@ impl Lab {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.trim_step(ka_teb_core::Document::make_trim_cuts, cx);
+        self.trim_step(hamish_core::Document::make_trim_cuts, cx);
     }
 
     /// Starts a Walk through at the first cut still in the proposal.
     pub(crate) fn walk_trim(&mut self, _: &WalkTrim, _: &mut Window, cx: &mut Context<Self>) {
-        self.trim_step(ka_teb_core::Document::walk_trim, cx);
+        self.trim_step(hamish_core::Document::walk_trim, cx);
     }
 
     /// Walk through: keeps the current cut and goes to the next.
     pub(crate) fn walk_keep(&mut self, _: &WalkKeep, _: &mut Window, cx: &mut Context<Self>) {
-        self.trim_step(ka_teb_core::Document::walk_keep, cx);
+        self.trim_step(hamish_core::Document::walk_keep, cx);
     }
 
     /// Walk through: cuts the current cut as one undo step and goes to the next.
     pub(crate) fn walk_cut(&mut self, _: &WalkCut, _: &mut Window, cx: &mut Context<Self>) {
-        self.trim_step(ka_teb_core::Document::walk_cut, cx);
+        self.trim_step(hamish_core::Document::walk_cut, cx);
     }
 
     /// The trim row of the Lab popover: one outlined button per level, the
@@ -194,23 +193,24 @@ impl Lab {
                     0 => "".into(),
                     target => format!("~{target}%").into(),
                 };
-                div()
+                text_button(theme, border)
                     .id(("trim-level", index))
                     .debug_selector(move || format!("trim-level-{index}"))
-                    .flex_1()
+                    .flex_grow()
                     .flex()
                     .flex_col()
                     .items_center()
+                    .px(px(6.))
                     .py(px(2.))
-                    .border_1()
-                    .border_color(border)
-                    .rounded(px(3.))
-                    .cursor_pointer()
-                    .hover(|button| button.bg(theme.elevated_row_hover))
                     .on_click(move |_, window, cx| {
                         window.dispatch_action(Box::new(RunTrim(level)), cx);
                     })
-                    .child(div().text_color(color).child(label(level)))
+                    .child(
+                        div()
+                            .whitespace_nowrap()
+                            .text_color(color)
+                            .child(label(level)),
+                    )
                     .child(div().text_color(theme.text_muted).child(percent))
             });
         div()
@@ -220,6 +220,7 @@ impl Lab {
             .border_t_1()
             .border_color(theme.panel_border)
             .flex()
+            .flex_wrap()
             .gap(px(4.))
             .text_center()
             .children(buttons)
@@ -231,15 +232,10 @@ impl Lab {
         let bar = self.trim_bar(cx)?;
         let proposed = matches!(self.trim.status(), AiStatus::Idle | AiStatus::Done);
         let button = |name: &'static str, caption: &'static str| {
-            div()
+            text_button(theme, theme.panel_border)
                 .id(name)
                 .debug_selector(move || name.to_owned())
                 .px(px(8.))
-                .border_1()
-                .border_color(theme.text_muted)
-                .rounded(px(3.))
-                .cursor_pointer()
-                .hover(|button| button.bg(theme.elevated_row_hover))
                 .child(caption)
         };
         let action = |name, caption, action: fn() -> Box<dyn gpui::Action>| {
@@ -272,30 +268,8 @@ impl Lab {
             .trim_start()
             .to_owned();
         Some(
-            div()
+            ai_bar(theme, name, detail.into())
                 .id("trim-bar")
-                .occlude()
-                .w(BAR_WIDTH)
-                .p(px(8.))
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .bg(theme.elevated_background)
-                .rounded(theme.elevated_radius)
-                .shadow_md()
-                .text_size(theme.font_size_hint)
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(
-                            div()
-                                .font_weight(gpui::FontWeight::BOLD)
-                                .text_color(theme.text_title)
-                                .child(name),
-                        )
-                        .child(div().text_color(theme.accent).child(detail)),
-                )
                 .children(hint.map(|hint| div().text_color(theme.text_muted).child(hint)))
                 .child(
                     div()

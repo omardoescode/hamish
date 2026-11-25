@@ -89,17 +89,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "gpui",
- "ka-teb-core",
- "tempfile",
- "unicode-segmentation",
-]
-
-[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2403,6 +2392,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamish"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "gpui",
+ "hamish-core",
+ "tempfile",
+]
+
+[[package]]
+name = "hamish-core"
+version = "0.1.0"
+dependencies = [
+ "cargo-husky",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2929,19 +2941,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ka-teb-core"
-version = "0.1.0"
-dependencies = [
- "cargo-husky",
- "pulldown-cmark",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "unicode-segmentation",
-]
-
-[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3465,11 +3464,10 @@ dependencies = [
 
 [[package]]
 name = "num-bigint-dig"
-version = "0.8.4"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc84195820f291c7697304f3cbdadd1cb7199c0efc917ff5eafd71225c136151"
+checksum = "e661dda6640fad38e827a6d4a310ff4763082116fe217f279885c97f511bb0b7"
 dependencies = [
- "byteorder",
  "lazy_static",
  "libm",
  "num-integer",

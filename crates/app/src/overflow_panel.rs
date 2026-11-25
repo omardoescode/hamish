@@ -7,10 +7,11 @@ use gpui::{
     MouseButton, MouseDownEvent, PaintQuad, Pixels, Render, ScrollHandle, SharedString, Size,
     Style, Subscription, TextRun, Window, div, prelude::*, px, relative,
 };
-use ka_teb_core::{Caret, CaretEdit};
+use hamish_core::{Caret, CaretEdit};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
-use crate::caret::{self, CaretView, caret_actions, caret_input_handler};
+use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
+use crate::chrome::elevated_surface;
 use crate::editor::{PaintedText, shape};
 use crate::{Editor, Theme};
 
@@ -25,6 +26,9 @@ pub struct OverflowPanel {
     scroll_handle: ScrollHandle,
     painted: Option<PaintedText>,
     autoscroll: bool,
+    column: Option<Column>,
+    /// The font family of the text as last painted.
+    text_font: SharedString,
     _editor_changes: Subscription,
 }
 
@@ -38,8 +42,16 @@ impl OverflowPanel {
             scroll_handle: ScrollHandle::new(),
             painted: None,
             autoscroll: false,
+            column: None,
+            text_font: SharedString::default(),
             _editor_changes: editor_changes,
         }
+    }
+
+    /// The font family of the Overflow text as last painted.
+    #[must_use]
+    pub fn text_font(&self) -> &SharedString {
+        &self.text_font
     }
 
     /// Byte range of the selection in the Overflow text; empty at the caret.
@@ -99,7 +111,11 @@ impl OverflowPanel {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        caret::press(self, event.position, event.modifiers.shift, cx);
+        if event.click_count == 2 {
+            caret::select_word(self, event.position, cx);
+        } else {
+            caret::press(self, event.position, event.modifiers.shift, cx);
+        }
     }
 
     /// The text of the Overflow block at the caret, for the drag preview.
@@ -153,6 +169,10 @@ impl CaretView for OverflowPanel {
     fn painted(&self) -> Option<&PaintedText> {
         self.painted.as_ref()
     }
+
+    fn column(&mut self) -> &mut Option<Column> {
+        &mut self.column
+    }
 }
 
 caret_input_handler!(OverflowPanel);
@@ -203,6 +223,7 @@ impl Render for OverflowPanel {
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
                     .cursor(CursorStyle::IBeam)
+                    .font_family(theme.text_font.clone())
                     .text_size(theme.font_size_overflow)
                     .line_height(theme.line_height_overflow)
                     .text_color(theme.text)
@@ -215,6 +236,7 @@ impl Render for OverflowPanel {
             )
             .child(
                 div()
+                    .debug_selector(|| "overflow-hint".to_owned())
                     .px(px(16.))
                     .pt(px(8.))
                     .pb(px(16.))
@@ -233,12 +255,11 @@ struct DraggedBlock {
 impl Render for DraggedBlock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>();
-        div()
+        elevated_surface(theme)
             .max_w(theme.panel_width)
             .px(px(8.))
             .py(px(4.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
+            .font_family(theme.text_font.clone())
             .text_size(theme.font_size_overflow)
             .line_height(theme.line_height_overflow)
             .text_color(theme.text_muted)
@@ -353,7 +374,11 @@ impl Element for OverflowText {
             caret::scroll_to_caret(&panel.scroll_handle, caret.as_ref(), cx);
             window.request_animation_frame();
         }
-        self.panel.update(cx, |panel, _| panel.autoscroll = false);
+        let text_font = window.text_style().font_family;
+        self.panel.update(cx, |panel, _| {
+            panel.autoscroll = false;
+            panel.text_font = text_font;
+        });
         OverflowPrepaint {
             painted,
             selection,
@@ -434,11 +459,9 @@ struct Tooltip {
 impl Render for Tooltip {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>();
-        div()
+        elevated_surface(theme)
             .px(px(6.))
             .py(px(2.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
             .text_size(theme.font_size_hint)
             .text_color(theme.text_muted)
             .child(self.text.clone())

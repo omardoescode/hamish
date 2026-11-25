@@ -5,12 +5,16 @@ gpui::actions!(
     [
         MoveLeft,
         MoveRight,
+        MoveWordLeft,
+        MoveWordRight,
         MoveUp,
         MoveDown,
         MoveToLineStart,
         MoveToLineEnd,
         SelectLeft,
         SelectRight,
+        SelectWordLeft,
+        SelectWordRight,
         SelectUp,
         SelectDown,
         SelectToLineStart,
@@ -48,13 +52,24 @@ gpui::actions!(
 gpui::actions!(
     workspace,
     [
-        ToggleChrome,
         ToggleOverflow,
         Save,
         SaveAs,
         Open,
+        NewDocument,
         OpenSettings,
         CloseSettings
+    ]
+);
+
+gpui::actions!(
+    settings_modal,
+    [
+        PreviousRow,
+        NextRow,
+        PickRow,
+        CloseSelect,
+        DeleteQueryBackward
     ]
 );
 

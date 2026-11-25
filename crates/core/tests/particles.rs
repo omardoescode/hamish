@@ -1,4 +1,4 @@
-use ka_teb_core::{Effect, Particle, ParticleArea};
+use hamish_core::{Effect, Particle, ParticleArea};
 
 /// A span of 80 x 27 px, one line high.
 const SPAN: ParticleArea = ParticleArea {

@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
     Provenance, TrimCut, TrimError, TrimLevel, TrimRequest,
 };
@@ -365,4 +365,17 @@ fn the_original_level_sends_no_request() {
         Document::new("The cat sat.").trim_request(TrimLevel::Original),
         None
     );
+}
+
+#[test]
+fn the_open_cuts_leave_out_a_kept_cut_and_an_offset_finds_its_open_cut() {
+    let mut document = Document::new(&draft());
+    run(&mut document, TrimLevel::SlightTrim, sentences(3)).unwrap();
+    document.keep_trim_cut(1).unwrap();
+
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(proposal.open_ranges(), vec![0..19, 38..57]);
+    assert_eq!(proposal.open_cut_at(40), Some(2));
+    assert_eq!(proposal.open_cut_at(20), None);
+    assert_eq!(proposal.open_cut_at(60), None);
 }

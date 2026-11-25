@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 0007
 ---
 # Storage: plain .md + sidecar JSON
 

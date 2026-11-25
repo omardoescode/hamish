@@ -1,11 +1,11 @@
-//! The ka-teb binary: loads the settings, sets the sound device and the AI backend, and
+//! The hamish binary: loads the settings, sets the sound device and the AI backend, and
 //! opens one window on an empty Document.
 
 use std::sync::Arc;
 
 use app::{Ai, DeviceSounds, Sounds, Workspace};
 use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
-use ka_teb_core::{ClaudeBackend, Document, Settings, settings_path};
+use hamish_core::{ClaudeBackend, Document, Settings, settings_path};
 
 #[expect(
     clippy::print_stderr,
@@ -19,7 +19,7 @@ fn main() {
     let loaded = path.as_deref().map(Settings::load);
     Application::new().run(|cx: &mut App| {
         if let Err(error) = app::init(cx) {
-            eprintln!("ka-teb: cannot load the body font: {error:#}");
+            eprintln!("hamish: cannot load the bundled font: {error:#}");
             cx.quit();
             return;
         }
@@ -31,14 +31,14 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(1140.0), px(720.0)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            app_id: Some("ka-teb".into()),
+            app_id: Some("hamish".into()),
             ..Default::default()
         };
         let opened = cx.open_window(options, |window, cx| {
             cx.new(|cx| Workspace::new(Document::default(), window, cx))
         });
         if let Err(error) = opened {
-            eprintln!("ka-teb: cannot open window: {error:#}");
+            eprintln!("hamish: cannot open window: {error:#}");
             cx.quit();
             return;
         }

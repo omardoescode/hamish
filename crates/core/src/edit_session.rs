@@ -1,8 +1,9 @@
 //! The Document as the writer edits it: the selection and the undo steps the writer sees.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::{Caret, CaretEdit, Document, EditHistory, EditedText, SlotId};
+use crate::{Caret, CaretEdit, Document, EditHistory, EditedText, SlotId, word_at};
 
 /// A Document with its selection and its editor undo steps. Each change made through it is
 /// one undo step, and the selection follows the change.
@@ -20,6 +21,9 @@ pub struct EditSession {
 pub struct SlotChanges {
     /// Slots whose deleted Variant came back, in undo order.
     pub restored: Vec<SlotId>,
+    /// Spans whose Active variant a redo deleted, as they were before the redo, in redo
+    /// order.
+    pub deleted: Vec<Range<usize>>,
     /// The Slot that shows a different Active variant (a cycle, a delete, an undo).
     pub switched: Option<SlotId>,
 }
@@ -59,12 +63,13 @@ impl ShownVariant {
 
     /// The first Slot of `document` whose Active variant replaces the one in `before`.
     fn switched(before: &[Self], document: &Document) -> Option<SlotId> {
+        let before: HashMap<SlotId, &Self> = before.iter().map(|old| (old.slot, old)).collect();
         Self::of(document)
             .into_iter()
             .find(|shown| {
                 before
-                    .iter()
-                    .any(|old| old.slot == shown.slot && shown.replaces(old))
+                    .get(&shown.slot)
+                    .is_some_and(|old| shown.replaces(old))
             })
             .map(|shown| shown.slot)
     }
@@ -96,6 +101,31 @@ impl EditSession {
         self.caret.selection()
     }
 
+    /// What the menu actions act on: the selection, else the word at the caret, else the
+    /// caret.
+    #[must_use]
+    pub fn target(&self) -> Range<usize> {
+        let selection = self.selection();
+        if !selection.is_empty() {
+            return selection;
+        }
+        let caret = self.caret.offset();
+        word_at(self.document.text(), caret).unwrap_or(caret..caret)
+    }
+
+    /// Counter text: the Document, or the selection with "selected".
+    #[must_use]
+    pub fn counter_label(&self) -> String {
+        let selection = self.selection();
+        if selection.is_empty() {
+            return self.document.counter().to_string();
+        }
+        match self.document.selection_counter(selection) {
+            Ok(counter) => format!("{counter} selected"),
+            Err(_) => self.document.counter().to_string(),
+        }
+    }
+
     /// The Document has changes since the last save or open.
     #[must_use]
     pub fn is_unsaved(&self) -> bool {
@@ -107,7 +137,7 @@ impl EditSession {
     /// unsaved again.
     pub fn snapshot(&mut self) -> (Document, Option<u64>) {
         self.history.close();
-        (self.document.clone(), self.history.top())
+        (self.document.without_history(), self.history.top())
     }
 
     /// Marks undo step `at` (from [`Self::snapshot`]) as the saved one.
@@ -231,6 +261,7 @@ impl EditSession {
         self.caret = Caret::over(group.before.clone());
         Some(SlotChanges {
             restored,
+            deleted: Vec::new(),
             switched: ShownVariant::switched(&shown, &self.document),
         })
     }
@@ -240,12 +271,20 @@ impl EditSession {
     pub fn redo(&mut self) -> Option<SlotChanges> {
         let group = self.history.redo()?;
         let shown = ShownVariant::of(&self.document);
+        let mut deleted = Vec::new();
         for _ in 0..group.steps {
+            let span = self
+                .document
+                .redo_deletes_variant()
+                .and_then(|id| self.document.slot(id))
+                .map(|slot| slot.range);
+            deleted.extend(span);
             self.document.redo();
         }
         self.caret = Caret::over(group.after.clone());
         Some(SlotChanges {
             restored: Vec::new(),
+            deleted,
             switched: ShownVariant::switched(&shown, &self.document),
         })
     }

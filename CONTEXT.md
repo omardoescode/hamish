@@ -1,6 +1,6 @@
-# Ka-teb
+# Hamish
 
-Ka-teb ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
+Hamish ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
 
 ## Language
 
@@ -39,6 +39,9 @@ _Avoid_: Granularity, scope
 Who wrote a Variant: Writer, AI, or Mixed (an AI Variant the writer edited).
 _Avoid_: Author, source
 
+**Tree**:
+The Slots and Ghost ranges of one text (the Document, or one Variant), strictly nested (ADR 0006).
+
 **Article agreement**:
 The rule that changes "a"/"an" before a Word Slot to agree with the Active variant's first sound.
 _Avoid_: Article fix
@@ -46,7 +49,7 @@ _Avoid_: Article fix
 ### Markers (UI)
 
 **Marker**:
-The visual sign that a Slot has Variants: underline + Variant dots (Word, Sentence) or a left-margin line + vertical dots (Paragraph).
+The visual sign that a Slot has Variants: underline + Variant dots under a Word or after the end of a Sentence or a left-margin line + vertical dots (Paragraph).
 
 **Variant dots**:
 One dot per Variant; the Active variant's dot is filled.
@@ -56,6 +59,10 @@ List marker of a Writer Variant.
 
 **Bot point**:
 List marker (robot icon) of an AI Variant.
+
+**Alternatives list**:
+The rows of the Alternatives panel: the Variants of its target (a Slot, or text with no Slot yet), then an empty row where the writer types a new Variant.
+_Avoid_: Variant list
 
 **Quick fill**:
 An AI Variants request the writer starts by typing "??" in the empty row of the Alternatives panel. The row dances while the AI works.
@@ -123,6 +130,12 @@ _Avoid_: Format, rich text
 The insertion point in the Document text or in Overflow, with the selection around it and the text an input method composes. One rule for both texts: a caret clamps to its text before it acts.
 _Avoid_: cursor
 
+### Storage
+
+**Hamish comment**:
+The HTML comment `<!-- hamish ... -->` at the end of a saved `.md` file. It holds all state except the active text (ADR 0007). It is never Document text.
+_Avoid_: Sidecar, metadata
+
 ### Chrome
 
 **Chrome**:
@@ -132,8 +145,15 @@ The UI tools around the text: icons, buttons, counter.
 Live word and character count of the Document, or of the selection.
 
 **Settings**:
-The writer's choices for theme, UI scale, body font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
+The writer's choices for theme, UI scale, UI font, Text font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
 _Avoid_: Preferences, config
+
+**UI font**:
+The font of the Chrome, panels, Settings, menus, and popovers.
+
+**Text font**:
+The font of the Document text and the Overflow text. Its default is the UI font.
+_Avoid_: Body font
 
 ### Lab
 

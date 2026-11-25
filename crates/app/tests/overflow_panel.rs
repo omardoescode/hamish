@@ -3,7 +3,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, MouseButton, Pixels, Point, TestAppContext,
     VisualTestContext, point, px,
 };
-use ka_teb_core::Document;
+use hamish_core::Document;
 
 fn open(
     cx: &mut TestAppContext,
@@ -226,6 +226,51 @@ fn a_block_dragged_into_the_page_goes_in_at_the_drop_point(cx: &mut TestAppConte
     cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
     cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
 
-    assert_eq!(text(&workspace, cx), "Title\nfirst blockBody.");
+    assert_eq!(text(&workspace, cx), "Title\nfirst block Body.");
     assert_eq!(overflow(&workspace, cx), "first block\n\nsecond block");
+}
+
+#[gpui::test]
+fn a_block_dragged_over_the_page_shows_a_drop_caret_and_dims_other_paragraphs(
+    cx: &mut TestAppContext,
+) {
+    let (workspace, cx) = open(cx, document_with_overflow());
+    cx.simulate_keystrokes("ctrl-shift-o");
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+
+    let from = overflow_point(&workspace, cx, 3);
+    let to = document_point(&workspace, cx, 8);
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+    // The first move starts the drag; the next one is a move of the drag.
+    cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+
+    assert_eq!(cx.read(|cx| editor.read(cx).drop_caret()), Some(8));
+    assert_eq!(
+        cx.read(|cx| editor.read(cx).bright_paragraph()),
+        Some(6..11)
+    );
+
+    cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+
+    assert_eq!(cx.read(|cx| editor.read(cx).drop_caret()), None);
+    assert_eq!(cx.read(|cx| editor.read(cx).bright_paragraph()), None);
+}
+
+#[gpui::test]
+fn a_drag_that_ends_off_the_page_leaves_no_drop_caret(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, document_with_overflow());
+    cx.simulate_keystrokes("ctrl-shift-o");
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+
+    let from = overflow_point(&workspace, cx, 3);
+    let to = document_point(&workspace, cx, 8);
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+    cx.simulate_mouse_up(from, MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+
+    assert_eq!(text(&workspace, cx), "Title\nBody.");
+    assert_eq!(cx.read(|cx| editor.read(cx).drop_caret()), None);
 }

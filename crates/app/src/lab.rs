@@ -5,12 +5,13 @@ use std::collections::HashMap;
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, MouseButton, Render,
-    SharedString, Subscription, Window, div, prelude::*, px,
+    SharedString, Subscription, Window, anchored, deferred, div, point, prelude::*, px,
 };
-use ka_teb_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
+use hamish_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
 
 use crate::actions::{Redo, Undo};
 use crate::ai::{AiFailure, AiRun, AiStatus};
+use crate::chrome::{clickable_row, popover_surface, text_button};
 use crate::{Editor, Theme};
 
 #[expect(
@@ -19,7 +20,7 @@ use crate::{Editor, Theme};
 )]
 mod actions {
     use gpui::Action;
-    use ka_teb_core::LabCheck;
+    use hamish_core::LabCheck;
 
     gpui::actions!(lab, [ToggleLab, CloseLab]);
 
@@ -35,10 +36,12 @@ pub use actions::{CloseLab, RunLabCheck, ToggleLab};
 const POPOVER_WIDTH: gpui::Pixels = px(270.);
 /// Width of the Lab mark card.
 const CARD_WIDTH: gpui::Pixels = px(320.);
-/// Distance from the window bottom to the LAB button, as the Chrome row.
-const BUTTON_BOTTOM: gpui::Pixels = px(24.);
-/// Distance from the window bottom to a popover above the LAB button.
-const POPOVER_BOTTOM: gpui::Pixels = px(48.);
+/// Space between the selected Lab mark and its card.
+const CARD_GAP: gpui::Pixels = px(4.);
+/// Space between the top of the Chrome bar and a popover above the LAB button.
+const POPOVER_GAP: gpui::Pixels = px(8.);
+/// Width of an AI bar.
+const BAR_WIDTH: gpui::Pixels = px(390.);
 
 /// One row of the Lab popover.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,8 +109,7 @@ fn guide(check: LabCheck) -> &'static str {
 
 fn status_text(status: &LabStatus) -> SharedString {
     match status {
-        LabStatus::Idle => "".into(),
-        LabStatus::Running => "marking…".into(),
+        LabStatus::Idle | LabStatus::Running => "".into(),
         LabStatus::Marked(0) => "no marks".into(),
         LabStatus::Marked(1) => "1 mark".into(),
         LabStatus::Marked(count) => format!("{count} marks").into(),
@@ -160,16 +162,11 @@ impl Lab {
             .collect()
     }
 
-    /// The Lab mark at the caret (see [`ka_teb_core::Document::lab_mark_at`]). `None` when
+    /// The Lab mark at the caret (see [`hamish_core::Document::lab_mark_at`]). `None` when
     /// text is selected.
     #[must_use]
     pub fn mark_at_caret(&self, cx: &App) -> Option<LabMark> {
-        let editor = self.editor.read(cx);
-        let selection = editor.selection();
-        if !selection.is_empty() {
-            return None;
-        }
-        editor.document().lab_mark_at(selection.start).cloned()
+        self.editor.read(cx).selected_lab_mark().cloned()
     }
 
     /// A Lab check or a Trim runs.
@@ -272,20 +269,24 @@ impl Lab {
             );
         let rows = self.rows(cx).into_iter().enumerate().map(|(index, row)| {
             let check = row.check;
+            let (border, color) = if row.status == LabStatus::Running {
+                (theme.accent_outline, theme.accent)
+            } else {
+                (gpui::transparent_black(), theme.text)
+            };
             let detail = match &row.status {
                 LabStatus::Failed(failure) => Some(failure.to_string()),
                 LabStatus::Idle | LabStatus::Running | LabStatus::Marked(_) => {
                     row.guide.map(str::to_owned)
                 }
             };
-            div()
+            clickable_row(theme)
                 .id(("lab-check", index))
                 .debug_selector(move || format!("lab-check-{index}"))
                 .px(px(12.))
                 .py(px(2.))
-                .rounded(theme.elevated_radius)
-                .cursor_pointer()
-                .hover(|row| row.bg(theme.elevated_row_hover))
+                .border_1()
+                .border_color(border)
                 .on_click(move |_, window, cx| {
                     window.dispatch_action(Box::new(RunLabCheck(check)), cx);
                 })
@@ -294,9 +295,19 @@ impl Lab {
                         .flex()
                         .justify_between()
                         .gap(px(12.))
-                        .child(div().text_color(theme.text).child(row.label))
                         .child(
                             div()
+                                .debug_selector(move || format!("lab-check-label-{index}"))
+                                .flex_1()
+                                .min_w_0()
+                                .text_color(color)
+                                .child(row.label),
+                        )
+                        .child(
+                            div()
+                                .debug_selector(move || format!("lab-check-status-{index}"))
+                                .flex_none()
+                                .whitespace_nowrap()
                                 .text_color(theme.text_muted)
                                 .child(status_text(&row.status)),
                         ),
@@ -308,7 +319,7 @@ impl Lab {
                         .child(detail)
                 }))
         });
-        div()
+        popover_surface(theme)
             .id("lab-popover")
             .key_context("Lab")
             .track_focus(&self.focus_handle)
@@ -316,12 +327,12 @@ impl Lab {
             .on_action(cx.listener(Self::run_lab_check))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
+            .debug_selector(|| "lab-popover".to_owned())
             .occlude()
             .w(POPOVER_WIDTH)
             .pb(px(4.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
-            .shadow_md()
+            .border_1()
+            .border_color(theme.panel_border)
             .text_size(theme.font_size_hint)
             .child(header)
             .children(rows)
@@ -340,15 +351,10 @@ impl Lab {
             .unwrap_or_default()
             .to_owned();
         let button = |name: &'static str, caption: &'static str| {
-            div()
+            text_button(theme, theme.panel_border)
                 .id(name)
                 .debug_selector(move || name.to_owned())
                 .px(px(8.))
-                .border_1()
-                .border_color(theme.text_muted)
-                .rounded(px(3.))
-                .cursor_pointer()
-                .hover(|button| button.bg(theme.elevated_row_hover))
                 .child(caption)
         };
         let accept = mark.fix.as_ref().map(|_| {
@@ -366,17 +372,15 @@ impl Lab {
             .note
             .as_ref()
             .map(|note| div().text_color(theme.text_muted).child(note.clone()));
-        div()
+        popover_surface(theme)
             .id("lab-mark-card")
+            .debug_selector(|| "lab-mark-card".to_owned())
             .occlude()
             .w(CARD_WIDTH)
             .p(px(8.))
             .flex()
             .flex_col()
             .gap(px(4.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
-            .shadow_md()
             .text_size(theme.font_size_hint)
             .child(div().text_color(theme.accent).child(label(mark.check)))
             .children(fix)
@@ -400,26 +404,41 @@ impl Focusable for Lab {
 }
 
 impl Render for Lab {
-    /// The trim bar over the open popover, or over the card of the mark at the caret while
-    /// the popover is closed.
+    /// The trim bar over the open popover, and the card of the selected mark just under it.
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
-        let below = if self.open {
-            Some(self.popover(&theme, cx))
-        } else {
-            self.mark_at_caret(cx)
-                .map(|mark| self.mark_card(&mark, &theme, cx))
-        };
+        let below = self.open.then(|| self.popover(&theme, cx));
+        let card = self.mark_at_caret(cx).and_then(|mark| {
+            let under = self
+                .editor
+                .read(cx)
+                .selected_lab_mark_bounds()?
+                .bottom_left();
+            Some(deferred(
+                anchored()
+                    .position(under + point(px(0.), CARD_GAP))
+                    .snap_to_window()
+                    .child(self.mark_card(&mark, &theme, cx)),
+            ))
+        });
         let bar = self.trim_bar_view(&theme, cx);
-        bottom_center(POPOVER_BOTTOM).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(6.))
-                .children(bar)
-                .children(below),
-        )
+        let check_bars: Vec<_> = LabCheck::ALL
+            .into_iter()
+            .filter(|check| self.checks.get(check).is_some_and(AiRun::is_running))
+            .map(|check| ai_bar(&theme, label(check), "marking…".into()).into_any_element())
+            .collect();
+        bottom_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(6.))
+                    .children(bar)
+                    .children(check_bars)
+                    .children(below),
+            )
+            .children(card)
     }
 }
 
@@ -431,7 +450,12 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
     };
     let color = if open { theme.accent } else { theme.text_muted };
     let lab = lab.clone();
-    bottom_center(BUTTON_BOTTOM)
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
         .child(
             div()
                 .id("lab-button")
@@ -440,7 +464,7 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
                 .border_1()
                 .border_dashed()
                 .border_color(color)
-                .rounded(px(3.))
+                .rounded(theme.elevated_radius)
                 .text_size(theme.font_size_hint)
                 .text_color(color)
                 .cursor_pointer()
@@ -451,6 +475,32 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
                 .child(if running { "LAB …" } else { "LAB" }),
         )
         .into_any_element()
+}
+
+/// An AI bar above the Lab popover: `name` in bold, then `detail` in accent. A Trim and
+/// each running Lab check show one.
+pub(crate) fn ai_bar(theme: &Theme, name: &'static str, detail: SharedString) -> gpui::Div {
+    popover_surface(theme)
+        .debug_selector(|| "ai-bar".to_owned())
+        .occlude()
+        .w(BAR_WIDTH)
+        .p(px(8.))
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .text_size(theme.font_size_hint)
+        .child(
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .text_color(theme.text_title)
+                        .child(name),
+                )
+                .child(div().text_color(theme.accent).child(detail)),
+        )
 }
 
 /// A full-width row at `bottom` that centers its child.

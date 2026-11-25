@@ -3,7 +3,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Pixels, Point, TestAppContext,
     VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, Provenance, SlotId};
+use hamish_core::{Document, Level, Provenance, SlotId};
 
 fn open(
     cx: &mut TestAppContext,
@@ -265,4 +265,188 @@ fn a_slot_underline_is_wavy_and_the_same_after_an_edit_elsewhere(cx: &mut TestAp
     cx.simulate_input("My ");
     assert_eq!(text(&workspace, cx), "My Title\nIt is a tension here.");
     assert_eq!(underline(&workspace, cx, slot), before);
+}
+
+/// "Title\n" then a paragraph of 3 sentences, each long enough to wrap, with a Sentence
+/// Slot on the middle one.
+const THREE_SENTENCES: &str = "Title\nThe first sentence of this paragraph runs long enough to wrap onto a second row of text in the column. The middle sentence is the one with Variants and it also runs long enough to wrap onto rows. The last sentence ends the paragraph after the Slot.";
+const MIDDLE_SENTENCE: std::ops::Range<usize> = 109..201;
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn sentence_slot_document() -> (Document, SlotId) {
+    let mut document = Document::new(THREE_SENTENCES);
+    let slot = document
+        .create_slot(
+            MIDDLE_SENTENCE,
+            Level::Sentence,
+            "Short one.",
+            Provenance::Writer,
+        )
+        .expect("valid range");
+    (document, slot)
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+/// The window bounds of the caret box at byte `offset`: its row top and height.
+fn caret_box(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    offset: usize,
+) -> Bounds<Pixels> {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    cx.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.bounds_for_range(offset..offset, Bounds::default(), window, cx)
+        })
+    })
+    .expect("the editor painted the text")
+}
+
+fn marker_dots(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    slot: SlotId,
+) -> Vec<Bounds<Pixels>> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).marker_dots(slot))
+}
+
+#[gpui::test]
+fn a_sentence_slot_mid_paragraph_shows_a_sentence_marker_with_dots_after_its_end(
+    cx: &mut TestAppContext,
+) {
+    let (document, slot) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    assert_eq!(
+        markers(&workspace, cx),
+        vec![Marker {
+            slot,
+            kind: MarkerKind::SentenceUnderline,
+            dots: 2,
+            active: 0,
+        }]
+    );
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    let next_sentence = caret_box(&workspace, cx, MIDDLE_SENTENCE.end + 1);
+    assert_eq!(
+        next_sentence.top(),
+        end.top(),
+        "the next sentence is on the row"
+    );
+    let dots = marker_dots(&workspace, cx, slot);
+    assert_eq!(dots.len(), 2);
+    for dot in &dots {
+        assert!(
+            dot.right() <= next_sentence.left(),
+            "dot {dot:?} does not cover the next sentence {next_sentence:?}"
+        );
+        assert!(
+            dot.top() >= end.top() && dot.bottom() <= end.bottom(),
+            "dot {dot:?} is on the last row {end:?}"
+        );
+    }
+}
+
+#[gpui::test]
+fn a_sentence_slot_underline_covers_only_the_rows_of_the_sentence(cx: &mut TestAppContext) {
+    let (document, slot) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    assert!(end.top() > start.top(), "the sentence wraps");
+
+    let line = underline(&workspace, cx, slot);
+    let (first, last) = (line[0], line[line.len() - 1]);
+    assert_eq!(first.x, start.left());
+    assert!(first.y > start.top() && first.y < start.bottom());
+    assert_eq!(last.x, end.left());
+    assert!(last.y > end.top() && last.y < end.bottom());
+    assert!(
+        line.iter()
+            .all(|at| at.y > start.top() && at.y < end.bottom()),
+        "no stroke on rows of the other sentences"
+    );
+}
+
+fn hover_tint(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).hover_tint())
+}
+
+#[gpui::test]
+fn hovering_a_sentence_slot_tints_only_the_sentence(cx: &mut TestAppContext) {
+    let (document, _) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+
+    hover(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+    cx.run_until_parked();
+    let tint = hover_tint(&workspace, cx);
+
+    assert!(tint.len() >= 2, "one box per row: {tint:?}");
+    let (first, last) = (tint[0], tint[tint.len() - 1]);
+    assert!(first.left() > start.left() - px(4.) && first.left() < start.left());
+    assert_eq!(first.top(), start.top());
+    assert!(last.right() > end.left() && last.right() < end.left() + px(4.));
+    assert_eq!(last.bottom(), end.bottom());
+
+    hover(&workspace, cx, 10);
+    cx.run_until_parked();
+    assert_eq!(hover_tint(&workspace, cx), Vec::new());
+}
+
+/// "Title\n" then one sentence whose long last word wraps, which leaves a gap at the
+/// right of the first row.
+const SHORT_ROW: &str =
+    "Title\nThe start is short and abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij.";
+
+#[gpui::test]
+fn the_hover_tint_of_a_wrapped_slot_ends_at_the_text_end_of_each_row(cx: &mut TestAppContext) {
+    let mut document = Document::new(SHORT_ROW);
+    document
+        .create_slot(
+            6..SHORT_ROW.len(),
+            Level::Sentence,
+            "Short.",
+            Provenance::Writer,
+        )
+        .expect("valid range");
+    let (workspace, cx) = open(cx, document);
+    let last_word = SHORT_ROW.len() - 51;
+    let first_row = caret_box(&workspace, cx, 6);
+    assert!(
+        caret_box(&workspace, cx, last_word + 1).top() > first_row.top(),
+        "the last word wraps"
+    );
+    let row_end = caret_box(&workspace, cx, last_word - 1).left();
+
+    hover(&workspace, cx, 8);
+    cx.run_until_parked();
+    let tint = hover_tint(&workspace, cx);
+
+    assert_eq!(tint.len(), 2, "one box per row: {tint:?}");
+    assert!(
+        tint[0].right() > row_end - px(1.) && tint[0].right() < row_end + px(4.),
+        "the box {:?} ends at the text end {row_end:?}",
+        tint[0]
+    );
+}
+
+#[gpui::test]
+fn the_sentence_slot_the_alternatives_panel_shows_keeps_its_tint(cx: &mut TestAppContext) {
+    let (document, _) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    let inside = point_at(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+    cx.simulate_click(inside, Modifiers::none());
+    cx.simulate_keystrokes("ctrl-shift-a");
+    hover(&workspace, cx, 10);
+    cx.run_until_parked();
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    let tint = hover_tint(&workspace, cx);
+
+    assert!(tint.len() >= 2, "one box per row: {tint:?}");
+    assert_eq!(tint[0].top(), start.top());
+    assert_eq!(tint[tint.len() - 1].bottom(), end.bottom());
 }

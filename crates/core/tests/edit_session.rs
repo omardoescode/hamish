@@ -1,6 +1,30 @@
-use ka_teb_core::{
+use hamish_core::{
     Caret, CaretEdit, Document, EditKind, EditSession, Level, Provenance, TrimLevel,
 };
+
+#[test]
+fn the_target_is_the_selection_else_the_word_at_the_caret_else_the_caret() {
+    let mut session = EditSession::new(Document::new("The cat  sat."));
+    session.select(Caret::over(0..7));
+    assert_eq!(session.target(), 0..7);
+
+    session.select(Caret::at(5));
+    assert_eq!(session.target(), 4..7);
+
+    session.select(Caret::at(8));
+    assert_eq!(session.target(), 8..8);
+}
+
+#[test]
+fn the_counter_label_counts_the_document_or_the_selection() {
+    let mut session = EditSession::new(Document::new("The cat sat."));
+    let document = session.document().counter().to_string();
+    assert_eq!(session.counter_label(), document);
+
+    session.select(Caret::over(4..7));
+    let selected = session.document().selection_counter(4..7).unwrap();
+    assert_eq!(session.counter_label(), format!("{selected} selected"));
+}
 
 #[test]
 fn typing_in_a_row_is_one_undo_step_and_undo_puts_the_selection_back() {
@@ -92,6 +116,28 @@ fn undo_of_a_variant_delete_reports_the_slot_it_puts_back() {
     assert_eq!(session.document().text(), "The fox sat.");
     assert_eq!(undone.restored, [id]);
     assert_eq!(undone.switched, Some(id));
+}
+
+#[test]
+fn redo_of_a_variant_delete_reports_the_span_it_deletes_from() {
+    let mut session = EditSession::new(Document::new("The cat sat."));
+    let (id, _) = session
+        .change(|document| {
+            let id = document.create_slot(4..7, Level::Word, "dog", Provenance::Writer)?;
+            document.add_variant(id, "horse", Provenance::Writer)?;
+            document.set_active(id, 2).map(|_| id)
+        })
+        .unwrap();
+    session
+        .change(|document| document.delete_variant(id, 2))
+        .unwrap();
+    session.undo().unwrap();
+    assert_eq!(session.document().text(), "The horse sat.");
+
+    let redone = session.redo().unwrap();
+
+    assert_eq!(session.document().text(), "The cat sat.");
+    assert_eq!(redone.deleted, vec![4..9_usize]);
 }
 
 #[test]
