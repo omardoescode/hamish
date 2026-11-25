@@ -12,7 +12,7 @@
 | [0008](0008-github-issues-tracker.md) | GitHub Issues as the tracker | accepted |
 | [0009](0009-tdd.md) | Test-driven development | accepted |
 | [0010](0010-coding-standards-file.md) | Code rules in CODING_STANDARDS.md | accepted |
-| [0011](0011-lefthook.md) | lefthook for git hooks | accepted |
+| [0011](0011-cargo-husky.md) | cargo-husky for git hooks | accepted |
 | [0012](0012-ci-on-push-and-pr.md) | CI on push and PR | accepted |
 | [0013](0013-cargo-dist-releases.md) | cargo-dist releases, Linux first | accepted |
 | [0014](0014-no-ai-attribution.md) | No Co-Authored-By or PR attribution | accepted |

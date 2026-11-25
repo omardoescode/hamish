@@ -1,6 +1,6 @@
 # Coding Standards (Rust)
 
-- The guards below run in lefthook and CI. `--no-verify` skips them, but each rule still binds.
+- The guards below run in git hooks (cargo-husky) and CI. `--no-verify` skips them, but each rule still binds.
 - `core` crate has no gpui dependency. All logic that you can test goes in `core`. `app` views stay thin.
 - No `unwrap`/`expect` on user data or I/O outside tests (clippy `unwrap_used`, `expect_used` in non-test code).
 - No lossy `as` casts. Use `From`/`TryFrom` (lint choice: `as_conversions` or `cast_*`, set in ticket 1).
