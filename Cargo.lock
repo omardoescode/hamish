@@ -2791,6 +2791,8 @@ name = "ka-teb-core"
 version = "0.1.0"
 dependencies = [
  "cargo-husky",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
