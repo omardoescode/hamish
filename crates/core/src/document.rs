@@ -189,7 +189,7 @@ impl Document {
         texts: &[&str],
         provenance: Provenance,
     ) -> Result<(), SlotError> {
-        self.change_slot(id, |node| {
+        self.change_slot(id, SlotChange::Switch, |node| {
             for text in texts {
                 node.push_variant(text, provenance);
             }
