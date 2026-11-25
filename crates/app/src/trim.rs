@@ -197,10 +197,11 @@ impl Lab {
                 div()
                     .id(("trim-level", index))
                     .debug_selector(move || format!("trim-level-{index}"))
-                    .flex_1()
+                    .flex_grow()
                     .flex()
                     .flex_col()
                     .items_center()
+                    .px(px(6.))
                     .py(px(2.))
                     .border_1()
                     .border_color(border)
@@ -210,7 +211,12 @@ impl Lab {
                     .on_click(move |_, window, cx| {
                         window.dispatch_action(Box::new(RunTrim(level)), cx);
                     })
-                    .child(div().text_color(color).child(label(level)))
+                    .child(
+                        div()
+                            .whitespace_nowrap()
+                            .text_color(color)
+                            .child(label(level)),
+                    )
                     .child(div().text_color(theme.text_muted).child(percent))
             });
         div()
@@ -220,6 +226,7 @@ impl Lab {
             .border_t_1()
             .border_color(theme.panel_border)
             .flex()
+            .flex_wrap()
             .gap(px(4.))
             .text_center()
             .children(buttons)
