@@ -21,7 +21,9 @@ mod sound;
 mod storage;
 mod theme;
 mod title;
+mod tree;
 mod trim;
+mod undo;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
 pub use around::{paragraph_around, sentence_around};

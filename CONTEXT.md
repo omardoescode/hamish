@@ -39,6 +39,9 @@ _Avoid_: Granularity, scope
 Who wrote a Variant: Writer, AI, or Mixed (an AI Variant the writer edited).
 _Avoid_: Author, source
 
+**Tree**:
+The Slots and Ghost ranges of one text (the Document, or one Variant), strictly nested (ADR 0006).
+
 **Article agreement**:
 The rule that changes "a"/"an" before a Word Slot to agree with the Active variant's first sound.
 _Avoid_: Article fix

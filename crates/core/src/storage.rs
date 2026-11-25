@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::slot::{self, SlotNode};
+use crate::slot::SlotNode;
+use crate::tree::Tree;
 use crate::{Document, LabCheck, LabMark, LabMarkId, Level, Overflow, Provenance, SlotId, Variant};
 
 /// The sidecar schema this build writes and reads.
@@ -249,8 +250,8 @@ impl VariantRecord {
         Self {
             text: variant.text.clone(),
             provenance: variant.provenance,
-            slots: variant.slots.iter().map(SlotRecord::of).collect(),
-            ghosts: variant.ghosts.clone(),
+            slots: variant.tree.slots().iter().map(SlotRecord::of).collect(),
+            ghosts: variant.tree.ghosts().to_vec(),
         }
     }
 }
@@ -262,9 +263,10 @@ impl Sidecar {
         Self {
             version: SCHEMA_VERSION,
             md_sha256: sha256(text),
-            slots: document.slot_nodes().iter().map(SlotRecord::of).collect(),
+            slots: document.tree().slots().iter().map(SlotRecord::of).collect(),
             ghosts: document
-                .top_ghosts()
+                .tree()
+                .ghosts()
                 .iter()
                 .map(|range| GhostRecord {
                     range: range.clone(),
@@ -307,8 +309,7 @@ impl Sidecar {
             unchanged: sha256(&text) == self.md_sha256,
             text: &text,
             slot_ids: HashSet::new(),
-            slots: Vec::new(),
-            ghosts: Vec::new(),
+            tree: Tree::default(),
             dropped: Vec::new(),
         };
         for record in self.slots {
@@ -318,14 +319,9 @@ impl Sidecar {
             restore.top_ghost(record);
         }
         let marks = restore.lab_marks(self.lab_marks);
-        let Restore {
-            slots,
-            ghosts,
-            dropped,
-            ..
-        } = restore;
+        let Restore { tree, dropped, .. } = restore;
         Opened {
-            document: Document::restored(text, slots, ghosts, Overflow::new(self.overflow), marks),
+            document: Document::restored(text, tree, Overflow::new(self.overflow), marks),
             dropped,
         }
     }
@@ -337,8 +333,7 @@ struct Restore<'a> {
     unchanged: bool,
     text: &'a str,
     slot_ids: HashSet<u64>,
-    slots: Vec<SlotNode>,
-    ghosts: Vec<Range<usize>>,
+    tree: Tree,
     dropped: Vec<Dropped>,
 }
 
@@ -368,11 +363,7 @@ impl Restore<'_> {
         let level = record.level;
         let anchor = record.active_text().to_owned();
         let places = self.places(&anchor, &record.range);
-        let free = places.into_iter().find(|place| {
-            self.slots
-                .iter()
-                .all(|kept| slot::disjoint(&kept.range, place))
-        });
+        let free = places.into_iter().find(|place| self.tree.is_free(place));
         let node = free.and_then(|place| Some((place, self.node(record)?)));
         let Some((place, mut node)) = node else {
             self.dropped.push(Dropped::Slot {
@@ -382,8 +373,7 @@ impl Restore<'_> {
             return;
         };
         node.range = place;
-        self.slots.push(node);
-        self.slots.sort_by_key(|node| node.range.start);
+        self.tree.add(node);
     }
 
     fn top_ghost(&mut self, record: GhostRecord) {
@@ -392,17 +382,15 @@ impl Restore<'_> {
             .into_iter()
             .filter(|place| !place.is_empty())
             .find_map(|place| {
-                let mut slots = self.slots.clone();
-                let mut ghosts = self.ghosts.clone();
-                slot::place_ghost(&mut slots, &mut ghosts, place).ok()?;
-                Some((slots, ghosts))
+                let mut tree = self.tree.clone();
+                tree.place_ghost(place).ok()?;
+                Some(tree)
             });
-        let Some((slots, ghosts)) = placed else {
+        let Some(tree) = placed else {
             self.dropped.push(Dropped::Ghost { text: record.text });
             return;
         };
-        self.slots = slots;
-        self.ghosts = ghosts;
+        self.tree = tree;
     }
 
     fn lab_marks(&mut self, records: Vec<LabMarkRecord>) -> Vec<LabMark> {
@@ -454,30 +442,24 @@ impl Restore<'_> {
     }
 
     fn variant(&mut self, record: VariantRecord) -> Option<Variant> {
-        let mut slots: Vec<SlotNode> = Vec::new();
+        let mut tree = Tree::default();
         for child in record.slots {
             let on_text = record.text.get(child.range.clone()) == Some(child.active_text());
-            let free = slots
-                .iter()
-                .all(|kept| slot::disjoint(&kept.range, &child.range));
-            if !on_text || !free {
+            if !on_text || !tree.is_free(&child.range) {
                 return None;
             }
-            slots.push(self.node(child)?);
+            tree.add(self.node(child)?);
         }
-        slots.sort_by_key(|node| node.range.start);
-        let mut ghosts = Vec::new();
         for ghost in record.ghosts {
             if ghost.is_empty() || record.text.get(ghost.clone()).is_none() {
                 return None;
             }
-            slot::place_ghost(&mut slots, &mut ghosts, ghost).ok()?;
+            tree.place_ghost(ghost).ok()?;
         }
         Some(Variant {
             text: record.text,
             provenance: record.provenance,
-            slots,
-            ghosts,
+            tree,
         })
     }
 }
