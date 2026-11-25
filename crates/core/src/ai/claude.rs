@@ -1,3 +1,5 @@
+//! The `claude -p` AI backend (ADR 0004): prompts, the subprocess, and its structured answer.
+
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};

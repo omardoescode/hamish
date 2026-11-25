@@ -1,3 +1,5 @@
+//! The right-click context menu of the editor and the word and Ghost tests its rows use.
+
 use std::ops::Range;
 
 use gpui::{
@@ -9,7 +11,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::Theme;
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleGhost};
 
-/// One row of the context menu: its label and its shortcut (FR-28 to FR-31).
+/// One row of the context menu: its label and its shortcut.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextMenuItem {
     pub label: String,
@@ -19,9 +21,9 @@ pub struct ContextMenuItem {
 /// The open context menu: where the pointer opened it and what its rows act on.
 pub(crate) struct ContextMenu {
     pub(crate) position: Point<Pixels>,
-    /// The word a right-click with no selection acts on (FR-29).
+    /// The word a right-click with no selection acts on.
     pub(crate) word: Option<String>,
-    /// The target touches a Ghost range: "Revive it" in place of "Ghost it" (FR-30).
+    /// The target touches a Ghost range: "Revive it" in place of "Ghost it".
     pub(crate) in_ghost: bool,
 }
 

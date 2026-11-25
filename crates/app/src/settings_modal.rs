@@ -1,4 +1,4 @@
-//! The Settings modal (issue #21), Zed style: sections on the left, the fields of the
+//! The Settings modal, Zed style: sections on the left, the fields of the
 //! active section on the right. A change applies at once and saves to the settings file
 //! on the background executor.
 
@@ -270,7 +270,7 @@ impl SettingsModal {
             .child(Self::cycle_sounds(settings, theme, cx))
     }
 
-    /// Issue #27: a tone on each Active variant switch, on or off.
+    /// A tone on each Active variant switch, on or off.
     fn cycle_sounds(settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
         let on = settings.cycle_sounds;
         field(

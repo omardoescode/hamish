@@ -1,3 +1,6 @@
+//! The AI adapter seam (ADR 0004): requests, errors, cancel tokens, and how an AI answer
+//! becomes Variants.
+
 mod claude;
 
 use std::fmt;
@@ -16,14 +19,14 @@ use crate::{
 /// How the writer asked for AI Variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiTrigger {
-    /// "AI alternatives" in the context menu, or its key (FR-32).
+    /// "AI alternatives" in the context menu, or its key.
     ContextMenu,
-    /// "??" typed in the empty row of the Alternatives panel (FR-69).
+    /// "??" typed in the empty row of the Alternatives panel.
     QuickFill,
 }
 
 /// What the AI gets: the selected text, its sentence and paragraph, and the Variants it
-/// has already (FR-75, FR-76).
+/// has already.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiRequest {
     range: Range<usize>,
@@ -42,16 +45,19 @@ impl AiRequest {
         self.range.clone()
     }
 
+    /// The Level of the Slot the Variants are for.
     #[must_use]
     pub fn level(&self) -> Level {
         self.level
     }
 
+    /// The selected text: the text the Variants replace.
     #[must_use]
     pub fn selection(&self) -> &str {
         &self.selection
     }
 
+    /// How the writer asked: it sets how many Variants the AI writes.
     #[must_use]
     pub fn trigger(&self) -> AiTrigger {
         self.trigger
@@ -87,6 +93,7 @@ impl CancelToken {
         self.0.store(true, Ordering::Relaxed);
     }
 
+    /// Whether [`Self::cancel`] was called on this token or a clone of it.
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Relaxed)
@@ -240,7 +247,7 @@ impl Document {
 
     /// Adds `texts` as AI Variants to the Slot over the range of `request`, or to a new Slot
     /// there, as one undoable step. Of Slots with the same range, the innermost gets them.
-    /// The Active variant stays (FR-32, FR-36).
+    /// The Active variant stays.
     ///
     /// # Errors
     /// [`ApplyError`] when the result cannot be added.

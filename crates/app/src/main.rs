@@ -1,3 +1,6 @@
+//! The ka-teb binary: loads the settings, sets the sound device and the AI backend, and
+//! opens one window on an empty Document.
+
 use std::sync::Arc;
 
 use app::{Ai, DeviceSounds, Sounds, Workspace};

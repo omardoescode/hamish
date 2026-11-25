@@ -1,4 +1,4 @@
-//! Trim in the Lab (FR-54 to FR-62): the trim row of the Lab popover and the trim bar.
+//! Trim in the Lab: the trim row of the Lab popover and the trim bar.
 //! A Trim level runs on the background executor; the cuts fade in the editor until the
 //! writer makes them.
 
@@ -20,7 +20,7 @@ mod actions {
 
     gpui::actions!(trim, [MakeTrimCuts, WalkTrim, WalkKeep, WalkCut, CloseTrim]);
 
-    /// Runs a Trim at this level; Original removes the Trim fades (FR-55, FR-62).
+    /// Runs a Trim at this level; Original removes the Trim fades.
     #[derive(Debug, Clone, PartialEq, Action)]
     #[action(namespace = trim, no_json)]
     pub struct RunTrim(pub TrimLevel);
@@ -31,7 +31,7 @@ pub use actions::{CloseTrim, MakeTrimCuts, RunTrim, WalkCut, WalkKeep, WalkTrim}
 /// Width of the trim bar (spec estimate).
 const BAR_WIDTH: gpui::Pixels = px(390.);
 
-/// What the trim bar shows (FR-56).
+/// What the trim bar shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrimBar {
     pub level: TrimLevel,
@@ -50,7 +50,7 @@ pub(crate) enum TrimRun {
     Failed(TrimLevel, AiFailure<TrimError>),
 }
 
-/// The FR-54 label of `level`.
+/// The trim row label of `level`.
 fn label(level: TrimLevel) -> &'static str {
     match level {
         TrimLevel::Original => "Original",
@@ -101,9 +101,9 @@ impl Workspace {
         })
     }
 
-    /// FR-55: sends the whole active text to the AI on the background executor. A new
-    /// level replaces the proposal when its answer comes (FR-61); Original removes the
-    /// proposal at once (FR-62). A level that runs already is not started again.
+    /// Sends the whole active text to the AI on the background executor. A new
+    /// level replaces the proposal when its answer comes; Original removes the
+    /// proposal at once. A level that runs already is not started again.
     pub(crate) fn run_trim(&mut self, run: &RunTrim, _: &mut Window, cx: &mut Context<Self>) {
         let level = run.0;
         if self.lab.trim == TrimRun::Running(level) {
@@ -166,7 +166,7 @@ impl Workspace {
         self.lab.trim_cancel.clone()
     }
 
-    /// Removes the proposal and any run or failure; the text stays (FR-60, FR-62).
+    /// Removes the proposal and any run or failure; the text stays.
     fn end_trim(&mut self, cx: &mut Context<Self>) {
         self.new_trim_cancel();
         self.lab.trim = TrimRun::Idle;
@@ -193,12 +193,12 @@ impl Workspace {
         }
     }
 
-    /// Done: closes the trim bar; the text stays (FR-60).
+    /// Done: closes the trim bar; the text stays.
     pub(crate) fn close_trim(&mut self, _: &CloseTrim, _: &mut Window, cx: &mut Context<Self>) {
         self.end_trim(cx);
     }
 
-    /// FR-58: deletes the cuts still in the proposal as one undo step.
+    /// Deletes the cuts still in the proposal as one undo step.
     pub(crate) fn make_trim_cuts(
         &mut self,
         _: &MakeTrimCuts,
@@ -208,7 +208,7 @@ impl Workspace {
         self.trim_step(ka_teb_core::Document::make_trim_cuts, cx);
     }
 
-    /// FR-59: starts a Walk through at the first cut still in the proposal.
+    /// Starts a Walk through at the first cut still in the proposal.
     pub(crate) fn walk_trim(&mut self, _: &WalkTrim, _: &mut Window, cx: &mut Context<Self>) {
         self.trim_step(ka_teb_core::Document::walk_trim, cx);
     }
@@ -223,7 +223,7 @@ impl Workspace {
         self.trim_step(ka_teb_core::Document::walk_cut, cx);
     }
 
-    /// FR-54: the trim row of the Lab popover: one outlined button per level, the
+    /// The trim row of the Lab popover: one outlined button per level, the
     /// selected one in accent.
     pub(crate) fn trim_row(&self, theme: &Theme, cx: &gpui::App) -> AnyElement {
         let selected = self.trim_level(cx);
@@ -272,7 +272,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// FR-56: the trim bar, while a Trim runs, failed, or has a proposal open.
+    /// The trim bar, while a Trim runs, failed, or has a proposal open.
     pub(crate) fn trim_bar_view(&self, theme: &Theme, cx: &gpui::App) -> Option<AnyElement> {
         let bar = self.trim_bar(cx)?;
         let proposed = self.lab.trim == TrimRun::Idle;

@@ -1,4 +1,4 @@
-//! FR-83: focus zoom. The paragraph with the caret paints a little larger about the middle
+//! Focus zoom. The paragraph with the caret paints a little larger about the middle
 //! of its rows; the layout stays, so the paragraph may overlap its neighbors a little.
 //! GPUI 0.2.2 has no transform for text or quads (`TransformationMatrix` is for SVG only),
 //! so this paints the glyphs of the zoomed paragraph itself and moves every quad, the caret,
@@ -204,7 +204,7 @@ fn run_at(runs: &[TextRun], offset: usize) -> Option<&TextRun> {
 }
 
 impl Editor {
-    /// FR-83: each paragraph shown zoomed now and its scale; the one with the caret first.
+    /// Each paragraph shown zoomed now and its scale; the one with the caret first.
     /// Empty with the setting off and while the Alternatives panel dims the text.
     #[must_use]
     pub fn focus_zoom(&self, cx: &App) -> Vec<(Range<usize>, f32)> {

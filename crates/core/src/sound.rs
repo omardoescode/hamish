@@ -1,4 +1,4 @@
-//! Cycle sounds (issue #27) and the Variant delete explosion (issue #30): which sound
+//! Cycle sounds and the Variant delete explosion: which sound
 //! plays, and its samples. The app sends the samples to the audio device.
 
 use std::f64::consts::TAU;
@@ -12,7 +12,7 @@ pub enum Sound {
     HighTone,
     /// A switch back to the Original.
     LowTone,
-    /// A Variant delete (issue #30).
+    /// A Variant delete.
     Explosion,
 }
 

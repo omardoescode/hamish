@@ -1,4 +1,4 @@
-//! The Lab popover and Lab checks (FR-49 to FR-53): the LAB button, the check list with
+//! The Lab popover and Lab checks: the LAB button, the check list with
 //! progress, and the card that accepts or dismisses the Lab mark at the cursor. Checks run
 //! on the background executor.
 
@@ -52,7 +52,7 @@ const POPOVER_BOTTOM: gpui::Pixels = px(48.);
 pub struct LabRow {
     pub check: LabCheck,
     pub label: &'static str,
-    /// What the check does; shown while the guide is open (FR-50).
+    /// What the check does; shown while the guide is open.
     pub guide: Option<&'static str>,
     pub status: LabStatus,
 }
@@ -101,7 +101,7 @@ impl Lab {
     }
 }
 
-/// The FR-51 label of `check`.
+/// The popover label of `check`.
 fn label(check: LabCheck) -> &'static str {
     match check {
         LabCheck::PunctuationTypos => "Fix punctuation and typos",
@@ -113,7 +113,7 @@ fn label(check: LabCheck) -> &'static str {
     }
 }
 
-/// What `check` does, for the guide (FR-50).
+/// What `check` does, for the guide.
 fn guide(check: LabCheck) -> &'static str {
     match check {
         LabCheck::PunctuationTypos => "Proposes small fixes; you accept or dismiss each.",
@@ -143,7 +143,7 @@ impl Workspace {
         self.lab.open
     }
 
-    /// The popover rows in FR-51 order, with each check's status.
+    /// The popover rows in the order of [`LabCheck::ALL`], with each check's status.
     #[must_use]
     pub fn lab_rows(&self, cx: &gpui::App) -> Vec<LabRow> {
         let marks = self.editor.read(cx).document().lab_marks();
@@ -185,7 +185,7 @@ impl Workspace {
             .cloned()
     }
 
-    /// FR-49: the LAB button opens the popover and gives it focus; a second press closes it.
+    /// The LAB button opens the popover and gives it focus; a second press closes it.
     pub(crate) fn toggle_lab(
         &mut self,
         _: &ToggleLab,
@@ -221,7 +221,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// FR-52: sends the whole active text to the AI on the background executor. A check
+    /// Sends the whole active text to the AI on the background executor. A check
     /// that runs already is not started again.
     fn run_lab_check(&mut self, run: &RunLabCheck, _: &mut Window, cx: &mut Context<Self>) {
         let check = run.0;
@@ -274,7 +274,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// FR-53: puts the proposed fix of mark `id` in place, as one undo step.
+    /// Puts the proposed fix of mark `id` in place, as one undo step.
     fn accept_lab_fix(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
         let accepted = self.editor.update(cx, |editor, cx| {
             editor.lab_step(|document| document.accept_lab_fix(id), cx)

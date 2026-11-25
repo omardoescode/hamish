@@ -1,3 +1,5 @@
+//! Markdown styles: the spans the editor draws over the active text.
+
 use std::ops::Range;
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag};

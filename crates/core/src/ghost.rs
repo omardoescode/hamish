@@ -1,3 +1,5 @@
+//! Ghost and Revive: Ghost ranges of the Document.
+
 use std::fmt;
 use std::ops::Range;
 

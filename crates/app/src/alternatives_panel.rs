@@ -1,3 +1,6 @@
+//! The Alternatives panel: the Variants of the Slot at the editor target, the empty row
+//! that takes a new Variant, quick fill, and AI alternatives.
+
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,16 +28,16 @@ use crate::{context_menu, loading, settings_modal};
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
 
-/// The empty-row text that starts a quick fill (FR-69).
+/// The empty-row text that starts a quick fill.
 const QUICK_FILL: &str = "??";
 
-/// Quick fill results show this many at a time (FR-72: 2, then 4, then 5 in the demo).
+/// Quick fill results show this many at a time (the demo shows 2, then 4, then 5).
 const QUICK_FILL_BATCH: usize = 2;
 
 /// Time between two quick fill batches.
 const QUICK_FILL_BATCH_GAP: Duration = Duration::from_millis(150);
 
-/// A quick fill in progress (FR-69 to FR-73). Dropping it cancels its work.
+/// A quick fill in progress. Dropping it cancels its work.
 struct QuickFill {
     /// The AI request, then the batch reveal.
     _work: Task<()>,
@@ -50,7 +53,7 @@ impl Drop for QuickFill {
     }
 }
 
-/// One Variant row of the Alternatives panel (FR-22, FR-23).
+/// One Variant row of the Alternatives panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantRow {
     pub text: String,
@@ -59,7 +62,7 @@ pub struct VariantRow {
     pub active: bool,
 }
 
-/// Where the AI request of the panel is (FR-34).
+/// Where the AI request of the panel is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiStatus {
     Idle,
@@ -77,7 +80,7 @@ enum Target {
     Nothing,
 }
 
-/// The left Alternatives panel (FR-19 to FR-27). It changes the Document only through
+/// The left Alternatives panel. It changes the Document only through
 /// the [`Editor`], so each change is one editor undo step.
 pub struct AlternativesPanel {
     editor: Entity<Editor>,
@@ -87,13 +90,13 @@ pub struct AlternativesPanel {
     row: usize,
     /// The text typed in the last row.
     draft: String,
-    /// The text of the selected Variant while the writer edits it (FR-26).
+    /// The text of the Variant in the selected row while the writer edits it.
     editing: Option<String>,
-    /// FR-80: the row that a delete blows up, and its explosion.
+    /// The row that a delete blows up, and its explosion.
     explosion: Option<(usize, Particles)>,
     ai: AiStatus,
     quick_fill: Option<QuickFill>,
-    /// The last row is hidden after a quick fill, until the writer goes to it (FR-73).
+    /// The last row is hidden after a quick fill, until the writer goes to it.
     new_row_hidden: bool,
     _editor_changes: Subscription,
 }
@@ -140,7 +143,7 @@ impl AlternativesPanel {
         Target::Text { range, level }
     }
 
-    /// Shows `target`; its paragraph stays bright in the editor (FR-27).
+    /// Shows `target`; its paragraph stays bright in the editor.
     fn set_target(&mut self, target: Target, cx: &mut App) {
         let spotlight = match &target {
             Target::Slot(id) => Some(Spotlight::Slot(*id)),
@@ -152,7 +155,7 @@ impl AlternativesPanel {
             .update(cx, |editor, cx| editor.set_spotlight(spotlight, cx));
     }
 
-    /// FR-68: the draft of the last row shows in the Document in place of the panel target,
+    /// The draft of the last row shows in the Document in place of the panel target,
     /// while it has text.
     fn sync_preview(&self, cx: &mut App) {
         let range = match &self.target {
@@ -172,7 +175,7 @@ impl AlternativesPanel {
         });
     }
 
-    /// FR-21: shows Slot `id`, with the last row selected.
+    /// Shows Slot `id`, with the last row selected.
     pub(crate) fn show_slot(&mut self, id: SlotId, cx: &mut Context<Self>) {
         self.set_target(Target::Slot(id), cx);
         self.editing = None;
@@ -182,7 +185,7 @@ impl AlternativesPanel {
         cx.notify();
     }
 
-    /// The Level tab that is active (FR-20). `None` with nothing to show.
+    /// The Level tab that is active. `None` with nothing to show.
     #[must_use]
     pub fn level(&self, cx: &App) -> Option<Level> {
         match &self.target {
@@ -197,15 +200,15 @@ impl AlternativesPanel {
         }
     }
 
-    /// The row where a delete explosion plays now (FR-80). The next row has moved up into it.
+    /// The row where a delete explosion plays now. The next row has moved up into it.
     #[must_use]
     pub fn exploding_row(&self) -> Option<usize> {
         let (row, playing) = self.explosion.as_ref()?;
         playing.progress(Instant::now()).map(|_| *row)
     }
 
-    /// The Variants in order, the Original first (FR-22). Quick fill results not shown yet
-    /// are left out (FR-72).
+    /// The Variants in order, the Original first. Quick fill results not shown yet
+    /// are left out.
     #[must_use]
     pub fn rows(&self, cx: &App) -> Vec<VariantRow> {
         let mut rows = self.all_rows(cx);
@@ -249,7 +252,7 @@ impl AlternativesPanel {
         self.ai.clone()
     }
 
-    /// FR-32, FR-34: asks the AI for Variants of the panel target on the background
+    /// Asks the AI for Variants of the panel target on the background
     /// executor. A request that runs already is not started again.
     pub(crate) fn request_ai(&mut self, cx: &mut Context<Self>) {
         if self.ai == AiStatus::Loading {
@@ -309,8 +312,8 @@ impl AlternativesPanel {
         cx.notify();
     }
 
-    /// FR-69, FR-70: "??" in the last row asks the AI for Variants of the panel target.
-    /// The row dances (FR-71); the preview stops and "??" never becomes a Variant.
+    /// "??" in the last row asks the AI for Variants of the panel target.
+    /// The row dances; the preview stops and "??" never becomes a Variant.
     fn start_quick_fill(&mut self, cx: &mut Context<Self>) {
         if self.ai == AiStatus::Loading {
             return;
@@ -349,8 +352,8 @@ impl AlternativesPanel {
         });
     }
 
-    /// FR-72: adds the results as AI Variants in one undo step, then shows them in batches
-    /// under the Variants. The Active variant stays (FR-36).
+    /// Adds the results as AI Variants in one undo step, then shows them in batches
+    /// under the Variants. The Active variant stays.
     fn quick_fill_answered(
         &mut self,
         request: &AiRequest,
@@ -405,7 +408,7 @@ impl AlternativesPanel {
         false
     }
 
-    /// FR-73: the "??" row goes; the active Variant row is selected and the last row hides.
+    /// The "??" row goes; the active Variant row is selected and the last row hides.
     fn end_quick_fill(&mut self, cx: &mut Context<Self>) {
         self.quick_fill = None;
         self.ai = AiStatus::Idle;
@@ -416,14 +419,14 @@ impl AlternativesPanel {
         cx.notify();
     }
 
-    /// FR-82: the dance stops, the row is empty again, and the panel says why.
+    /// The dance stops, the row is empty again, and the panel says why.
     fn quick_fill_failed(&mut self, message: String, cx: &mut Context<Self>) {
         self.quick_fill = None;
         self.draft.clear();
         self.ai_failed(message, cx);
     }
 
-    /// FR-82: Esc while the row dances stops the quick fill. Results already added stay.
+    /// Esc while the row dances stops the quick fill. Results already added stay.
     fn cancel_quick_fill(&mut self, cx: &mut Context<Self>) {
         self.quick_fill = None;
         self.ai = AiStatus::Idle;
@@ -431,7 +434,7 @@ impl AlternativesPanel {
         cx.notify();
     }
 
-    /// FR-33, FR-36: adds the AI texts as AI Variants in one undo step; the Active variant
+    /// Adds the AI texts as AI Variants in one undo step; the Active variant
     /// stays. The panel then shows the Slot that got them.
     fn ai_answered(
         &mut self,
@@ -468,7 +471,7 @@ impl AlternativesPanel {
 }
 
 impl AlternativesPanel {
-    /// FR-24, FR-26: Return saves the edit in progress, starts an edit on a Variant row,
+    /// Return saves the edit in progress, starts an edit on a Variant row,
     /// or adds the draft of the last row as a Variant.
     fn confirm(&mut self, _: &ConfirmVariant, _: &mut Window, cx: &mut Context<Self>) {
         if self.quick_fill.is_some() {
@@ -489,7 +492,7 @@ impl AlternativesPanel {
         }
     }
 
-    /// FR-26: sets the text of the selected Variant, as a writer edit.
+    /// Sets the text of the Variant in the selected row, as a writer edit.
     fn save_edit(&mut self, text: &str, cx: &mut Context<Self>) {
         cx.notify();
         let Target::Slot(id) = self.target else {
@@ -503,7 +506,7 @@ impl AlternativesPanel {
             .ok();
     }
 
-    /// FR-24: adds the draft as a Variant and makes it the Active variant, as one undo
+    /// Adds the draft as a Variant and makes it the Active variant, as one undo
     /// step. With no Slot yet, it makes one over the target text, the Original first.
     fn add(&mut self, cx: &mut Context<Self>) {
         if self.draft.is_empty() || self.draft == QUICK_FILL {
@@ -570,7 +573,7 @@ impl AlternativesPanel {
         self.select(self.row + 1, cx);
     }
 
-    /// FR-25: selects row `row`. A Variant row shows that Variant in the Document at once,
+    /// Selects row `row`. A Variant row shows that Variant in the Document at once,
     /// as one undo step; the last row changes nothing.
     fn select(&mut self, row: usize, cx: &mut Context<Self>) {
         let last = self.rows(cx).len();
@@ -601,7 +604,7 @@ impl AlternativesPanel {
         }
     }
 
-    /// FR-24: Esc closes the panel.
+    /// Esc closes the panel.
     /// Esc while editing drops the edit.
     fn close(&mut self, _: &ClosePanel, _: &mut Window, cx: &mut Context<Self>) {
         if self.quick_fill.is_some() {
@@ -628,8 +631,8 @@ impl AlternativesPanel {
         cx.notify();
     }
 
-    /// FR-26, FR-80: deletes the selected Variant (the Original too) with an explosion on its
-    /// row. A Slot left with one Variant ends (FR-18); the panel then shows its text with no Slot.
+    /// Deletes the Variant in the selected row (the Original too) with an explosion on its
+    /// row. A Slot left with one Variant ends; the panel then shows its text with no Slot.
     fn delete_variant(&mut self, _: &DeleteVariant, _: &mut Window, cx: &mut Context<Self>) {
         let Target::Slot(id) = self.target else {
             return;
@@ -838,7 +841,7 @@ impl AlternativesPanel {
             }))
     }
 
-    /// FR-80: the explosion over row `index` while it plays. It only paints, so it never
+    /// The explosion over row `index` while it plays. It only paints, so it never
     /// blocks input.
     fn explosion_at(&self, index: usize, theme: &Theme) -> Option<impl IntoElement> {
         let (_, playing) = self
@@ -974,7 +977,7 @@ fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
         .when(selected, |row| row.bg(theme.elevated_row_hover))
 }
 
-/// FR-23: Bullet point (Writer), Bot point (AI), or the Mixed marker: a Bot point outline
+/// Bullet point (Writer), Bot point (AI), or the Mixed marker: a Bot point outline
 /// with a Bullet point in it.
 fn provenance_marker(provenance: Provenance, color: gpui::Hsla) -> gpui::Div {
     let marker = div()

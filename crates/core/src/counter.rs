@@ -1,3 +1,5 @@
+//! The Counter: words and chars of a text.
+
 use std::fmt;
 
 /// Live word and character count of the Document, or of the selection.
@@ -17,6 +19,7 @@ pub struct Counter {
 }
 
 impl Counter {
+    /// The counts of `text`.
     #[must_use]
     pub fn of(text: &str) -> Self {
         Self {

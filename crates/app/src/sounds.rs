@@ -1,4 +1,4 @@
-//! Cycle sounds (issue #27) and the Variant delete sound (issue #30). Core decides which
+//! Cycle sounds and the Variant delete sound. Core decides which
 //! sound plays and makes its samples; a [`SoundSink`] plays them.
 
 use std::collections::VecDeque;
@@ -24,8 +24,8 @@ pub struct Sounds(pub Arc<dyn SoundSink>);
 
 impl Global for Sounds {}
 
-/// Plays `sound` when the "Cycle sounds" setting is on. Issue #30 calls it with
-/// [`Sound::Explosion`] after a Variant delete.
+/// Plays `sound` when the "Cycle sounds" setting is on. A Variant delete plays
+/// [`Sound::Explosion`].
 pub(crate) fn play(sound: Sound, cx: &App) {
     if !settings_modal::is_on(cx, |settings| settings.cycle_sounds) {
         return;

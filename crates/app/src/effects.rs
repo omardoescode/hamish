@@ -103,7 +103,6 @@ impl Particles {
                     .corner_radii(bounds.size.height),
             );
         }
-        // Sparks start white-hot, then cool to their own color.
         let spark = if progress < 0.3 {
             core_color()
         } else {

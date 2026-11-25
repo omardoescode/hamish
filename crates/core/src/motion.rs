@@ -1,20 +1,20 @@
-//! Animation timing (spec NFRs "Animation timing" and "Reduced motion"): the one source of
-//! effect durations and progress. Views turn progress into a look.
+//! Effect timing: the one source of Effect durations and progress, Reduced motion included.
+//! Views turn progress into a look.
 
 use std::time::Duration;
 
 /// A timed visual effect. Effects never block input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    /// New Active variant text fades in (FR-81; spec: 100 to 200 ms).
+    /// New Active variant text fades in (spec: 100 to 200 ms).
     VariantFadeIn,
-    /// Burst over a deleted Variant (FR-78; spec: 500 to 800 ms).
+    /// Burst over a deleted Variant (spec: 500 to 800 ms).
     Explosion,
-    /// Burst when an undo puts a deleted Variant back (FR-79); shorter than the explosion.
+    /// Burst when an undo puts a deleted Variant back; shorter than the explosion.
     UndoBurst,
-    /// The paragraph with the caret zooms in, the one it left zooms out (FR-83).
+    /// The paragraph with the caret zooms in, the one it left zooms out.
     FocusZoom,
-    /// One round of the "??" dance of a quick fill (FR-71; spec: 2 to 4 pose changes per
+    /// One round of the "??" dance of a quick fill (spec: 2 to 4 pose changes per
     /// second). It repeats while the AI works; with reduced motion the "??" stays still.
     QuickFillDance,
 }

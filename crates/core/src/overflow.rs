@@ -1,3 +1,5 @@
+//! Overflow: the free text near the Document, its blocks, Stash, and block use.
+
 use std::fmt;
 use std::ops::Range;
 
@@ -42,6 +44,7 @@ impl Overflow {
         Self { text }
     }
 
+    /// The whole Overflow text, blank lines included.
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
