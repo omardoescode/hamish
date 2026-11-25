@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, RunTrim, ToggleChrome, TrimBar, Workspace};
+use app::{Ai, RunTrim, TrimBar, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
@@ -69,7 +69,6 @@ fn open(
     }
     let (workspace, cx) =
         cx.add_window_view(|window, cx| Workspace::new(Document::new(TEXT), window, cx));
-    cx.dispatch_action(ToggleChrome);
     cx.run_until_parked();
     (workspace, cx)
 }

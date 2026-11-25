@@ -36,7 +36,7 @@ pub use actions::{
     LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp,
     NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs,
     SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp,
-    Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
+    Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};
 pub use alternatives_panel::AlternativesPanel;
