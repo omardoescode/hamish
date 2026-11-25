@@ -7,12 +7,15 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, ClickEvent, Context, Corner, Div, EventEmitter, FocusHandle, Focusable,
-    IntoElement, MouseButton, MouseDownEvent, Pixels, Render, SharedString, Stateful, Window,
-    anchored, deferred, div, prelude::*, px, rgb, uniform_list,
+    IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, Pixels, Render,
+    ScrollStrategy, SharedString, Stateful, UniformListScrollHandle, Window, anchored, deferred,
+    div, prelude::*, px, rgb, uniform_list,
 };
-use ka_teb_core::{Setting, Settings, ThemeName, Toggle};
+use ka_teb_core::{SelectSearch, Setting, Settings, ThemeName, Toggle};
 
-use crate::actions::{CloseSettings, OpenSettings};
+use crate::actions::{
+    CloseSelect, CloseSettings, DeleteQueryBackward, NextRow, OpenSettings, PickRow, PreviousRow,
+};
 use crate::chrome::{
     clickable_row, elevated_surface, popover_surface, selectable_row, text_button,
 };
@@ -43,6 +46,10 @@ pub struct SettingsModal {
     fonts: Rc<[SharedString]>,
     /// The select whose list shows, if one does.
     open_select: Option<Select>,
+    /// The search field of the open select has this focus.
+    search_focus: FocusHandle,
+    search: SelectSearch,
+    scroll: UniformListScrollHandle,
 }
 
 impl EventEmitter<SaveFailed> for SettingsModal {}
@@ -64,6 +71,9 @@ impl SettingsModal {
             section: Section::Appearance,
             fonts,
             open_select: None,
+            search_focus: cx.focus_handle(),
+            search: SelectSearch::default(),
+            scroll: UniformListScrollHandle::new(),
         }
     }
 
@@ -80,30 +90,131 @@ impl SettingsModal {
         });
     }
 
-    fn show(&mut self, section: Section, cx: &mut Context<Self>) {
+    fn show(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         self.section = section;
-        self.open_select = None;
+        self.close_select(window, cx);
         cx.notify();
     }
 
-    fn toggle_select(&mut self, select: Select, cx: &mut Context<Self>) {
-        self.open_select = (self.open_select != Some(select)).then_some(select);
+    /// Opens `select` with an empty search and gives the keyboard to its search field, or
+    /// closes it when it is open.
+    fn toggle_select(&mut self, select: Select, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_select == Some(select) {
+            self.close_select(window, cx);
+            return;
+        }
+        self.open_select = Some(select);
+        self.search = SelectSearch::default();
+        self.scroll = UniformListScrollHandle::new();
+        window.focus(&self.search_focus);
         cx.notify();
     }
 
-    fn close_select(&mut self, cx: &mut Context<Self>) {
+    /// Closes the open select and gives the keyboard back to the modal.
+    pub(crate) fn close_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.open_select.take().is_some() {
+            window.focus(&self.focus_handle);
             cx.notify();
         }
     }
 
-    /// A select field: the button shows `current`; when open, `list` (made only then)
-    /// shows under it, over the fields below.
+    /// The rows of `select` before the search: the theme names, or the fonts. The Text
+    /// font rows start with "Default", the UI font.
+    fn names(&self, select: Select) -> Rc<[SharedString]> {
+        match select {
+            Select::Theme => ThemeName::ALL
+                .into_iter()
+                .map(|name| SharedString::from(name.label()))
+                .collect(),
+            Select::UiFont => Rc::clone(&self.fonts),
+            Select::TextFont => std::iter::once(SharedString::from("Default"))
+                .chain(self.fonts.iter().cloned())
+                .collect(),
+        }
+    }
+
+    /// The indexes into [`Self::names`] of the rows that the search keeps.
+    fn matches(&self, select: Select) -> Vec<usize> {
+        let names = self.names(select);
+        self.search.matches(names.iter().map(AsRef::as_ref))
+    }
+
+    /// Row `index` of [`Self::names`] becomes the setting of `select`; the select closes.
+    fn pick(&mut self, select: Select, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.names(select).get(index).map(ToString::to_string) else {
+            return;
+        };
+        let theme = ThemeName::ALL.get(index).copied();
+        self.close_select(window, cx);
+        Self::change(cx, move |settings| match select {
+            Select::Theme => settings.theme = theme.unwrap_or(settings.theme),
+            Select::UiFont => settings.ui_font = name,
+            Select::TextFont => settings.text_font = (index > 0).then_some(name),
+        });
+    }
+
+    fn previous_row(&mut self, _: &PreviousRow, _: &mut Window, cx: &mut Context<Self>) {
+        self.search.move_up();
+        self.scroll
+            .scroll_to_item(self.search.row(), ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    fn next_row(&mut self, _: &NextRow, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(select) = self.open_select else {
+            return;
+        };
+        self.search.move_down(self.matches(select).len());
+        self.scroll
+            .scroll_to_item(self.search.row(), ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    fn pick_row(&mut self, _: &PickRow, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(select) = self.open_select else {
+            return;
+        };
+        if let Some(index) = self.matches(select).get(self.search.row()).copied() {
+            self.pick(select, index, window, cx);
+        }
+    }
+
+    fn close_select_key(&mut self, _: &CloseSelect, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_select(window, cx);
+    }
+
+    fn delete_query_backward(
+        &mut self,
+        _: &DeleteQueryBackward,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.search.delete_backward();
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    /// Typed text goes into the search of the open select.
+    fn on_search_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        let Some(typed) = keystroke.key_char.as_ref() else {
+            return;
+        };
+        if !keystroke.modifiers.is_subset_of(&Modifiers::shift()) {
+            return;
+        }
+        self.search.type_text(typed);
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// A select field: the button shows `current`; when open, the search field and the rows
+    /// show under it, over the fields below.
     fn select(
         &self,
         select: Select,
         current: impl IntoElement,
-        list: impl FnOnce() -> AnyElement,
         theme: &Theme,
         cx: &Context<Self>,
     ) -> Div {
@@ -129,8 +240,8 @@ impl SettingsModal {
             .justify_between()
             .gap(px(8.))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
-                modal.toggle_select(select, cx);
+            .on_click(cx.listener(move |modal, _: &ClickEvent, window, cx| {
+                modal.toggle_select(select, window, cx);
             }))
             .child(div().overflow_hidden().whitespace_nowrap().child(current))
             .child(div().text_color(theme.text_muted).child(if open {
@@ -146,6 +257,14 @@ impl SettingsModal {
                     .child(
                         popover_surface(theme)
                             .id(list_id)
+                            .track_focus(&self.search_focus)
+                            .key_context("SettingsSelect")
+                            .on_action(cx.listener(Self::previous_row))
+                            .on_action(cx.listener(Self::next_row))
+                            .on_action(cx.listener(Self::pick_row))
+                            .on_action(cx.listener(Self::close_select_key))
+                            .on_action(cx.listener(Self::delete_query_backward))
+                            .on_key_down(cx.listener(Self::on_search_key_down))
                             .occlude()
                             .mt(px(2.))
                             .w(width)
@@ -153,108 +272,87 @@ impl SettingsModal {
                             .border_1()
                             .border_color(theme.panel_border)
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .child(list()),
+                            .child(self.search_field(theme))
+                            .child(self.rows(select, theme, cx)),
                     ),
             )
         });
         div().flex().flex_col().child(button).children(list)
     }
 
-    /// The list of a font select, in the UI font: only the rows in view are made, all
-    /// at one height. The Text font list starts with "Default", the UI font.
-    fn font_list(&self, select: Select, theme: &Theme, cx: &Context<Self>) -> AnyElement {
-        let default_row = usize::from(select == Select::TextFont);
-        let count = self.fonts.len() + default_row;
-        let rows_height = row_height(theme) * f32::from(u16::try_from(count).unwrap_or(u16::MAX));
-        let list_id = match select {
-            Select::TextFont => "settings-text-font-rows",
-            Select::Theme | Select::UiFont => "settings-ui-font-rows",
-        };
-        uniform_list(
-            list_id,
-            count,
-            cx.processor(move |modal, range: Range<usize>, _, cx| {
-                let settings = cx.global::<SettingsStore>().settings.clone();
-                let theme = cx.global::<Theme>().clone();
-                range
-                    .map(|index| modal.font_row(select, index, &settings, &theme, cx))
-                    .collect::<Vec<_>>()
-            }),
-        )
-        .w_full()
-        .h(rows_height.min(list_max_height(theme)))
-        .into_any_element()
-    }
-
-    /// Row `index` of the list of a font select.
-    fn font_row(
-        &self,
-        select: Select,
-        index: usize,
-        settings: &Settings,
-        theme: &Theme,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        if select == Select::TextFont && index == 0 {
-            return Self::select_row(
-                "settings-text-font-default".to_owned(),
-                settings.text_font.is_none(),
-                theme,
-                cx,
-                |settings| settings.text_font = None,
-            )
-            .child("Default")
-            .into_any_element();
-        }
-        let font = if select == Select::TextFont {
-            index - 1
+    /// The query of the open select, or a muted "Search" while it is empty.
+    fn search_field(&self, theme: &Theme) -> Div {
+        let query = self.search.query();
+        let (color, shown) = if query.is_empty() {
+            (theme.text_muted, SharedString::from("Search"))
         } else {
-            index
+            (theme.text, SharedString::from(query.to_owned()))
         };
-        let family = self.fonts.get(font).cloned().unwrap_or_default();
-        let pick = family.to_string();
-        let row = if select == Select::TextFont {
-            Self::select_row(
-                format!("settings-text-font-{font}"),
-                settings.text_font.as_deref() == Some(family.as_ref()),
-                theme,
-                cx,
-                move |settings| settings.text_font = Some(pick.clone()),
-            )
-        } else {
-            Self::select_row(
-                format!("settings-ui-font-{font}"),
-                settings.ui_font == family.as_ref(),
-                theme,
-                cx,
-                move |settings| settings.ui_font.clone_from(&pick),
-            )
-        };
-        row.child(div().overflow_hidden().whitespace_nowrap().child(family))
-            .into_any_element()
-    }
-
-    /// One choice in the list of a select; `chosen` shows in the accent color.
-    fn select_row(
-        id: String,
-        chosen: bool,
-        theme: &Theme,
-        cx: &Context<Self>,
-        change: impl Fn(&mut Settings) + 'static,
-    ) -> Stateful<Div> {
-        clickable_row(theme)
-            .id(SharedString::from(id.clone()))
-            .debug_selector(move || id.clone())
+        div()
+            .debug_selector(|| "settings-select-search".to_owned())
             .h(row_height(theme))
+            .mb(px(4.))
             .px(px(6.))
             .flex()
             .items_center()
-            .gap(px(8.))
-            .text_color(if chosen { theme.accent } else { theme.text })
-            .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
-                modal.open_select = None;
-                Self::change(cx, &change);
-            }))
+            .border_b_1()
+            .border_color(theme.panel_border)
+            .text_color(color)
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .child(shown)
+    }
+
+    /// The rows of the open select that the search keeps: only the rows in view are made,
+    /// all at one height.
+    fn rows(&self, select: Select, theme: &Theme, cx: &Context<Self>) -> AnyElement {
+        let names = self.names(select);
+        let matches: Rc<[usize]> = self.search.matches(names.iter().map(AsRef::as_ref)).into();
+        let count = matches.len();
+        if count == 0 {
+            return div()
+                .debug_selector(|| "settings-select-no-match".to_owned())
+                .h(row_height(theme))
+                .px(px(6.))
+                .flex()
+                .items_center()
+                .text_color(theme.text_muted)
+                .child("No match")
+                .into_any_element();
+        }
+        let rows_height = row_height(theme) * f32::from(u16::try_from(count).unwrap_or(u16::MAX));
+        let list_id = match select {
+            Select::Theme => "settings-theme-rows",
+            Select::UiFont => "settings-ui-font-rows",
+            Select::TextFont => "settings-text-font-rows",
+        };
+        let keyboard_row = self.search.row();
+        uniform_list(
+            list_id,
+            count,
+            cx.processor(move |_, range: Range<usize>, _, cx| {
+                let settings = cx.global::<SettingsStore>().settings.clone();
+                let theme = cx.global::<Theme>().clone();
+                range
+                    .filter_map(|row| {
+                        let index = *matches.get(row)?;
+                        let name = names.get(index)?.clone();
+                        let row = SelectRow {
+                            select,
+                            index,
+                            name,
+                            keyboard: row == keyboard_row,
+                        };
+                        Some(row.render(&settings, &theme, cx))
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .debug_selector(|| "settings-select-rows".to_owned())
+        .track_scroll(self.scroll.clone())
+        .w_full()
+        .h(rows_height.min(list_max_height(theme)))
+        .into_any_element()
     }
 
     fn section_row(&self, section: Section, theme: &Theme, cx: &Context<Self>) -> Stateful<Div> {
@@ -270,40 +368,19 @@ impl SettingsModal {
             .py(px(4.))
             .cursor_pointer()
             .text_color(if active { theme.text } else { theme.text_muted })
-            .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| modal.show(section, cx)))
+            .on_click(cx.listener(move |modal, _: &ClickEvent, window, cx| {
+                modal.show(section, window, cx);
+            }))
             .child(label)
     }
 
     fn appearance(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let themes = ThemeName::ALL
-            .into_iter()
-            .map(|name| {
-                Self::select_row(
-                    format!("settings-theme-{}", name.slug()),
-                    settings.theme == name,
-                    theme,
-                    cx,
-                    move |settings| settings.theme = name,
-                )
-                .child(swatch(name, theme))
-                .child(name.label())
-                .into_any_element()
-            })
-            .collect::<Vec<_>>();
         let current = div()
             .flex()
             .items_center()
             .gap(px(8.))
             .child(swatch(settings.theme, theme))
             .child(settings.theme.label());
-        let theme_list = || {
-            div()
-                .id("settings-theme-rows")
-                .max_h(list_max_height(theme))
-                .overflow_y_scroll()
-                .children(themes)
-                .into_any_element()
-        };
         let ui_font = div().child(settings.ui_font.clone());
         div()
             .flex()
@@ -312,18 +389,12 @@ impl SettingsModal {
             .child(field(
                 "Theme",
                 theme,
-                self.select(Select::Theme, current, theme_list, theme, cx),
+                self.select(Select::Theme, current, theme, cx),
             ))
             .child(field(
                 "UI font",
                 theme,
-                self.select(
-                    Select::UiFont,
-                    ui_font,
-                    || self.font_list(Select::UiFont, theme, cx),
-                    theme,
-                    cx,
-                ),
+                self.select(Select::UiFont, ui_font, theme, cx),
             ))
             .child(Self::stepper(Setting::UiScale, settings, theme, cx))
             .child(Self::toggle(Toggle::ReducedMotion, settings, theme, cx))
@@ -344,13 +415,7 @@ impl SettingsModal {
             .child(field(
                 "Text font",
                 theme,
-                self.select(
-                    Select::TextFont,
-                    current,
-                    || self.font_list(Select::TextFont, theme, cx),
-                    theme,
-                    cx,
-                ),
+                self.select(Select::TextFont, current, theme, cx),
             ))
             .child(Self::stepper(Setting::FontSize, settings, theme, cx))
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
@@ -426,6 +491,73 @@ impl SettingsModal {
                 )
                 .child(button(true)),
         )
+    }
+}
+
+/// One row of an open select: row `index` of its names.
+struct SelectRow {
+    select: Select,
+    index: usize,
+    name: SharedString,
+    /// Up, Down, and Enter act on this row.
+    keyboard: bool,
+}
+
+impl SelectRow {
+    fn id(&self) -> String {
+        let index = self.index;
+        match self.select {
+            Select::Theme => format!(
+                "settings-theme-{}",
+                ThemeName::ALL.get(index).map_or("", |name| name.slug())
+            ),
+            Select::UiFont => format!("settings-ui-font-{index}"),
+            Select::TextFont => index.checked_sub(1).map_or_else(
+                || "settings-text-font-default".to_owned(),
+                |font| format!("settings-text-font-{font}"),
+            ),
+        }
+    }
+
+    fn chosen(&self, settings: &Settings) -> bool {
+        match self.select {
+            Select::Theme => ThemeName::ALL.get(self.index) == Some(&settings.theme),
+            Select::UiFont => settings.ui_font == self.name.as_ref(),
+            Select::TextFont => {
+                settings.text_font.as_deref() == (self.index > 0).then_some(self.name.as_ref())
+            }
+        }
+    }
+
+    /// The row; `chosen` shows in the accent color, the keyboard row with the row hover
+    /// background.
+    fn render(self, settings: &Settings, theme: &Theme, cx: &Context<SettingsModal>) -> AnyElement {
+        let id = self.id();
+        let (select, index) = (self.select, self.index);
+        let swatch = ThemeName::ALL
+            .get(index)
+            .filter(|_| select == Select::Theme)
+            .map(|name| swatch(*name, theme));
+        clickable_row(theme)
+            .when(self.keyboard, |row| row.bg(theme.elevated_row_hover))
+            .id(SharedString::from(id.clone()))
+            .debug_selector(move || id.clone())
+            .h(row_height(theme))
+            .px(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .text_color(if self.chosen(settings) {
+                theme.accent
+            } else {
+                theme.text
+            })
+            .on_click(cx.listener(move |modal, _: &ClickEvent, window, cx| {
+                modal.pick(select, index, window, cx);
+            }))
+            .children(swatch)
+            .child(div().overflow_hidden().whitespace_nowrap().child(self.name))
+            .into_any_element()
     }
 }
 
@@ -513,9 +645,9 @@ impl Render for SettingsModal {
                     .text_color(theme.text)
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|modal, _: &MouseDownEvent, _, cx| {
+                        cx.listener(|modal, _: &MouseDownEvent, window, cx| {
                             cx.stop_propagation();
-                            modal.close_select(cx);
+                            modal.close_select(window, cx);
                         }),
                     )
                     .child(
@@ -550,6 +682,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.settings_open = true;
+        self.settings_modal
+            .update(cx, |modal, cx| modal.close_select(window, cx));
         window.focus(&self.settings_modal.focus_handle(cx));
         cx.notify();
     }

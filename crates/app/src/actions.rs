@@ -63,4 +63,15 @@ gpui::actions!(
     ]
 );
 
+gpui::actions!(
+    settings_modal,
+    [
+        PreviousRow,
+        NextRow,
+        PickRow,
+        CloseSelect,
+        DeleteQueryBackward
+    ]
+);
+
 gpui::actions!(overflow, [UseOverflowBlock, LeaveOverflow]);

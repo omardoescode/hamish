@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use app::{Notice, Theme, Workspace};
-use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, point, px, rgb};
+use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, point, px, rgb};
 use ka_teb_core::{Document, Settings, ThemeName};
 
 fn open(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) {
@@ -216,6 +216,122 @@ fn the_rows_of_a_font_select_have_one_height(cx: &mut TestAppContext) {
         heights.iter().all(|height| *height == heights[0]),
         "{heights:?}"
     );
+}
+
+/// The bounds of `id` in a fresh frame. The test window keeps the bounds of elements it
+/// no longer draws, so only the bounds of a drawn element tell the truth.
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn bounds(cx: &mut VisualTestContext, id: &'static str) -> Bounds<Pixels> {
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    cx.debug_bounds(id).expect("the window shows the element")
+}
+
+#[gpui::test]
+fn typing_in_an_open_select_keeps_the_rows_that_contain_the_query(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx);
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-theme-select");
+    cx.simulate_input("PINE");
+
+    let rows = bounds(cx, "settings-select-rows");
+    let rose_pine = bounds(cx, "settings-theme-rose-pine");
+    let rose_pine_dawn = bounds(cx, "settings-theme-rose-pine-dawn");
+    assert_eq!(rose_pine.origin.y, rows.origin.y);
+    assert_eq!(
+        rose_pine_dawn.origin.y,
+        rows.origin.y + rose_pine.size.height
+    );
+    assert_eq!(rows.size.height, rose_pine.size.height * 2.);
+
+    cx.simulate_keystrokes("backspace backspace backspace backspace");
+
+    assert_eq!(bounds(cx, "settings-theme-ka-teb").origin.y, rows.origin.y);
+}
+
+#[gpui::test]
+fn enter_picks_the_first_row_the_search_keeps(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx);
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-theme-select");
+    cx.simulate_input("dark");
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(theme(cx).background, rgb(0x0028_2c34).into());
+}
+
+#[gpui::test]
+fn down_and_up_move_the_row_that_enter_picks(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx);
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-theme-select");
+    cx.simulate_input("dark");
+    cx.simulate_keystrokes("down down up down enter");
+
+    assert_eq!(theme(cx).background, rgb(0x0028_2828).into());
+}
+
+#[gpui::test]
+fn escape_closes_the_open_select_and_keeps_settings_open(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx);
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-theme-select");
+    cx.simulate_keystrokes("escape");
+
+    assert!(settings_open(&workspace, cx));
+
+    cx.simulate_keystrokes("escape");
+
+    assert!(!settings_open(&workspace, cx));
+}
+
+#[gpui::test]
+fn the_text_font_search_keeps_default_first_when_it_matches(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let (_, cx) = open_with_file(cx, path.clone());
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-section-editor");
+    click(cx, "settings-text-font-select");
+    cx.simulate_input("plex mono");
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(
+        Settings::load(&path).settings.text_font.as_deref(),
+        Some("IBM Plex Mono")
+    );
+
+    click(cx, "settings-text-font-select");
+    cx.simulate_input("DEF");
+    let rows = bounds(cx, "settings-select-rows");
+    assert_eq!(
+        bounds(cx, "settings-text-font-default").origin.y,
+        rows.origin.y
+    );
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(Settings::load(&path).settings.text_font, None);
+}
+
+#[gpui::test]
+fn a_search_that_keeps_no_row_shows_no_match(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx);
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-ui-font-select");
+    cx.simulate_input("qqqqqq");
+
+    let no_match = bounds(cx, "settings-select-no-match");
+    let search = bounds(cx, "settings-select-search");
+    assert!(no_match.origin.y > search.origin.y);
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(theme(cx).ui_font, "IBM Plex Mono");
 }
 
 #[gpui::test]
