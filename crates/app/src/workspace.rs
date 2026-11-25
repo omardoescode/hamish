@@ -180,7 +180,7 @@ impl Workspace {
 
     /// A block dragged from Overflow goes into the Document at the drop point.
     fn drop_block(&mut self, _: &OverflowBlockDrag, window: &mut Window, cx: &mut Context<Self>) {
-        let caret = self.overflow_panel.read(cx).caret();
+        let caret = self.overflow_panel.read(cx).caret(cx);
         let position = window.mouse_position();
         self.editor.update(cx, |editor, cx| {
             editor.drop_overflow_block(caret, position, cx);

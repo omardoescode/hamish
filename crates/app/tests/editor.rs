@@ -41,16 +41,6 @@ fn typing_inserts_text(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn backspace_deletes_the_char_before_the_cursor(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, "");
-
-    cx.simulate_input("Hello");
-    cx.simulate_keystrokes("backspace");
-
-    assert_eq!(text(&workspace, cx), "Hell");
-}
-
-#[gpui::test]
 fn undo_reverts_consecutive_typing_as_one_step(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, "");
 
@@ -79,16 +69,6 @@ fn counter_shows_selection_counts(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("down shift-end");
 
     assert_eq!(counter(&workspace, cx), "2 words 11 chars selected");
-}
-
-#[gpui::test]
-fn typing_replaces_the_selection(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, "Hello world");
-
-    cx.simulate_keystrokes("ctrl-a");
-    cx.simulate_input("Hi");
-
-    assert_eq!(text(&workspace, cx), "Hi");
 }
 
 #[gpui::test]

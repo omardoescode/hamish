@@ -2,15 +2,14 @@
 
 use std::ops::Range;
 
-use crate::{Document, EditHistory, EditKind, SlotId};
+use crate::{Caret, CaretEdit, Document, EditHistory, EditKind, SlotId};
 
 /// A Document with its selection and its editor undo steps. Each change made through it is
 /// one undo step, and the selection follows the change.
 #[derive(Debug, Default)]
 pub struct EditSession {
     document: Document,
-    selection: Range<usize>,
-    reversed: bool,
+    caret: Caret,
     history: EditHistory,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
@@ -86,10 +85,15 @@ impl EditSession {
         &self.document
     }
 
-    /// Byte range of the selection; empty at the cursor.
+    #[must_use]
+    pub fn caret(&self) -> &Caret {
+        &self.caret
+    }
+
+    /// Byte range of the selection; empty at the caret.
     #[must_use]
     pub fn selection(&self) -> Range<usize> {
-        self.selection.clone()
+        self.caret.selection()
     }
 
     /// The Document has changes since the last save or open.
@@ -111,35 +115,15 @@ impl EditSession {
         self.saved = at;
     }
 
-    /// Sets the selection; `reversed` puts the cursor at its start. The next edit starts a
-    /// new undo step.
-    pub fn select(&mut self, selection: Range<usize>, reversed: bool) {
-        self.selection = selection;
-        self.reversed = reversed;
+    /// Puts the caret in the Document text. The next edit starts a new undo step.
+    pub fn select(&mut self, caret: Caret) {
+        self.caret = caret;
         self.history.close();
     }
 
-    /// Sets the selection like [`Self::select`], but the undo step stays open: an input
-    /// method moves the selection inside the text it is composing.
-    pub fn select_in_edit(&mut self, selection: Range<usize>, reversed: bool) {
-        self.selection = selection;
-        self.reversed = reversed;
-    }
-
-    /// The cursor end of the selection.
-    #[must_use]
-    pub fn cursor(&self) -> usize {
-        if self.reversed {
-            self.selection.start
-        } else {
-            self.selection.end
-        }
-    }
-
-    /// The cursor is at the start of the selection.
-    #[must_use]
-    pub fn is_reversed(&self) -> bool {
-        self.reversed
+    /// Ends the composed text of an input method; the undo step stays open.
+    pub fn unmark(&mut self) {
+        self.caret = self.caret.unmarked();
     }
 
     /// Ends the current undo step: the next edit starts a new one.
@@ -147,33 +131,47 @@ impl EditSession {
         self.history.close();
     }
 
-    /// Replaces `range` of the text with `text`; the cursor goes after it. Edits of the
-    /// same `kind` in a row at the cursor join one undo step. `false` when nothing changed.
-    pub fn edit(&mut self, range: Range<usize>, text: &str, kind: EditKind) -> bool {
+    /// Makes `edit` in the Document text; its caret shows after it. Edits of the same kind
+    /// in a row at the caret join one undo step. `false` when nothing changed.
+    pub fn edit(&mut self, edit: &CaretEdit) -> bool {
         let depth = self.document.undo_depth();
-        if self.document.replace(range.clone(), text).is_err()
+        if self
+            .document
+            .replace(edit.range.clone(), &edit.text)
+            .is_err()
             || self.document.undo_depth() == depth
         {
             return false;
         }
-        let before = self.selection.clone();
-        let cursor = range.start + text.len();
-        self.selection = cursor..cursor;
-        self.reversed = false;
-        self.history.record(kind, before, self.selection.clone());
+        let before = self.caret.selection();
+        self.caret = edit.caret.clone();
+        self.history
+            .record(edit.kind, before, self.caret.selection());
         true
     }
 
-    /// Replaces `range` of the Overflow text with `text`. Overflow edits of the same `kind`
-    /// in a row join one undo step; the selection stays. `false` when nothing changed.
-    pub fn edit_overflow(&mut self, range: Range<usize>, text: &str, kind: EditKind) -> bool {
+    /// Makes `edit` in the Overflow text; the Document caret stays. Overflow edits of the
+    /// same kind in a row join one undo step, apart from Document edits. `false` when
+    /// nothing changed.
+    pub fn edit_overflow(&mut self, edit: &CaretEdit) -> bool {
         let depth = self.document.undo_depth();
-        if self.document.edit_overflow(range, text).is_err() || self.document.undo_depth() == depth
+        if self
+            .document
+            .edit_overflow(edit.range.clone(), &edit.text)
+            .is_err()
+            || self.document.undo_depth() == depth
         {
             return false;
         }
-        self.history
-            .record(kind, self.selection.clone(), self.selection.clone());
+        let kind = match edit.kind {
+            EditKind::Typing => EditKind::OverflowTyping,
+            EditKind::Deleting => EditKind::OverflowDeleting,
+            kind @ (EditKind::OverflowTyping | EditKind::OverflowDeleting | EditKind::Other) => {
+                kind
+            }
+        };
+        let selection = self.caret.selection();
+        self.history.record(kind, selection.clone(), selection);
         true
     }
 
@@ -188,10 +186,9 @@ impl EditSession {
         &mut self,
         change: impl FnOnce(&mut Document) -> Result<T, E>,
     ) -> Result<(T, Option<SlotId>), E> {
-        let selection = self.selection.clone();
+        let caret = self.caret.clone();
         self.change_then_select(change, |old, new| {
-            follow_change(selection.start, old, new.text())
-                ..follow_change(selection.end, old, new.text())
+            caret.followed(old, new.text()).selection()
         })
     }
 
@@ -210,11 +207,10 @@ impl EditSession {
         let done = change(&mut self.document);
         let steps = self.document.undo_depth().saturating_sub(depth);
         if steps > 0 {
-            let before = self.selection.clone();
-            self.selection = select(&old_text, &self.document);
-            self.reversed = false;
+            let before = self.caret.selection();
+            self.caret = Caret::over(select(&old_text, &self.document));
             self.history
-                .record_steps(steps, before, self.selection.clone());
+                .record_steps(steps, before, self.caret.selection());
         }
         let done = done?;
         Ok((done, ShownVariant::switched(&shown, &self.document)))
@@ -230,8 +226,7 @@ impl EditSession {
             restored.extend(self.document.undo_restores_variant());
             self.document.undo();
         }
-        self.selection = group.before;
-        self.reversed = false;
+        self.caret = Caret::over(group.before.clone());
         Some(SlotChanges {
             restored,
             switched: ShownVariant::switched(&shown, &self.document),
@@ -246,61 +241,10 @@ impl EditSession {
         for _ in 0..group.steps {
             self.document.redo();
         }
-        self.selection = group.after;
-        self.reversed = false;
+        self.caret = Caret::over(group.after.clone());
         Some(SlotChanges {
             restored: Vec::new(),
             switched: ShownVariant::switched(&shown, &self.document),
         })
-    }
-}
-
-/// Where `offset` in `old` lands in `new`, when one span of `old` changed into `new`.
-/// An offset inside the changed span goes to the end of the new span. Offsets are bytes;
-/// an offset past `old` gives an offset past `new`.
-#[must_use]
-pub fn follow_change(offset: usize, old: &str, new: &str) -> usize {
-    let prefix = old
-        .char_indices()
-        .zip(new.chars())
-        .find(|((_, a), b)| a != b)
-        .map_or(old.len().min(new.len()), |((index, _), _)| index);
-    let suffix = old
-        .get(prefix..)
-        .unwrap_or_default()
-        .chars()
-        .rev()
-        .zip(new.get(prefix..).unwrap_or_default().chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(a, _)| a.len_utf8())
-        .sum::<usize>();
-    if offset <= prefix {
-        return offset;
-    }
-    let old_end = old.len() - suffix;
-    let new_end = new.len() - suffix;
-    if offset >= old_end {
-        return offset - old_end + new_end;
-    }
-    new_end
-}
-
-#[cfg(test)]
-mod tests {
-    use super::follow_change;
-
-    #[test]
-    fn an_offset_after_a_changed_span_moves_by_its_change_in_length() {
-        let old = "It is an eraser here.";
-        let new = "It is a thumbtack here.";
-        assert_eq!(follow_change(3, old, new), 3);
-        assert_eq!(follow_change(21, old, new), 23);
-        assert_eq!(follow_change(10, old, new), 17);
-    }
-
-    #[test]
-    fn a_shared_suffix_does_not_reach_into_the_shared_prefix() {
-        assert_eq!(follow_change(1, "aa", "a"), 1);
-        assert_eq!(follow_change(2, "aa", "a"), 1);
     }
 }

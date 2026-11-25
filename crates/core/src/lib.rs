@@ -3,6 +3,7 @@
 mod ai;
 mod around;
 mod article;
+mod caret;
 mod counter;
 mod document;
 mod edit_history;
@@ -22,11 +23,12 @@ mod trim;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
 pub use around::{paragraph_around, sentence_around};
+pub use caret::{Caret, CaretEdit, Motion, byte_range, follow_change, utf16_range};
 pub use counter::Counter;
 pub use document::{Document, RangeError};
 pub(crate) use edit_history::EditHistory;
 pub use edit_history::EditKind;
-pub use edit_session::{EditSession, SlotChanges, follow_change};
+pub use edit_session::{EditSession, SlotChanges};
 pub use focus_zoom::{FOCUS_ZOOM_SCALE, FocusZoom, paragraph_index, paragraph_range};
 pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};

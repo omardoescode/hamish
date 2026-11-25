@@ -10,7 +10,8 @@
 | `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
 | `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
 | `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
-| `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). `follow_change`. The Editor and all views change the Document only through it. |
+| `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). It keeps the Document `Caret` and makes its `CaretEdit`s. The Editor and all views change the Document only through it. |
+| `crates/core/src/caret.rs` | `Caret`: selection, caret end, input method composed text over a plain text. Grapheme moves (`Motion`), edits at the caret (`CaretEdit`), clamp to a changed text, UTF-16 ranges (`utf16_range`, `byte_range`), `follow_change`. No pixels. |
 | `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`. |
 | `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time (FR-83, issue #32). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
@@ -20,6 +21,7 @@
 | `crates/core/src/ai/claude.rs` | `ClaudeBackend`: runs `claude -p` with the API credentials removed from its environment. Tested with a stub `claude` on `PATH` (`crates/core/tests/claude_backend.rs`). |
 | `crates/app/src/ai.rs` | Global `Ai`: the adapter the app calls on the background executor. `main` sets `ClaudeBackend`; tests set a fake. `AiRun`: one AI call of a view (Lab checks, Trim, AI alternatives, Quick fill) with its `AiStatus`; a new start, `cancel`, or a drop cancels the call and drops its answer. `AiFailure`: typed reason, formatted only at render. |
 | `crates/app/src/loading.rs` | The "??" loading dance of the empty panel row, for Quick fill and AI alternatives; still with Reduced motion. |
+| `crates/app/src/caret.rs` | `CaretView`: the one GPUI adapter of `Caret` for the Editor and Overflow: caret key actions, clipboard, `EntityInputHandler` (macro `caret_input_handler!`), row moves from the painted text, caret quad (2 px) and scroll (edge fade margin). |
 | `crates/app/src/effects.rs` | `EffectPlayer`: the particle Effects of one view (Editor, Alternatives panel); `PlayingEffect` (a core `Effect` at a text range); paints the Explosion and the Undo burst. |
 | `crates/app/src/alternatives_panel.rs` | Alternatives panel: Variant rows, live preview of the empty row (FR-68), Quick fill (FR-69 to FR-73, FR-82). |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |

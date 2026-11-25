@@ -117,6 +117,11 @@ The burst that plays at a span when an undo puts a deleted Variant back.
 A style the editor draws over Markdown text (heading, bold, italic, inline code, block quote, list marker). The syntax marks stay in the text and stay visible.
 _Avoid_: Format, rich text
 
+### Text input
+
+**Caret**:
+The insertion point in the Document text or in Overflow, with the selection around it and the text an input method composes. One rule for both texts: a caret clamps to its text before it acts.
+
 ### Chrome
 
 **Chrome**:
