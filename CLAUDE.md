@@ -8,7 +8,7 @@ For work that is a GitHub issue (skip for a small fix the user asks for directly
 
 ## Conflict prevention
 - Before you touch a file, check for an open assigned issue in the same area. If one exists, pick other work.
-- Changes to the sidecar JSON schema or the core document model are serialized: 1 in progress at a time.
+- Changes to the Ka-teb comment JSON schema or the core document model are serialized: 1 in progress at a time.
 - If the task needs changes to >3 files outside its scope, stop and ask the user.
 
 ## Project process
