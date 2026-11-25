@@ -226,7 +226,7 @@ fn a_block_dragged_into_the_page_goes_in_at_the_drop_point(cx: &mut TestAppConte
     cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
     cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
 
-    assert_eq!(text(&workspace, cx), "Title\nfirst blockBody.");
+    assert_eq!(text(&workspace, cx), "Title\nfirst block Body.");
     assert_eq!(overflow(&workspace, cx), "first block\n\nsecond block");
 }
 

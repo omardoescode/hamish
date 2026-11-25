@@ -508,20 +508,35 @@ fn sentence_dots_at(
     )
 }
 
-/// The Lab marks and the Trim cut being walked through, as highlight quads.
+/// The Lab marks and the Trim cut being walked through, as highlight quads. The selected
+/// Lab mark gets an accent outline.
 fn lab_mark_quads(painted: &PaintedText, editor: &Editor, theme: &Theme) -> Vec<PaintQuad> {
     let walked = editor.document().trim_proposal().and_then(|proposal| {
         proposal
             .current()
             .and_then(|current| proposal.cuts().get(current))
     });
-    editor
+    let selected = editor.selected_lab_mark().map(|mark| mark.id);
+    let marks = editor
         .document()
         .lab_marks()
         .iter()
-        .map(|mark| &mark.range)
-        .chain(walked.map(|cut| &cut.range))
-        .flat_map(|range| painted.text_quads(range, theme.lab_mark))
+        .map(|mark| (&mark.range, Some(mark.id) == selected));
+    marks
+        .chain(walked.map(|cut| (&cut.range, false)))
+        .flat_map(|(range, outlined)| {
+            painted
+                .text_quads(range, theme.lab_mark)
+                .into_iter()
+                .map(move |quad| {
+                    if outlined {
+                        quad.border_widths(px(1.))
+                            .border_color(theme.accent_outline)
+                    } else {
+                        quad
+                    }
+                })
+        })
         .collect()
 }
 

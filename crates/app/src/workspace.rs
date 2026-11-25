@@ -321,6 +321,8 @@ fn title_view(label: String, theme: &Theme) -> impl IntoElement {
 fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
     div()
         .id("counter")
+        .debug_selector(|| "counter".to_owned())
+        .occlude()
         .absolute()
         .top(px(22.))
         .left(px(24.))

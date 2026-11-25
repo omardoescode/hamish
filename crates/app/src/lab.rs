@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, MouseButton, Render,
-    SharedString, Subscription, Window, div, prelude::*, px,
+    SharedString, Subscription, Window, anchored, deferred, div, point, prelude::*, px,
 };
 use ka_teb_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
 
@@ -35,6 +35,8 @@ pub use actions::{CloseLab, RunLabCheck, ToggleLab};
 const POPOVER_WIDTH: gpui::Pixels = px(270.);
 /// Width of the Lab mark card.
 const CARD_WIDTH: gpui::Pixels = px(320.);
+/// Space between the selected Lab mark and its card.
+const CARD_GAP: gpui::Pixels = px(4.);
 /// Space between the top of the Chrome bar and a popover above the LAB button.
 const POPOVER_GAP: gpui::Pixels = px(8.);
 /// Width of an AI bar.
@@ -163,12 +165,7 @@ impl Lab {
     /// text is selected.
     #[must_use]
     pub fn mark_at_caret(&self, cx: &App) -> Option<LabMark> {
-        let editor = self.editor.read(cx);
-        let selection = editor.selection();
-        if !selection.is_empty() {
-            return None;
-        }
-        editor.document().lab_mark_at(selection.start).cloned()
+        self.editor.read(cx).selected_lab_mark().cloned()
     }
 
     /// A Lab check or a Trim runs.
@@ -387,6 +384,7 @@ impl Lab {
             .map(|note| div().text_color(theme.text_muted).child(note.clone()));
         div()
             .id("lab-mark-card")
+            .debug_selector(|| "lab-mark-card".to_owned())
             .occlude()
             .w(CARD_WIDTH)
             .p(px(8.))
@@ -419,32 +417,41 @@ impl Focusable for Lab {
 }
 
 impl Render for Lab {
-    /// The trim bar over the open popover, or over the card of the mark at the caret while
-    /// the popover is closed.
+    /// The trim bar over the open popover, and the card of the selected mark just under it.
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
-        let below = if self.open {
-            Some(self.popover(&theme, cx))
-        } else {
-            self.mark_at_caret(cx)
-                .map(|mark| self.mark_card(&mark, &theme, cx))
-        };
+        let below = self.open.then(|| self.popover(&theme, cx));
+        let card = self.mark_at_caret(cx).and_then(|mark| {
+            let under = self
+                .editor
+                .read(cx)
+                .selected_lab_mark_bounds()?
+                .bottom_left();
+            Some(deferred(
+                anchored()
+                    .position(under + point(px(0.), CARD_GAP))
+                    .snap_to_window()
+                    .child(self.mark_card(&mark, &theme, cx)),
+            ))
+        });
         let bar = self.trim_bar_view(&theme, cx);
         let check_bars: Vec<_> = LabCheck::ALL
             .into_iter()
             .filter(|check| self.checks.get(check).is_some_and(AiRun::is_running))
             .map(|check| ai_bar(&theme, label(check), "marking…".into()).into_any_element())
             .collect();
-        bottom_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP).child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(6.))
-                .children(bar)
-                .children(check_bars)
-                .children(below),
-        )
+        bottom_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(6.))
+                    .children(bar)
+                    .children(check_bars)
+                    .children(below),
+            )
+            .children(card)
     }
 }
 

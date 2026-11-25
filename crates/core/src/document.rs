@@ -713,6 +713,34 @@ impl Document {
         Ok(())
     }
 
+    /// [`Document::use_block`] for a block dropped at `at`: a space goes between the block
+    /// and a word char on each side. No space goes before punctuation or next to whitespace.
+    ///
+    /// # Errors
+    /// As [`Document::use_block`].
+    pub fn drop_block(&mut self, caret: usize, at: usize) -> Result<(), OverflowError> {
+        let block = self
+            .overflow
+            .block_at(caret)
+            .ok_or(OverflowError::NoBlock(caret))?;
+        let before = self
+            .text
+            .get(..at)
+            .and_then(|text| text.chars().next_back());
+        let after = self.text.get(at..).and_then(|text| text.chars().next());
+        let lead =
+            before.is_some_and(|c| !c.is_whitespace()) && !block.starts_with(char::is_whitespace);
+        let trail =
+            after.is_some_and(char::is_alphanumeric) && !block.ends_with(char::is_whitespace);
+        let spaced = format!(
+            "{}{block}{}",
+            if lead { " " } else { "" },
+            if trail { " " } else { "" }
+        );
+        self.insert(at, &spaced)?;
+        Ok(())
+    }
+
     /// How many core undo steps there are.
     pub(crate) fn undo_depth(&self) -> usize {
         self.steps.depth()

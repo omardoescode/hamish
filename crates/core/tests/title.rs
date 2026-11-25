@@ -20,6 +20,20 @@ fn an_unsaved_document_shows_its_first_line() {
 }
 
 #[test]
+fn an_unsaved_document_title_drops_the_markdown_marks() {
+    let heading = Document::new("# Spring notes\nBody");
+    let styled = Document::new("## A *quiet* `walk`\nBody");
+
+    assert_eq!(document_title(None, &heading), "Spring notes");
+    assert_eq!(document_title(None, &styled), "A quiet walk");
+}
+
+#[test]
+fn an_unsaved_document_with_only_marks_on_the_first_line_is_untitled() {
+    assert_eq!(document_title(None, &Document::new("#\nBody")), "Untitled");
+}
+
+#[test]
 fn an_unsaved_document_with_a_blank_first_line_is_untitled() {
     assert_eq!(document_title(None, &Document::new("  \nBody")), "Untitled");
     assert_eq!(document_title(None, &Document::default()), "Untitled");
