@@ -8,6 +8,8 @@ Stack: Rust + GPUI. Storage: one `.md` file; Slots and other state in a comment 
 - Decisions: [docs/adr/](docs/adr/README.md)
 - Code rules: [CODING_STANDARDS.md](CODING_STANDARDS.md)
 
-Install: `cargo install --path crates/app`
+Install as a desktop app: `make install` (Linux: binary, `hamish.desktop` and icons under `~/.local`, set another root with `PREFIX=...`; macOS: `~/Applications/Hamish.app`). Remove it with `make uninstall`.
+
+Release downloads: on Linux, unpack the archive and run `./install.sh` (`./install.sh --uninstall` removes it). On macOS, unzip `Hamish-<target>.app.zip`. The app is unsigned: open it the first time with right-click > Open.
 
 Status: iteration 1 in progress.
