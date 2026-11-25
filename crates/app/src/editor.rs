@@ -567,7 +567,10 @@ impl Editor {
             .background_executor()
             .now()
             .saturating_duration_since(started);
-        let progress = Effect::VariantFadeIn.progress(elapsed, settings_modal::reduced_motion(cx));
+        let progress = Effect::VariantFadeIn.progress(
+            elapsed,
+            settings_modal::is_on(cx, |settings| settings.reduced_motion),
+        );
         (progress < 1.).then_some((
             slot,
             FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,

@@ -127,7 +127,7 @@ fn bounds_in(area: Bounds<Pixels>, particle: Particle) -> Bounds<Pixels> {
 
 /// Whether Effects play: with Reduced motion they show no particles and are done at once.
 pub(crate) fn plays(cx: &App) -> bool {
-    !settings_modal::reduced_motion(cx)
+    !settings_modal::is_on(cx, |settings| settings.reduced_motion)
 }
 
 #[cfg(test)]

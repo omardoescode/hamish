@@ -211,7 +211,10 @@ impl Editor {
         let now = cx.background_executor().now();
         let text = self.document.text();
         self.focus_zoom
-            .zoomed(now, settings_modal::reduced_motion(cx))
+            .zoomed(
+                now,
+                settings_modal::is_on(cx, |settings| settings.reduced_motion),
+            )
             .into_iter()
             .filter_map(|(index, scale)| Some((paragraph_range(text, index)?, scale)))
             .collect()
@@ -219,10 +222,11 @@ impl Editor {
 
     /// Zooms the paragraph with the caret; `true` while a zoom runs.
     fn focus_zoom_step(&mut self, cx: &App) -> bool {
-        let on = settings_modal::focus_zoom(cx) && self.bright_paragraph().is_none();
+        let on = settings_modal::is_on(cx, |settings| settings.focus_zoom)
+            && self.bright_paragraph().is_none();
         let paragraph = on.then(|| paragraph_index(self.document.text(), self.cursor()));
         let now = cx.background_executor().now();
-        let reduced_motion = settings_modal::reduced_motion(cx);
+        let reduced_motion = settings_modal::is_on(cx, |settings| settings.reduced_motion);
         self.focus_zoom.focus(paragraph, now, reduced_motion);
         self.focus_zoom.is_moving(now, reduced_motion)
     }

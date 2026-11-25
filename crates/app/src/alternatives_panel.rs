@@ -870,7 +870,7 @@ impl AlternativesPanel {
             .children(variant_rows)
             .children(self.render_ai_status(theme))
             .when(self.quick_fill.is_some(), |list| {
-                let reduced_motion = settings_modal::reduced_motion(cx);
+                let reduced_motion = settings_modal::is_on(cx, |settings| settings.reduced_motion);
                 list.child(
                     row_box(theme, true)
                         .id("alternatives-quick-fill")
