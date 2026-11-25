@@ -50,6 +50,7 @@ fn saved_settings_open_again_the_same() {
         font_size: 18.0,
         line_height: 1.5,
         column_width: 700.0,
+        reduced_motion: true,
     };
 
     settings.save(&path).unwrap();
@@ -163,4 +164,13 @@ fn ten_steps_of_a_tenth_land_on_the_tenth() {
         settings.increase(Setting::LineHeight);
     }
     assert_eq!(settings.line_height, 2.8);
+}
+#[test]
+fn reduced_motion_is_off_by_default_and_in_a_file_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
+
+    assert!(!Settings::default().reduced_motion);
+    assert!(!Settings::load(&path).settings.reduced_motion);
 }
