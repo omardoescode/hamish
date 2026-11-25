@@ -1,4 +1,4 @@
-use ka_teb_core::{
+use hamish_core::{
     AiTrigger, AlternativesList, Caret, Document, EditSession, Level, ListOutcome, Provenance,
     Switch,
 };
@@ -196,7 +196,7 @@ fn a_level_shows_the_text_around_the_target_or_the_slot_of_that_range_and_level(
     assert_eq!(rows_of(&list, &document), vec![row("The", true)]);
 
     list.choose_level(&document, Level::Sentence);
-    assert_eq!(list.target(), &ka_teb_core::ListTarget::Slot(sentence));
+    assert_eq!(list.target(), &hamish_core::ListTarget::Slot(sentence));
 }
 
 #[test]

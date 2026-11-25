@@ -3,7 +3,7 @@
 //! writer makes them.
 
 use gpui::{AnyElement, App, Context, IntoElement, SharedString, Window, div, prelude::*, px};
-use ka_teb_core::{TrimError, TrimLevel};
+use hamish_core::{TrimError, TrimLevel};
 
 use crate::ai::{AiRun, AiStatus};
 use crate::chrome::text_button;
@@ -16,7 +16,7 @@ use crate::{Lab, Theme};
 )]
 mod actions {
     use gpui::Action;
-    use ka_teb_core::TrimLevel;
+    use hamish_core::TrimLevel;
 
     gpui::actions!(trim, [MakeTrimCuts, WalkTrim, WalkKeep, WalkCut, CloseTrim]);
 
@@ -65,7 +65,7 @@ impl Lab {
             .read(cx)
             .document()
             .trim_proposal()
-            .map_or(TrimLevel::Original, ka_teb_core::TrimProposal::level)
+            .map_or(TrimLevel::Original, hamish_core::TrimProposal::level)
     }
 
     /// The trim bar; `None` when no Trim runs, failed, or has a proposal open.
@@ -135,7 +135,7 @@ impl Lab {
     /// Runs a Trim `step` in the editor. A failed step changes nothing, so it is dropped.
     fn trim_step(
         &mut self,
-        step: impl FnOnce(&mut ka_teb_core::Document) -> Result<(), TrimError>,
+        step: impl FnOnce(&mut hamish_core::Document) -> Result<(), TrimError>,
         cx: &mut Context<Self>,
     ) {
         let done = self
@@ -158,22 +158,22 @@ impl Lab {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.trim_step(ka_teb_core::Document::make_trim_cuts, cx);
+        self.trim_step(hamish_core::Document::make_trim_cuts, cx);
     }
 
     /// Starts a Walk through at the first cut still in the proposal.
     pub(crate) fn walk_trim(&mut self, _: &WalkTrim, _: &mut Window, cx: &mut Context<Self>) {
-        self.trim_step(ka_teb_core::Document::walk_trim, cx);
+        self.trim_step(hamish_core::Document::walk_trim, cx);
     }
 
     /// Walk through: keeps the current cut and goes to the next.
     pub(crate) fn walk_keep(&mut self, _: &WalkKeep, _: &mut Window, cx: &mut Context<Self>) {
-        self.trim_step(ka_teb_core::Document::walk_keep, cx);
+        self.trim_step(hamish_core::Document::walk_keep, cx);
     }
 
     /// Walk through: cuts the current cut as one undo step and goes to the next.
     pub(crate) fn walk_cut(&mut self, _: &WalkCut, _: &mut Window, cx: &mut Context<Self>) {
-        self.trim_step(ka_teb_core::Document::walk_cut, cx);
+        self.trim_step(hamish_core::Document::walk_cut, cx);
     }
 
     /// The trim row of the Lab popover: one outlined button per level, the

@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use ka_teb_core::{
+use hamish_core::{
     Document, Dropped, LabCheck, LabFinding, Level, Provenance, StorageError, TrimLevel,
 };
 
@@ -44,22 +44,22 @@ fn draft() -> Result<Document, Box<dyn Error>> {
 }
 
 /// Puts `text` in place of the Document text of the saved file `path`, as another tool
-/// does, and keeps the ka-teb comment.
+/// does, and keeps the Hamish comment.
 fn edit_outside(path: &Path, text: &str) -> Result<(), Box<dyn Error>> {
     let saved = fs::read_to_string(path)?;
-    let comment = saved.rfind("<!-- ka-teb").ok_or("no ka-teb comment")?;
+    let comment = saved.rfind("<!-- hamish").ok_or("no Hamish comment")?;
     let kept = saved.get(comment..).unwrap_or_default();
     fs::write(path, format!("{text}\n\n{kept}"))?;
     Ok(())
 }
 
 #[test]
-fn save_writes_the_active_text_then_the_ka_teb_comment_as_the_last_thing() {
+fn save_writes_the_active_text_then_the_hamish_comment_as_the_last_thing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
     draft().unwrap().save(&path).unwrap();
     let saved = fs::read_to_string(&path).unwrap();
-    assert!(saved.starts_with("The rapidly fox runs.\n\nAnother paragraph.\n\n<!-- ka-teb\n{"));
+    assert!(saved.starts_with("The rapidly fox runs.\n\nAnother paragraph.\n\n<!-- hamish\n{"));
     assert!(saved.ends_with("}\n-->\n"));
     assert!(saved.contains("swift"));
 }
@@ -106,7 +106,7 @@ fn a_variant_with_comment_ends_survives_and_the_comment_ends_once() {
 fn other_comments_stay_document_text() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
-    let text = "<!-- a note -->\nText.\n\n<!-- ka-teb\nnot data -->\nEnd.\n";
+    let text = "<!-- a note -->\nText.\n\n<!-- hamish\nnot data -->\nEnd.\n";
     let mut saved = Document::new(text);
     saved
         .create_slot(16..20, Level::Word, "Words", Provenance::Writer)
@@ -120,10 +120,10 @@ fn other_comments_stay_document_text() {
 }
 
 #[test]
-fn a_last_comment_with_no_ka_teb_tag_is_document_text() {
+fn a_last_comment_with_no_hamish_tag_is_document_text() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("plain.md");
-    let text = "Text.\n\n<!-- ka-tebx\n{}\n-->\n\n<!-- just a note\n{}\n-->\n";
+    let text = "Text.\n\n<!-- hamishx\n{}\n-->\n\n<!-- just a note\n{}\n-->\n";
     fs::write(&path, text).unwrap();
 
     let opened = Document::open(&path).unwrap();
@@ -133,10 +133,10 @@ fn a_last_comment_with_no_ka_teb_tag_is_document_text() {
 }
 
 #[test]
-fn a_ka_teb_comment_with_text_after_it_is_document_text() {
+fn a_hamish_comment_with_text_after_it_is_document_text() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("plain.md");
-    let text = "Text.\n\n<!-- ka-teb\n{ not json\n-->\nMore text.\n";
+    let text = "Text.\n\n<!-- hamish\n{ not json\n-->\nMore text.\n";
     fs::write(&path, text).unwrap();
 
     let opened = Document::open(&path).unwrap();
@@ -148,12 +148,12 @@ fn an_old_json_file_next_to_the_md_file_is_not_read() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
     fs::write(&path, "Plain text.").unwrap();
-    fs::write(dir.path().join("draft.md.ka-teb.json"), "{ not json").unwrap();
+    fs::write(dir.path().join("draft.md.hamish.json"), "{ not json").unwrap();
 
     let opened = Document::open(&path).unwrap();
     assert_eq!(opened.document.text(), "Plain text.");
     assert_eq!(opened.document.slots(), []);
-    assert!(dir.path().join("draft.md.ka-teb.json").exists());
+    assert!(dir.path().join("draft.md.hamish.json").exists());
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn nested_slots_and_ghost_ranges_of_an_inactive_variant_survive_the_round_trip()
 }
 
 #[test]
-fn open_of_an_md_file_with_no_ka_teb_comment_gives_a_plain_document() {
+fn open_of_an_md_file_with_no_hamish_comment_gives_a_plain_document() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("plain.md");
     fs::write(&path, "Written in another tool.").unwrap();
@@ -402,23 +402,23 @@ fn open_of_an_md_file_that_is_not_utf8_is_refused() {
 }
 
 #[test]
-fn open_with_a_ka_teb_comment_that_is_not_its_json_is_refused() {
+fn open_with_a_hamish_comment_that_is_not_its_json_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
-    fs::write(&path, "text\n\n<!-- ka-teb\n{ not json\n-->\n").unwrap();
+    fs::write(&path, "text\n\n<!-- hamish\n{ not json\n-->\n").unwrap();
     assert!(matches!(
         Document::open(&path),
-        Err(StorageError::BadKaTebComment { .. })
+        Err(StorageError::BadHamishComment { .. })
     ));
 }
 
 #[test]
-fn open_with_a_ka_teb_comment_of_a_newer_schema_version_is_refused() {
+fn open_with_a_hamish_comment_of_a_newer_schema_version_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
     fs::write(
         &path,
-        "text\n\n<!-- ka-teb\n{\"version\": 2, \"slots\": \"new shape\"}\n-->\n",
+        "text\n\n<!-- hamish\n{\"version\": 2, \"slots\": \"new shape\"}\n-->\n",
     )
     .unwrap();
     assert!(matches!(
@@ -428,7 +428,7 @@ fn open_with_a_ka_teb_comment_of_a_newer_schema_version_is_refused() {
 }
 
 #[test]
-fn a_slot_the_ka_teb_comment_gives_no_active_variant_is_dropped_not_a_panic() {
+fn a_slot_the_hamish_comment_gives_no_active_variant_is_dropped_not_a_panic() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
     let mut document = Document::new("Pick one word.");

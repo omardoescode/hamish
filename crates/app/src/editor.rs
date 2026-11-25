@@ -19,7 +19,7 @@ use gpui::{
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, ScrollHandle,
     SharedString, Window, div, prelude::*,
 };
-use ka_teb_core::{
+use hamish_core::{
     Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
     SlotId, Sound, TrimProposal, follow_change, paragraph_around,
 };
@@ -595,7 +595,7 @@ impl Editor {
     fn insert_overflow_block(
         &mut self,
         at: usize,
-        insert: impl FnOnce(&mut Document) -> Result<(), ka_teb_core::OverflowError>,
+        insert: impl FnOnce(&mut Document) -> Result<(), hamish_core::OverflowError>,
         cx: &mut Context<Self>,
     ) -> bool {
         let inserted = self.session.change_then_select(insert, |old, new| {

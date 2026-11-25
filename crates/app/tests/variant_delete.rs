@@ -1,6 +1,6 @@
 use app::{PlayingEffect, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Effect, Level, LoadedSettings, Provenance, Settings, SlotId};
+use hamish_core::{Document, Effect, Level, LoadedSettings, Provenance, Settings, SlotId};
 
 fn open(
     cx: &mut TestAppContext,

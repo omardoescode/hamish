@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::time::Instant;
 
 use gpui::{App, Bounds, BoxShadow, Hsla, Pixels, Window, fill, point, px, rgb, size};
-use ka_teb_core::{Effect, Particle, ParticleArea};
+use hamish_core::{Effect, Particle, ParticleArea};
 
 use crate::settings;
 
@@ -167,7 +167,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use gpui::TestAppContext;
-    use ka_teb_core::{Effect, LoadedSettings, Settings};
+    use hamish_core::{Effect, LoadedSettings, Settings};
 
     use super::{EffectPlayer, PlayingEffect};
 

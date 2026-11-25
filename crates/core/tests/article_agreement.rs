@@ -1,4 +1,4 @@
-use ka_teb_core::{Document, Level, Provenance};
+use hamish_core::{Document, Level, Provenance};
 
 #[test]
 fn switching_a_word_slot_makes_the_article_agree() {

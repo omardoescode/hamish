@@ -1,6 +1,6 @@
 use app::Workspace;
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::Document;
+use hamish_core::Document;
 use tempfile::TempDir;
 
 fn open(

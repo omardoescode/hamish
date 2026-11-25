@@ -9,7 +9,7 @@ use std::thread;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample, Stream, StreamConfig};
 use gpui::{App, Global};
-use ka_teb_core::Sound;
+use hamish_core::Sound;
 
 use crate::settings;
 
@@ -44,7 +44,7 @@ impl DeviceSounds {
     pub fn start() -> Self {
         let (sender, receiver) = mpsc::channel();
         let started = thread::Builder::new()
-            .name("ka-teb-sounds".to_owned())
+            .name("hamish-sounds".to_owned())
             .spawn(move || play_on_device(&receiver));
         drop(started);
         Self(sender)

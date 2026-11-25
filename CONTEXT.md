@@ -1,6 +1,6 @@
-# Ka-teb
+# Hamish
 
-Ka-teb ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
+Hamish ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
 
 ## Language
 
@@ -132,8 +132,8 @@ _Avoid_: cursor
 
 ### Storage
 
-**Ka-teb comment**:
-The HTML comment `<!-- ka-teb ... -->` at the end of a saved `.md` file. It holds all state except the active text (ADR 0007). It is never Document text.
+**Hamish comment**:
+The HTML comment `<!-- hamish ... -->` at the end of a saved `.md` file. It holds all state except the active text (ADR 0007). It is never Document text.
 _Avoid_: Sidecar, metadata
 
 ### Chrome

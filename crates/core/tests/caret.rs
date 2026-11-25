@@ -1,4 +1,4 @@
-use ka_teb_core::{Caret, CaretEdit, EditKind, Motion, byte_range, utf16_range, word_at};
+use hamish_core::{Caret, CaretEdit, EditKind, Motion, byte_range, utf16_range, word_at};
 
 /// "ά" is one grapheme of two chars and four bytes.
 const ALPHA_TONOS: &str = "x\u{3b1}\u{301}y";

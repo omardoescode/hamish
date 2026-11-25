@@ -1,4 +1,4 @@
-//! Ka-teb app: thin GPUI views over the core Document API.
+//! Hamish app: thin GPUI views over the core Document API.
 
 #[expect(
     clippy::disallowed_types,
@@ -44,7 +44,7 @@ pub use alternatives_panel::AlternativesPanel;
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
-pub use ka_teb_core::{AiAlternativesError, VariantRow};
+pub use hamish_core::{AiAlternativesError, VariantRow};
 pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
@@ -69,8 +69,8 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     ])?;
     use_settings(
         None,
-        ka_teb_core::LoadedSettings {
-            settings: ka_teb_core::Settings::default(),
+        hamish_core::LoadedSettings {
+            settings: hamish_core::Settings::default(),
             problem: None,
         },
         cx,

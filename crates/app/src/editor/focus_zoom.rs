@@ -9,7 +9,7 @@ use std::ops::Range;
 use gpui::{
     App, Bounds, FontId, GlyphId, Hsla, PaintQuad, Pixels, Point, TextRun, Window, fill, point, px,
 };
-use ka_teb_core::{paragraph_index, paragraph_range};
+use hamish_core::{paragraph_index, paragraph_range};
 
 use super::Editor;
 use super::element::{EditorElement, EditorPrepaint};

@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use gpui::{AppContext as _, Context, Global};
-use ka_teb_core::{AiAdapter, AiError, CancelToken};
+use hamish_core::{AiAdapter, AiError, CancelToken};
 
 /// The AI adapter the app calls on the background executor (ADR 0004). `main` sets the
 /// `claude -p` backend; tests set a fake. With none set, AI actions fail with a message.
@@ -169,7 +169,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use gpui::{AppContext as _, Context, Entity, TestAppContext};
-    use ka_teb_core::{
+    use hamish_core::{
         AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, Document, LabFinding, LabRequest,
         Level, TrimRequest,
     };

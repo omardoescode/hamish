@@ -7,7 +7,7 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, Hsla, InteractiveElement, PaintQuad, Pixels, Point,
     ScrollHandle, UTF16Selection, fill, point, px, size,
 };
-use ka_teb_core::{Caret, CaretEdit, Cycle, Motion, byte_range, utf16_range};
+use hamish_core::{Caret, CaretEdit, Cycle, Motion, byte_range, utf16_range};
 
 use crate::Theme;
 use crate::actions::{

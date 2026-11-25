@@ -1,7 +1,7 @@
 //! The Theme global: colors and sizes for each view, made from the Settings.
 
 use gpui::{Global, Hsla, Pixels, SharedString, hsla, px, rgb};
-use ka_teb_core::{Palette, Settings};
+use hamish_core::{Palette, Settings};
 
 /// Theme values: the colors of the named theme in [`Settings`], and sizes from them.
 #[derive(Debug, Clone)]

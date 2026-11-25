@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use app::{Notice, Theme, Workspace};
 use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, point, px, rgb};
-use ka_teb_core::{Document, Settings, ThemeName};
+use hamish_core::{Document, Settings, ThemeName};
 
 fn open(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) {
     assert!(cx.update(app::init).is_ok(), "bundled font loads");
@@ -84,13 +84,13 @@ fn the_settings_icon_in_the_chrome_opens_settings(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn ka_teb_light_from_the_theme_select_changes_the_editor_at_once(cx: &mut TestAppContext) {
+fn hamish_light_from_the_theme_select_changes_the_editor_at_once(cx: &mut TestAppContext) {
     let (_, cx) = open(cx);
     assert_eq!(theme(cx).background, rgb(0x0007_0a1e).into());
 
     cx.simulate_keystrokes("ctrl-,");
     click(cx, "settings-theme-select");
-    click(cx, "settings-theme-ka-teb-light");
+    click(cx, "settings-theme-hamish-light");
 
     assert_eq!(theme(cx).background, rgb(0x00f7_f3ec).into());
     assert_eq!(theme(cx).text, rgb(0x002b_2824).into());
@@ -247,7 +247,7 @@ fn typing_in_an_open_select_keeps_the_rows_that_contain_the_query(cx: &mut TestA
 
     cx.simulate_keystrokes("backspace backspace backspace backspace");
 
-    assert_eq!(bounds(cx, "settings-theme-ka-teb").origin.y, rows.origin.y);
+    assert_eq!(bounds(cx, "settings-theme-hamish").origin.y, rows.origin.y);
 }
 
 #[gpui::test]
@@ -337,12 +337,12 @@ fn a_search_that_keeps_no_row_shows_no_match(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_change_saves_to_the_settings_file(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ketab").join("settings.json");
+    let path = dir.path().join("hamish").join("settings.json");
     let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");
     click(cx, "settings-theme-select");
-    click(cx, "settings-theme-ka-teb-light");
+    click(cx, "settings-theme-hamish-light");
     click(cx, "settings-section-editor");
     click(cx, "settings-font-size-up");
 
@@ -351,7 +351,7 @@ fn a_change_saves_to_the_settings_file(cx: &mut TestAppContext) {
     assert_eq!(
         loaded.settings,
         Settings {
-            theme: ThemeName::KaTebLight,
+            theme: ThemeName::HamishLight,
             font_size: 16.0,
             ..Settings::default()
         }

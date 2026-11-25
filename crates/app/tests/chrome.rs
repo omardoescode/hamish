@@ -1,6 +1,6 @@
 use app::{OpenAlternatives, Theme, ToggleOverflow, Workspace};
 use gpui::{Bounds, Modifiers, Pixels, TestAppContext, VisualTestContext, px};
-use ka_teb_core::{Document, LoadedSettings, Settings, ThemeName};
+use hamish_core::{Document, LoadedSettings, Settings, ThemeName};
 
 /// Opens a window with `settings` as the Theme.
 fn open(cx: &mut TestAppContext, settings: Settings) -> &mut VisualTestContext {

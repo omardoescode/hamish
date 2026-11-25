@@ -1,4 +1,4 @@
-use ka_teb_core::{Document, MarkdownSpan, MarkdownStyle};
+use hamish_core::{Document, MarkdownSpan, MarkdownStyle};
 
 #[test]
 fn insert_text_reads_back_as_active_text() {

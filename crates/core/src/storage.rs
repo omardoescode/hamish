@@ -1,5 +1,5 @@
 //! Save and open (ADR 0007): one `.md` file holds the active text, then all other state
-//! as JSON in the ka-teb comment at its end.
+//! as JSON in the Hamish comment at its end.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -16,19 +16,19 @@ use crate::slot::SlotNode;
 use crate::tree::Tree;
 use crate::{Document, LabCheck, LabMark, LabMarkId, Level, Overflow, Provenance, SlotId, Variant};
 
-/// The ka-teb comment schema this build writes and reads.
+/// The Hamish comment schema this build writes and reads.
 const SCHEMA_VERSION: u32 = 1;
 
 /// Slot and Lab mark ids above this are refused, so new ids never overflow.
 const MAX_ID: u64 = 1 << 32;
 
-/// The start of the ka-teb comment, up to its first whitespace.
-const COMMENT_OPEN: &str = "<!-- ka-teb";
+/// The start of the Hamish comment, up to its first whitespace.
+const COMMENT_OPEN: &str = "<!-- hamish";
 
 /// The end of an HTML comment.
 const COMMENT_CLOSE: &str = "-->";
 
-/// Between the Document text and the ka-teb comment, so Markdown tools see a new block.
+/// Between the Document text and the Hamish comment, so Markdown tools see a new block.
 const SEPARATOR: &str = "\n\n";
 
 /// Why a save or open failed. A failed open gives no Document; a failed save leaves the
@@ -41,12 +41,12 @@ pub enum StorageError {
     },
     /// The `.md` file is not UTF-8 text.
     NotUtf8(PathBuf),
-    /// The ka-teb comment does not hold its JSON.
-    BadKaTebComment {
+    /// The Hamish comment does not hold its JSON.
+    BadHamishComment {
         path: PathBuf,
         reason: String,
     },
-    /// The ka-teb comment has a schema version this build does not know.
+    /// The Hamish comment has a schema version this build does not know.
     UnknownVersion {
         path: PathBuf,
         version: u32,
@@ -58,13 +58,13 @@ impl fmt::Display for StorageError {
         match self {
             Self::Io { path, error } => write!(f, "{}: {error}", path.display()),
             Self::NotUtf8(path) => write!(f, "{}: not UTF-8 text", path.display()),
-            Self::BadKaTebComment { path, reason } => {
-                write!(f, "{}: bad ka-teb comment: {reason}", path.display())
+            Self::BadHamishComment { path, reason } => {
+                write!(f, "{}: bad Hamish comment: {reason}", path.display())
             }
             Self::UnknownVersion { path, version } => {
                 write!(
                     f,
-                    "{}: unknown ka-teb comment version {version}",
+                    "{}: unknown Hamish comment version {version}",
                     path.display()
                 )
             }
@@ -76,12 +76,12 @@ impl std::error::Error for StorageError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { error, .. } => Some(error),
-            Self::NotUtf8(_) | Self::BadKaTebComment { .. } | Self::UnknownVersion { .. } => None,
+            Self::NotUtf8(_) | Self::BadHamishComment { .. } | Self::UnknownVersion { .. } => None,
         }
     }
 }
 
-/// An item of the ka-teb comment that open could not put back: its text is not in the
+/// An item of the Hamish comment that open could not put back: its text is not in the
 /// Document text any more, or it does not fit the other items (ADR 0006, ADR 0007).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dropped {
@@ -107,7 +107,7 @@ pub struct Opened {
 }
 
 impl Document {
-    /// Saves the active text to `path`, then all other state as JSON in the ka-teb comment
+    /// Saves the active text to `path`, then all other state as JSON in the Hamish comment
     /// at the end of the file. The edit history is not saved.
     ///
     /// # Errors
@@ -123,20 +123,20 @@ impl Document {
         write_whole(path, &contents)
     }
 
-    /// Opens the `.md` file `path`. Only its last HTML comment, when it is the ka-teb
-    /// comment, holds state; all other content is the Document text. With no ka-teb
+    /// Opens the `.md` file `path`. Only its last HTML comment, when it is the Hamish
+    /// comment, holds state; all other content is the Document text. With no Hamish
     /// comment, the Document is the plain text. When the text changed since the save, each
     /// top-level Slot, Ghost range, and Lab mark is found again by its text; the ones not
     /// found are dropped and returned. The Document has no edit history.
     ///
     /// # Errors
-    /// [`StorageError`] when the file cannot be read, is not UTF-8, or its ka-teb comment
+    /// [`StorageError`] when the file cannot be read, is not UTF-8, or its Hamish comment
     /// does not hold JSON of a known version.
     pub fn open(path: &Path) -> Result<Opened, StorageError> {
         let bytes = fs::read(path).map_err(|error| io_error(path, error))?;
         let contents =
             String::from_utf8(bytes).map_err(|_utf8| StorageError::NotUtf8(path.to_owned()))?;
-        let Some((text, json)) = split_ka_teb_comment(&contents) else {
+        let Some((text, json)) = split_hamish_comment(&contents) else {
             return Ok(Opened {
                 document: Document::new(&contents),
                 dropped: Vec::new(),
@@ -152,9 +152,9 @@ fn escape_comment_ends(json: &str) -> String {
     json.replace('-', "\\u002d")
 }
 
-/// The Document text and the JSON of the ka-teb comment, when the last thing in
+/// The Document text and the JSON of the Hamish comment, when the last thing in
 /// `contents` (past trailing whitespace) is that comment. `None` when it is not.
-fn split_ka_teb_comment(contents: &str) -> Option<(&str, &str)> {
+fn split_hamish_comment(contents: &str) -> Option<(&str, &str)> {
     let head = contents.trim_end().strip_suffix(COMMENT_CLOSE)?;
     let start = head.rfind("<!--")?;
     let json = head.get(start..)?.strip_prefix(COMMENT_OPEN)?;
@@ -197,7 +197,7 @@ struct Header {
     version: u32,
 }
 
-/// The JSON of the ka-teb comment. Ranges of top-level items are byte ranges of the
+/// The JSON of the Hamish comment. Ranges of top-level items are byte ranges of the
 /// Document text; ranges nested in a Variant are byte ranges of that Variant's text.
 #[derive(Serialize, Deserialize)]
 struct SavedState {
@@ -308,7 +308,7 @@ impl SavedState {
     }
 
     fn parse(path: &Path, json: &str) -> Result<Self, StorageError> {
-        let bad = |error: serde_json::Error| StorageError::BadKaTebComment {
+        let bad = |error: serde_json::Error| StorageError::BadHamishComment {
             path: path.to_owned(),
             reason: error.to_string(),
         };
@@ -345,9 +345,9 @@ impl SavedState {
     }
 }
 
-/// Puts the ka-teb comment items back on the Document text, one at a time.
+/// Puts the Hamish comment items back on the Document text, one at a time.
 struct Restore<'a> {
-    /// The Document text is the one the ka-teb comment was saved with.
+    /// The Document text is the one the Hamish comment was saved with.
     unchanged: bool,
     text: &'a str,
     slot_ids: HashSet<u64>,

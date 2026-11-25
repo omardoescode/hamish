@@ -2,7 +2,7 @@ use std::path::Path;
 
 use app::{OpenAlternatives, ToggleLab, ToggleOverflow, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Level, Provenance};
+use hamish_core::{Document, Level, Provenance};
 use tempfile::TempDir;
 
 fn open(

@@ -1,4 +1,4 @@
-use ka_teb_core::{
+use hamish_core::{
     Caret, CaretEdit, Document, EditKind, EditSession, Level, Provenance, TrimLevel,
 };
 

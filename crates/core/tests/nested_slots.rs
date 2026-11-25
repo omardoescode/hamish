@@ -5,7 +5,7 @@ mod fixtures {
 
 use fixtures::slot::writer_slot;
 use fixtures::state::{SlotState, expect_state, variant_texts};
-use ka_teb_core::{Cycle, Document, Level, Provenance, SlotError};
+use hamish_core::{Cycle, Document, Level, Provenance, SlotError};
 
 #[test]
 fn word_slot_inside_a_paragraph_variant_goes_away_and_back_with_it() {

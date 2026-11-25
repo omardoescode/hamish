@@ -4,11 +4,11 @@
 
 | Path | What |
 |---|---|
-| `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
-| `crates/core/src/storage.rs` | Save/open: one `<name>.md` file: the active text, then all other state as JSON in the ka-teb comment at the end (schema `version`, text SHA-256, re-anchor by text; ADR 0007). |
+| `crates/core/` | Package `hamish-core`: all testable logic (Document API). No gpui. |
+| `crates/core/src/storage.rs` | Save/open: one `<name>.md` file: the active text, then all other state as JSON in the Hamish comment at the end (schema `version`, text SHA-256, re-anchor by text; ADR 0007). |
 | `crates/core/src/title.rs` | `document_title`: the title at the top center and on the window (file name, else first line, else "Untitled"). |
-| `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ketab/settings.json` load/save. |
-| `crates/core/src/theme.rs` | `ThemeName` (named themes, their order, labels, settings file names; `dark`/`light` load as Ka-teb/Ka-teb Light) and each `Palette` (`0xRRGGBB` per color role). |
+| `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/hamish/settings.json` load/save. |
+| `crates/core/src/theme.rs` | `ThemeName` (named themes, their order, labels, settings file names; `dark`/`light` load as Hamish/Hamish Light) and each `Palette` (`0xRRGGBB` per color role). |
 | `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
 | `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
 | `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
@@ -26,7 +26,7 @@
 | `crates/app/src/caret.rs` | `CaretView`: the one GPUI adapter of `Caret` for the Editor and Overflow: caret key actions, clipboard, `EntityInputHandler` (macro `caret_input_handler!`), row moves from the painted text, caret quad (2 px) and scroll (edge fade margin). |
 | `crates/app/src/effects.rs` | `EffectPlayer`: the particle Effects of one view (Editor, Alternatives panel); `PlayingEffect` (a core `Effect` at a text range); paints the Explosion and the Undo burst. |
 | `crates/app/src/alternatives_panel.rs` | Alternatives panel: Variant rows, live preview of the empty row, Quick fill. |
-| `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
+| `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `hamish`. |
 | `crates/app/src/editor.rs` | `Editor` entity: view state (hover, Markers, preview, spotlight, fade-in, Effects), its actions, `EditorEvent`s, `CaretView` adapter. |
 | `crates/app/src/editor/painted_text.rs` | `PaintedText`: the text as last painted (`shape`, positions, offsets, rows, selection quads). Shared by the Editor, Overflow and `CaretView`. |
 | `crates/app/src/editor/runs.rs` | Editor text runs: styled spans (title, Slot, Ghost, Trim cut, Markdown, dim), heading sizes, fade-in. |
@@ -58,12 +58,12 @@
 
 ## Commands
 
-- Run the app: `cargo run -p ka-teb`
+- Run the app: `cargo run -p hamish`
 - All tests: `cargo test`
 - Unit tests: `cargo test --workspace --lib --bins`
 - Integration tests: `cargo test --workspace --test '*'`
 - Doc tests: `cargo test --workspace --doc`
-- One test: `cargo test -p ka-teb-core <test_name>` (substring match; add `-- --exact` for an exact name)
+- One test: `cargo test -p hamish-core <test_name>` (substring match; add `-- --exact` for an exact name)
 - Guards: `perl scripts/source-guards.pl`, `cargo deny check`, `cargo shear`, `pedant check crates` (owner table: CODING_STANDARDS.md)
 - Source guard tests: `sh scripts/source-guards-test.sh`
 - Release: push a tag `vX.Y.Z`. Regenerate CI after a dist config change: `dist generate`.

@@ -9,7 +9,7 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style,
     Window, fill, point, px, relative, size,
 };
-use ka_teb_core::{Level, Slot, SlotId};
+use hamish_core::{Level, Slot, SlotId};
 
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
