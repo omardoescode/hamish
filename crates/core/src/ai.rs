@@ -1,5 +1,10 @@
+mod claude;
+
 use std::fmt;
 use std::ops::Range;
+use std::time::Duration;
+
+pub use claude::ClaudeBackend;
 
 use crate::{Document, Level, Provenance, RangeError, SlotError, SlotId, Variant};
 
@@ -49,14 +54,33 @@ pub trait AiAdapter: Send + Sync {
 /// Why an AI call gave no Variants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiError {
+    /// The AI program did not start or could not be watched.
+    Start(String),
+    /// The AI program ended with a failure.
+    Exit { code: Option<i32>, message: String },
+    /// The AI answered without Variants, for example it declined.
+    Declined(String),
     /// The output was not the expected shape.
     BadOutput(String),
+    /// No answer within this time; the call was stopped.
+    Timeout(Duration),
 }
 
 impl fmt::Display for AiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Start(detail) => write!(f, "the AI did not start: {detail}"),
+            Self::Exit {
+                code: Some(code),
+                message,
+            } => write!(f, "the AI failed (exit {code}): {message}"),
+            Self::Exit {
+                code: None,
+                message,
+            } => write!(f, "the AI was stopped: {message}"),
+            Self::Declined(message) => write!(f, "the AI gave no Variants: {message}"),
             Self::BadOutput(detail) => write!(f, "the AI gave bad output: {detail}"),
+            Self::Timeout(limit) => write!(f, "the AI gave no answer in {} s", limit.as_secs()),
         }
     }
 }
