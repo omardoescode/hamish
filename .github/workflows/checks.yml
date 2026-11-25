@@ -16,9 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
       - run: cargo fmt --check
 
   clippy:
@@ -30,9 +29,8 @@ jobs:
         with:
           packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev
           version: 1
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
@@ -48,9 +46,8 @@ jobs:
         with:
           packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev
           version: 1
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: true
@@ -61,3 +58,24 @@ jobs:
         run: cargo test --workspace --test '*'
       - name: doc tests
         run: cargo test --workspace --doc
+
+  guards:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.22.1,cargo-shear@1.14.1
+      # pedant ships no prebuilt binary (not on its GitHub releases, not in cargo-quickinstall),
+      # so it compiles once; rust-cache keeps it in ~/.cargo/bin after that.
+      - name: Install pedant
+        run: pedant --version 2>/dev/null | grep -qx 'pedant 0.31.1' || cargo install pedant --version 0.31.1 --locked
+      - run: cargo deny check
+      - run: cargo shear
+      - run: pedant check --format github crates
