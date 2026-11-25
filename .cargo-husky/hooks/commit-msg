@@ -1,0 +1,5 @@
+#!/bin/sh
+if grep -iqE '^[[:space:]]*co-authored-by[[:space:]]*:' "$1"; then
+  echo "commit-msg: remove the Co-Authored-By trailer (see CODING_STANDARDS.md)." >&2
+  exit 1
+fi

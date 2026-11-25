@@ -1,0 +1,21 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "ka-teb"
+path = "src/main.rs"
+
+[dependencies]
+gpui.workspace = true
+ka-teb-core = { path = "../core" }
+
+[package.metadata.dist]
+dist = true
+
+[lints]
+workspace = true
