@@ -36,6 +36,7 @@ pub struct Palette {
     pub text: u32,
     /// The title and Markdown headings.
     pub text_title: u32,
+    /// At least 4.5:1 contrast on `background` (WCAG AA body text).
     pub text_muted: u32,
     pub text_faint: u32,
     pub text_quote: u32,
@@ -127,7 +128,7 @@ const KA_TEB: Palette = Palette {
     elevated_row_hover: 0x0027_2531,
     text: 0x00e6_d2c6,
     text_title: 0x00fb_e5df,
-    text_muted: 0x005a_5a6a,
+    text_muted: 0x007e_7982,
     text_faint: 0x001e_2437,
     text_quote: 0x00a3_96a0,
     list_marker: 0x008a_85cf,
@@ -149,7 +150,7 @@ const KA_TEB_LIGHT: Palette = Palette {
     elevated_row_hover: 0x00ea_e4d8,
     text: 0x002b_2824,
     text_title: 0x0017_1512,
-    text_muted: 0x0086_8072,
+    text_muted: 0x0072_6d61,
     text_faint: 0x00c9_c2b4,
     text_quote: 0x00a3_96a0,
     list_marker: 0x008a_85cf,
@@ -171,7 +172,7 @@ const ROSE_PINE: Palette = Palette {
     elevated_row_hover: 0x0040_3d52,
     text: 0x00e0_def4,
     text_title: 0x00e0_def4,
-    text_muted: 0x006e_6a86,
+    text_muted: 0x0090_8caa,
     text_faint: 0x0040_3d52,
     text_quote: 0x0090_8caa,
     list_marker: 0x00c4_a7e7,
@@ -193,7 +194,7 @@ const ROSE_PINE_DAWN: Palette = Palette {
     elevated_row_hover: 0x00f2_e9e1,
     text: 0x0057_5279,
     text_title: 0x0057_5279,
-    text_muted: 0x0098_93a5,
+    text_muted: 0x0070_6b8a,
     text_faint: 0x00df_dad9,
     text_quote: 0x0079_7593,
     list_marker: 0x0090_7aa9,
@@ -215,7 +216,7 @@ const ONE_DARK: Palette = Palette {
     elevated_row_hover: 0x003a_3f4b,
     text: 0x00ab_b2bf,
     text_title: 0x00d7_dae0,
-    text_muted: 0x005c_6370,
+    text_muted: 0x008e_95a2,
     text_faint: 0x003b_4048,
     text_quote: 0x0082_8997,
     list_marker: 0x00c6_78dd,
@@ -237,7 +238,7 @@ const ONE_LIGHT: Palette = Palette {
     elevated_row_hover: 0x00e5_e5e6,
     text: 0x0038_3a42,
     text_title: 0x0023_2324,
-    text_muted: 0x00a0_a1a7,
+    text_muted: 0x0069_6c77,
     text_faint: 0x00db_dbdc,
     text_quote: 0x0069_6c77,
     list_marker: 0x00a6_26a4,
@@ -259,7 +260,7 @@ const CATPPUCCIN_MOCHA: Palette = Palette {
     elevated_row_hover: 0x0045_475a,
     text: 0x00cd_d6f4,
     text_title: 0x00cd_d6f4,
-    text_muted: 0x006c_7086,
+    text_muted: 0x0093_99b2,
     text_faint: 0x0045_475a,
     text_quote: 0x00a6_adc8,
     list_marker: 0x00cb_a6f7,
@@ -281,7 +282,7 @@ const GRUVBOX_DARK: Palette = Palette {
     elevated_row_hover: 0x0050_4945,
     text: 0x00eb_dbb2,
     text_title: 0x00fb_f1c7,
-    text_muted: 0x0092_8374,
+    text_muted: 0x00a8_9984,
     text_faint: 0x0050_4945,
     text_quote: 0x00a8_9984,
     list_marker: 0x00fa_bd2f,
@@ -303,7 +304,7 @@ const TOKYO_NIGHT: Palette = Palette {
     elevated_row_hover: 0x003b_4261,
     text: 0x00c0_caf5,
     text_title: 0x00c0_caf5,
-    text_muted: 0x0056_5f89,
+    text_muted: 0x007a_83ae,
     text_faint: 0x003b_4261,
     text_quote: 0x00a9_b1d6,
     list_marker: 0x00bb_9af7,
@@ -325,7 +326,7 @@ const NORD: Palette = Palette {
     elevated_row_hover: 0x004c_566a,
     text: 0x00d8_dee9,
     text_title: 0x00ec_eff4,
-    text_muted: 0x0061_6e88,
+    text_muted: 0x0094_9eb2,
     text_faint: 0x0043_4c5e,
     text_quote: 0x008f_bcbb,
     list_marker: 0x0088_c0d0,
@@ -337,6 +338,32 @@ const NORD: Palette = Palette {
     selection: 0x0043_4c5e,
     lab_mark: 0x00eb_cb8b,
 };
+
+/// The WCAG 2 contrast ratio of two `0xRRGGBB` colors, from 1 (same) to 21 (black on
+/// white). The order of the two colors does not matter.
+///
+/// ```
+/// let ratio = ka_teb_core::contrast_ratio(0x0077_7777, 0x00ff_ffff);
+/// assert!((ratio - 4.48).abs() < 0.01);
+/// ```
+#[must_use]
+pub fn contrast_ratio(a: u32, b: u32) -> f32 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+fn luminance(color: u32) -> f32 {
+    let [_, red, green, blue] = color.to_be_bytes();
+    let linear = |channel: u8| {
+        let value = f32::from(channel) / 255.;
+        if value <= 0.039_28 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+}
 
 #[cfg(test)]
 mod tests {

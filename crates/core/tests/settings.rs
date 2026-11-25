@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ka_teb_core::{Setting, Settings, ThemeName, settings_path};
+use ka_teb_core::{Setting, Settings, ThemeName, contrast_ratio, settings_path};
 
 #[test]
 fn the_settings_file_is_in_xdg_config_home() {
@@ -256,4 +256,21 @@ fn a_theme_palette_uses_the_published_colors() {
 
     assert!(!ThemeName::OneLight.palette().dark);
     assert_eq!(ThemeName::OneLight.palette().background, 0x00fa_fafa);
+}
+
+#[test]
+fn contrast_ratio_follows_the_wcag_worked_values() {
+    assert!((contrast_ratio(0x00ff_ffff, 0x0000_0000) - 21.0).abs() < 0.01);
+    assert!((contrast_ratio(0x0000_0000, 0x00ff_ffff) - 21.0).abs() < 0.01);
+    assert!((contrast_ratio(0x0077_7777, 0x00ff_ffff) - 4.48).abs() < 0.01);
+    assert!((contrast_ratio(0x005a_5a6a, 0x0007_0a1e) - 2.90).abs() < 0.01);
+}
+
+#[test]
+fn muted_text_reads_on_the_background_in_each_theme() {
+    for name in ThemeName::ALL {
+        let palette = name.palette();
+        let ratio = contrast_ratio(palette.text_muted, palette.background);
+        assert!(ratio >= 4.5, "{}: {ratio:.2}", name.label());
+    }
 }

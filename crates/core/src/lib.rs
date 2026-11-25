@@ -42,6 +42,6 @@ pub use settings::{LoadedSettings, Setting, Settings, SettingsError, settings_pa
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};
 pub use sound::Sound;
 pub use storage::{Dropped, Opened, StorageError, sidecar_path};
-pub use theme::{Palette, ThemeName};
+pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
