@@ -13,6 +13,7 @@ mod editor;
 mod lab;
 mod overflow_panel;
 mod save_open;
+mod settings_modal;
 mod theme;
 mod workspace;
 
@@ -25,11 +26,11 @@ use actions::{
 use gpui::{App, KeyBinding};
 
 pub use actions::{
-    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, LeaveOverflow, MoveDown, MoveLeft,
-    MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, Open, OpenAlternatives, Paste,
-    Redo, Save, SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
-    SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo,
-    UseOverflowBlock,
+    AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, LeaveOverflow,
+    MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, Open,
+    OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs, SelectAll, SelectDown, SelectLeft,
+    SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost,
+    ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::Ai;
 pub use alternatives_panel::{AlternativesPanel, VariantRow};
@@ -38,10 +39,12 @@ pub use editor::{Editor, Marker, MarkerKind};
 pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
+pub use settings_modal::{SettingsModal, use_settings};
 pub use theme::Theme;
 pub use workspace::Workspace;
 
-/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the theme, and binds the keys.
+/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the default settings
+/// and theme, and binds the keys. [`use_settings`] then puts in the settings from the file.
 ///
 /// # Errors
 /// When the bundled font does not load.
@@ -52,7 +55,14 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf")),
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf")),
     ])?;
-    cx.set_global(Theme::default());
+    use_settings(
+        None,
+        ka_teb_core::LoadedSettings {
+            settings: ka_teb_core::Settings::default(),
+            problem: None,
+        },
+        cx,
+    );
     for context in ["Editor", "OverflowPanel"] {
         let context = Some(context);
         cx.bind_keys([
@@ -93,6 +103,8 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-s", Save, None),
         KeyBinding::new("ctrl-shift-s", SaveAs, None),
         KeyBinding::new("ctrl-o", Open, None),
+        KeyBinding::new("ctrl-,", OpenSettings, None),
+        KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
     let panel = Some("AlternativesPanel");

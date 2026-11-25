@@ -1,7 +1,9 @@
-use gpui::{Global, Hsla, Pixels, hsla, px, rgb};
+use gpui::{Global, Hsla, Pixels, SharedString, hsla, px, rgb};
+use ka_teb_core::{Settings, ThemeName};
 
-/// Theme values from the spec "Theme Mapping" table (estimates).
-#[derive(Debug, Clone, Copy)]
+/// Theme values. Dark is the spec "Theme Mapping" table (estimates); light uses the same
+/// roles on paper colors. Sizes come from [`Settings`].
+#[derive(Debug, Clone)]
 pub struct Theme {
     pub background: Hsla,
     pub panel_background: Hsla,
@@ -28,7 +30,7 @@ pub struct Theme {
     pub slot_dot: Hsla,
     pub slot_dot_filled: Hsla,
     pub slot_paragraph_line: Hsla,
-    /// Background + about 4% white.
+    /// Background + about 4% white (dark) or black (light).
     pub slot_hover_background: Hsla,
     pub selection: Hsla,
     /// Background of Lab marks (mark style inferred, FR-52).
@@ -37,7 +39,7 @@ pub struct Theme {
     /// Text outside the current paragraph while the Alternatives panel is open.
     pub panel_open_dim_opacity: f32,
     pub edge_fade_height: Pixels,
-    pub font_family: &'static str,
+    pub font_family: SharedString,
     pub font_size_body: Pixels,
     /// Markdown heading sizes, `#` to `###`; they share the body line height.
     pub font_size_heading: [Pixels; 3],
@@ -45,14 +47,38 @@ pub struct Theme {
     pub line_height_body: Pixels,
     pub font_size_overflow: Pixels,
     pub line_height_overflow: Pixels,
-    /// About 65 ch of the body font: IBM Plex Mono advances 0.6 em, so 65 x 0.6 x 15 px.
     pub column_width: Pixels,
     /// Space above the title when scrolled to the start.
     pub column_top: Pixels,
 }
 
-impl Default for Theme {
-    fn default() -> Self {
+impl Theme {
+    /// The theme for `settings`: its colors, body font, and the Chrome at its UI scale.
+    #[must_use]
+    pub fn new(settings: &Settings) -> Self {
+        let scale = settings.ui_scale;
+        let base = match settings.theme {
+            ThemeName::Dark => Self::dark(),
+            ThemeName::Light => Self::light(),
+        };
+        Self {
+            panel_width: base.panel_width * scale,
+            elevated_radius: base.elevated_radius * scale,
+            font_size_hint: base.font_size_hint * scale,
+            font_size_overflow: base.font_size_overflow * scale,
+            line_height_overflow: base.line_height_overflow * scale,
+            font_family: settings.font_family.clone().into(),
+            font_size_body: px(settings.font_size),
+            font_size_heading: base
+                .font_size_heading
+                .map(|size| size * (settings.font_size / 15.)),
+            line_height_body: px(settings.font_size * settings.line_height),
+            column_width: px(settings.column_width),
+            ..base
+        }
+    }
+
+    fn dark() -> Self {
         Self {
             background: rgb(0x0007_0a1e).into(),
             panel_background: rgb(0x000c_0f21).into(),
@@ -81,7 +107,7 @@ impl Default for Theme {
             ghost_opacity: 0.10,
             panel_open_dim_opacity: 0.40,
             edge_fade_height: px(30.),
-            font_family: "IBM Plex Mono",
+            font_family: "IBM Plex Mono".into(),
             font_size_body: px(15.),
             font_size_heading: [px(21.), px(18.), px(16.)],
             font_size_hint: px(10.),
@@ -91,6 +117,37 @@ impl Default for Theme {
             column_width: px(585.),
             column_top: px(170.),
         }
+    }
+
+    fn light() -> Self {
+        Self {
+            background: rgb(0x00f7_f3ec).into(),
+            panel_background: rgb(0x00ef_eae1).into(),
+            panel_border: rgb(0x00de_d7ca).into(),
+            elevated_background: rgb(0x00fd_fbf7).into(),
+            elevated_row_hover: rgb(0x00ea_e4d8).into(),
+            text: rgb(0x002b_2824).into(),
+            text_title: rgb(0x0017_1512).into(),
+            text_heading: rgb(0x0017_1512).into(),
+            text_muted: rgb(0x0086_8072).into(),
+            text_faint: rgb(0x00c9_c2b4).into(),
+            accent: rgb(0x0056_50ad).into(),
+            accent_outline: rgb(0x006c_68a6).into(),
+            slot_underline: rgb(0x008f_94b8).into(),
+            slot_dot: rgb(0x008f_94b8).into(),
+            slot_dot_filled: rgb(0x004f_5590).into(),
+            slot_paragraph_line: rgb(0x00b0_8a7e).into(),
+            slot_hover_background: hsla(0., 0., 0., 0.04),
+            selection: rgb(0x00d8_d5f0).into(),
+            lab_mark: hsla(0.68, 0.4, 0.45, 0.16),
+            ..Self::dark()
+        }
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::new(&Settings::default())
     }
 }
 

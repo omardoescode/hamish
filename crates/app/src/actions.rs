@@ -46,7 +46,15 @@ gpui::actions!(
 
 gpui::actions!(
     workspace,
-    [ToggleChrome, ToggleOverflow, Save, SaveAs, Open]
+    [
+        ToggleChrome,
+        ToggleOverflow,
+        Save,
+        SaveAs,
+        Open,
+        OpenSettings,
+        CloseSettings
+    ]
 );
 
 gpui::actions!(overflow, [UseOverflowBlock, LeaveOverflow]);

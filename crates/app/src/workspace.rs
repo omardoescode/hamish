@@ -9,7 +9,9 @@ use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
 use crate::lab::Lab;
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
+use crate::save_open::Notice;
 use crate::save_open::SaveOpen;
+use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
@@ -21,7 +23,10 @@ pub struct Workspace {
     chrome_visible: bool,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
     overflow_open: bool,
+    pub(crate) settings_modal: Entity<SettingsModal>,
+    pub(crate) settings_open: bool,
     _editor_changes: Subscription,
+    _settings_saves: Subscription,
     _editor_events: Subscription,
 }
 
@@ -38,15 +43,23 @@ impl Workspace {
             },
         );
         let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
+        let settings_modal = cx.new(SettingsModal::new);
+        let settings_saves =
+            cx.subscribe(&settings_modal, |workspace, _, failed: &SaveFailed, cx| {
+                workspace.show(Notice::SettingsNotSaved(failed.0.clone()), cx);
+            });
         Self {
             editor,
             overflow_panel,
-            save_open: SaveOpen::default(),
+            save_open: SaveOpen::with_notice(settings_modal::take_start_notice(cx)),
             lab: Lab::new(cx),
             chrome_visible: false,
             alternatives: None,
             overflow_open: false,
+            settings_modal,
+            settings_open: false,
             _editor_changes: editor_changes,
+            _settings_saves: settings_saves,
             _editor_events: editor_events,
         }
     }
@@ -152,7 +165,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         let counter_label = self.editor.read(cx).counter_label();
         let fade = |angle| {
             linear_gradient(
@@ -165,12 +178,14 @@ impl Render for Workspace {
             .size_full()
             .relative()
             .bg(theme.background)
-            .font_family(theme.font_family)
+            .font_family(theme.font_family.clone())
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::open_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
             .on_action(cx.listener(Self::show_stash))
+            .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::close_settings))
             .child(
                 div()
                     .size_full()
@@ -229,10 +244,19 @@ impl Render for Workspace {
                         .flex()
                         .justify_between()
                         .child(self.save_open_icons(&theme, cx))
-                        .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(16.))
+                                .child(settings_modal::settings_button(&theme))
+                                .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
+                        ),
                 )
             })
             .children(self.lab_view(&theme, cx))
             .children(self.notice_view(&theme, cx))
+            .when(self.settings_open, |workspace| {
+                workspace.child(self.settings_modal.clone())
+            })
     }
 }

@@ -487,7 +487,7 @@ impl Focusable for OverflowPanel {
 
 impl Render for OverflowPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         let panel = cx.entity();
         div()
             .id("overflow-panel")
@@ -681,7 +681,7 @@ impl Element for OverflowText {
             line_height,
             lines: shape(&text, &runs, Some(bounds.size.width), line_height, window),
         };
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         let panel = self.panel.read(cx);
         let selection = painted.selection_quads(&panel.selection, theme.selection);
         let caret = panel
