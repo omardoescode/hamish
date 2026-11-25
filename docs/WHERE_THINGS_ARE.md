@@ -8,6 +8,7 @@
 | `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save (issue #21). |
 | `crates/core/src/motion.rs` | `Effect`: the one animation timing source (durations, progress, Reduced motion; issue #31). |
+| `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time (FR-83, issue #32). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
 | `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |
 | `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest`, `AiError`; `Document::ai_request` / `apply_ai_result` (ADR 0004). |
@@ -15,6 +16,7 @@
 | `crates/app/src/ai.rs` | Global `Ai`: the adapter the app calls on the background executor. `main` sets `ClaudeBackend`; tests set a fake. |
 | `crates/app/src/loading.rs` | Loading dance (FR-34), reused by views that wait on the AI. |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
+| `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
 | `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, save on the background executor. |
 | `crates/app/src/sounds.rs` | `SoundSink` and the `Sounds` global; `play` (checks the "Cycle sounds" setting); `DeviceSounds`: cpal/ALSA output on its own thread, silent without a device. |
 | `crates/app/src/theme.rs` | Theme: dark and light colors, sizes from Settings. |
