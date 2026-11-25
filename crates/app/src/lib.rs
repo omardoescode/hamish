@@ -5,9 +5,11 @@
     reason = "gpui's Action derive builds actions from key binding JSON"
 )]
 mod actions;
+mod ai;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod lab;
 mod save_open;
 mod theme;
 mod workspace;
@@ -22,8 +24,10 @@ pub use actions::{
     SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart,
     SelectUp, Stash, ToggleChrome, ToggleGhost, Undo,
 };
+pub use ai::Ai;
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use save_open::Notice;
 pub use theme::Theme;
 pub use workspace::Workspace;
@@ -69,6 +73,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-s", Save, None),
         KeyBinding::new("ctrl-shift-s", SaveAs, None),
         KeyBinding::new("ctrl-o", Open, None),
+        KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
     Ok(())
 }

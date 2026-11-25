@@ -1,6 +1,8 @@
-use app::Workspace;
+use std::sync::Arc;
+
+use app::{Ai, Workspace};
 use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
-use ka_teb_core::Document;
+use ka_teb_core::{ClaudeBackend, Document};
 
 #[expect(
     clippy::print_stderr,
@@ -13,6 +15,7 @@ fn main() {
             cx.quit();
             return;
         }
+        cx.set_global(Ai(Arc::new(ClaudeBackend::default())));
         let bounds = Bounds::centered(None, size(px(1140.0), px(720.0)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

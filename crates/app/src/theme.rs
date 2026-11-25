@@ -23,6 +23,8 @@ pub struct Theme {
     /// Background + about 4% white.
     pub slot_hover_background: Hsla,
     pub selection: Hsla,
+    /// Background of Lab marks (mark style inferred, FR-52).
+    pub lab_mark: Hsla,
     pub ghost_opacity: f32,
     pub edge_fade_height: Pixels,
     pub font_family: &'static str,
@@ -56,6 +58,7 @@ impl Default for Theme {
             slot_paragraph_line: rgb(0x0082_6359).into(),
             slot_hover_background: hsla(0., 0., 1., 0.04),
             selection: rgb(0x0026_2a54).into(),
+            lab_mark: hsla(0.68, 0.4, 0.66, 0.18),
             ghost_opacity: 0.10,
             edge_fade_height: px(30.),
             font_family: "IBM Plex Mono",

@@ -5,6 +5,7 @@ use gpui::{
 use ka_teb_core::Document;
 
 use crate::actions::ToggleChrome;
+use crate::lab::Lab;
 use crate::save_open::SaveOpen;
 use crate::{Editor, Theme};
 
@@ -12,6 +13,7 @@ use crate::{Editor, Theme};
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
+    pub(crate) lab: Lab,
     chrome_visible: bool,
     _editor_changes: Subscription,
 }
@@ -24,6 +26,7 @@ impl Workspace {
         Self {
             editor,
             save_open: SaveOpen::default(),
+            lab: Lab::new(cx),
             chrome_visible: false,
             _editor_changes: editor_changes,
         }
@@ -66,6 +69,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
+            .on_action(cx.listener(Self::toggle_lab))
             .child(self.editor.clone())
             .child(
                 div()
@@ -111,6 +115,7 @@ impl Render for Workspace {
                         .child(self.save_open_icons(&theme, cx)),
                 )
             })
+            .children(self.lab_view(&theme, cx))
             .children(self.notice_view(&theme, cx))
     }
 }
