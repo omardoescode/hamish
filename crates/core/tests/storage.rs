@@ -56,6 +56,15 @@ fn save_writes_only_the_active_text_to_the_md_file() {
 }
 
 #[test]
+fn save_keeps_markdown_marks_as_typed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("styled.md");
+    let text = "# Title\n\n> **bold** and *soft* `code`\n\n- item\n";
+    Document::new(text).save(&path).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+}
+
+#[test]
 fn open_after_save_gives_the_same_document() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
