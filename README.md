@@ -1,6 +1,6 @@
 # Ka-teb
 
-Ka-teb (كاتب, "writer") is a native desktop writing tool for drafts in progress. Keep many versions of a word, sentence, or paragraph in place and switch between them. Dim text back (Ghost) and stash extra text nearby (Overflow).
+Ka-teb ("writer") is a native desktop writing tool for drafts in progress. Keep many versions of a word, sentence, or paragraph in place and switch between them. Dim text back (Ghost) and stash extra text nearby (Overflow).
 
 Stack: Rust + GPUI. Storage: `.md` + sidecar JSON.
 

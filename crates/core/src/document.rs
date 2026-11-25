@@ -14,6 +14,14 @@ pub struct Document {
     redo_steps: Vec<Step>,
 }
 
+/// How a Slot change reaches the text. Only a writer text edit makes an
+/// outer AI Variant Mixed; a Variant switch does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SlotChange {
+    Switch,
+    WriterText,
+}
+
 /// One undoable change: `removed` at `at` was swapped for `inserted`,
 /// and the Slots went from `slots_before` to `slots_after`.
 #[derive(Debug, Clone)]
@@ -109,7 +117,8 @@ impl Document {
     }
 
     /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.
-    /// The Original stays the Active variant.
+    /// The Original stays the Active variant. A range inside a visible Slot makes a Slot
+    /// nested in that Slot's Active variant (ADR 0006): it shows only while that Variant does.
     ///
     /// # Errors
     /// [`SlotError::Range`] for an invalid range, [`SlotError::EmptyRange`] for an empty one,
@@ -167,7 +176,7 @@ impl Document {
         text: &str,
         provenance: Provenance,
     ) -> Result<(), SlotError> {
-        self.change_slot(id, |node| {
+        self.change_slot(id, SlotChange::Switch, |node| {
             node.push_variant(text, provenance);
             Ok(())
         })
@@ -193,7 +202,7 @@ impl Document {
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
     pub fn set_active(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
-        self.change_slot(id, |node| node.set_active(index))
+        self.change_slot(id, SlotChange::Switch, |node| node.set_active(index))
     }
 
     /// Moves the Active variant of Slot `id` one step (FR-14).
@@ -217,7 +226,7 @@ impl Document {
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
     pub fn delete_variant(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
-        self.change_slot(id, |node| node.remove_variant(index))
+        self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))
     }
 
     /// Sets the text of Variant `index` of Slot `id`, as a writer edit:
@@ -226,7 +235,9 @@ impl Document {
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
     pub fn edit_variant(&mut self, id: SlotId, index: usize, text: &str) -> Result<(), SlotError> {
-        self.change_slot(id, |node| node.edit_variant(index, text))
+        self.change_slot(id, SlotChange::WriterText, |node| {
+            node.edit_variant(index, text)
+        })
     }
 
     /// Runs `change` on Slot `id`, then shows its Active variant text in its range,
@@ -234,6 +245,7 @@ impl Document {
     fn change_slot(
         &mut self,
         id: SlotId,
+        kind: SlotChange,
         change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
     ) -> Result<(), SlotError> {
         let mut slots = self.slots.clone();
@@ -242,9 +254,10 @@ impl Document {
         change(node)?;
         let shown = node.active_text()?.to_owned();
         node.range.end = node.range.start + shown.len();
-        let changed = self.text.get(old.clone()) != Some(shown.as_str());
+        let writer_edit =
+            kind == SlotChange::WriterText && self.text.get(old.clone()) != Some(shown.as_str());
         let ends = node.variants.len() < 2;
-        slot::shift(&mut slots, &old, shown.len(), changed, Some(id));
+        slot::shift(&mut slots, &old, shown.len(), writer_edit, Some(id));
         if ends {
             slot::dissolve(&mut slots, id);
         }
@@ -279,9 +292,9 @@ impl Document {
         if removed.is_empty() && text.is_empty() {
             return Ok(());
         }
-        let changed = removed != text;
+        let writer_edit = removed != text;
         let mut slots = self.slots.clone();
-        slot::shift(&mut slots, &range, text.len(), changed, None);
+        slot::shift(&mut slots, &range, text.len(), writer_edit, None);
         self.commit(range, text, slots)
     }
 

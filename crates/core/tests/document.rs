@@ -23,12 +23,12 @@ fn replace_range_swaps_its_text() {
 
 #[test]
 fn edit_outside_text_or_inside_a_char_is_rejected_and_changes_nothing() {
-    let mut document = Document::new("كاتب");
+    let mut document = Document::new("λέξη");
     assert!(document.insert(9, "x").is_err());
     assert!(document.delete(1..4).is_err());
     let reversed = std::ops::Range { start: 4, end: 2 };
     assert!(document.replace(reversed, "x").is_err());
-    assert_eq!(document.text(), "كاتب");
+    assert_eq!(document.text(), "λέξη");
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn counter_counts_words_and_chars_of_the_document() {
         ("Hi", "1 word 2 chars"),
         ("a b", "2 words 3 chars"),
         ("Hello, dear world", "3 words 17 chars"),
-        ("كاتب يكتب", "2 words 9 chars"),
+        ("λέξη λέξη", "2 words 9 chars"),
         ("Title\n\nOne two.  Three", "4 words 22 chars"),
     ];
     for (text, expected) in examples {
@@ -141,12 +141,12 @@ fn a_new_edit_after_undo_clears_redo() {
 
 #[test]
 fn undo_and_redo_with_no_steps_change_nothing() {
-    let mut document = Document::new("كاتب");
+    let mut document = Document::new("λέξη");
     assert!(document.insert(1, "x").is_err());
     document.insert(2, "").unwrap();
     assert!(!document.undo());
     assert!(!document.redo());
-    assert_eq!(document.text(), "كاتب");
+    assert_eq!(document.text(), "λέξη");
 }
 
 #[test]

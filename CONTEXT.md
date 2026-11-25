@@ -1,6 +1,6 @@
 # Ka-teb
 
-Ka-teb (كاتب, "writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
+Ka-teb ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
 
 ## Language
 
