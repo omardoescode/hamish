@@ -6,7 +6,7 @@
 use std::error::Error;
 use std::fs;
 
-use ka_teb_core::{Document, LabCheck, LabFinding, Level, Provenance};
+use ka_teb_core::{Document, Dropped, LabCheck, LabFinding, Level, Provenance};
 
 /// "The rapidly fox runs.\n\nAnother paragraph." with a Word Slot (Mixed Variant active),
 /// a Paragraph Slot whose inactive Original holds a nested Slot and a Ghost range,
@@ -92,4 +92,46 @@ fn nested_slots_and_ghost_ranges_of_an_inactive_variant_survive_the_round_trip()
     assert_eq!(nested.range, 25..31);
     assert_eq!(nested.variants[1].text(), "next");
     assert_eq!(document.ghost_ranges(), [12..15, 42..46]);
+}
+
+#[test]
+fn open_of_an_md_file_with_no_sidecar_gives_a_plain_document() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plain.md");
+    fs::write(&path, "Written in another tool.").unwrap();
+
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(opened.dropped, []);
+    assert_eq!(opened.document.text(), "Written in another tool.");
+    assert_eq!(opened.document.slots(), []);
+    assert_eq!(opened.document.ghost_ranges(), []);
+    assert_eq!(opened.document.overflow().text(), "");
+}
+
+#[test]
+fn open_after_an_outside_edit_finds_items_by_text_and_reports_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("draft.md");
+    let mut document = Document::new("Mind the gap. Then mind the step.");
+    document
+        .create_slot(9..12, Level::Word, "hole", Provenance::Writer)
+        .unwrap();
+    document.ghost(14..18).unwrap();
+    document.save(&path).unwrap();
+    fs::write(&path, "New start. Mind the gap. Mind the step.").unwrap();
+
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(
+        opened.dropped,
+        [Dropped::Ghost {
+            text: "Then".to_owned()
+        }]
+    );
+    let document = opened.document;
+    assert_eq!(document.text(), "New start. Mind the gap. Mind the step.");
+    let slots = document.slots();
+    assert_eq!(slots.len(), 1);
+    assert_eq!(slots[0].range, 20..23);
+    assert_eq!(slots[0].variants[1].text(), "hole");
+    assert_eq!(document.ghost_ranges(), []);
 }

@@ -343,11 +343,25 @@ struct Restore<'a> {
 }
 
 impl Restore<'_> {
-    /// Where a top-level item with `anchor` text, saved at `saved`, may go, best first:
-    /// the saved range when the `.md` is unchanged.
+    /// Where a top-level item with `anchor` text, saved at `saved`, may go, best first.
+    /// Unchanged `.md`: the saved range when it still holds `anchor`. Changed `.md`: each
+    /// place of `anchor` in the text, nearest to the saved start first (ADR 0003).
+    /// An empty `anchor` has no place in a changed `.md`.
     fn places(&self, anchor: &str, saved: &Range<usize>) -> Vec<Range<usize>> {
-        let fits = self.unchanged && self.text.get(saved.clone()) == Some(anchor);
-        fits.then(|| saved.clone()).into_iter().collect()
+        if self.unchanged {
+            let fits = self.text.get(saved.clone()) == Some(anchor);
+            return fits.then(|| saved.clone()).into_iter().collect();
+        }
+        if anchor.is_empty() {
+            return Vec::new();
+        }
+        let mut places: Vec<Range<usize>> = self
+            .text
+            .match_indices(anchor)
+            .map(|(start, _)| start..start + anchor.len())
+            .collect();
+        places.sort_by_key(|place| place.start.abs_diff(saved.start));
+        places
     }
 
     fn top_slot(&mut self, record: SlotRecord) {
