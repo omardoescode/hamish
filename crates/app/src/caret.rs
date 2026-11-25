@@ -249,6 +249,33 @@ pub(crate) fn caret_quad(painted: &PaintedText, offset: usize, color: Hsla) -> O
     ))
 }
 
+/// The Normal mode caret quad over the grapheme at `offset` of the painted `text`. On a
+/// line end, or where the grapheme wraps to the next row, it is `end_width` wide.
+pub(crate) fn block_caret_quad(
+    painted: &PaintedText,
+    text: &str,
+    offset: usize,
+    end_width: Pixels,
+    color: Hsla,
+) -> Option<PaintQuad> {
+    let position = painted.position_for(offset)?;
+    let on_line_end = text
+        .get(offset..)
+        .is_none_or(|after| after.is_empty() || after.starts_with('\n'));
+    let next = Caret::at(offset).moved(text, Motion::Right).offset();
+    let width = painted
+        .position_for(next)
+        .filter(|after| !on_line_end && after.y == position.y && after.x > position.x)
+        .map_or(end_width, |after| after.x - position.x);
+    Some(fill(
+        Bounds::new(
+            painted.bounds.origin + position,
+            size(width, painted.line_height),
+        ),
+        color,
+    ))
+}
+
 /// Scrolls the least amount that keeps the caret out of the edge fade.
 pub(crate) fn scroll_to_caret(scroll_handle: &ScrollHandle, caret: Option<&PaintQuad>, cx: &App) {
     let Some(caret) = caret else {

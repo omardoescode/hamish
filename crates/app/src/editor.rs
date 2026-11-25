@@ -74,6 +74,7 @@ pub struct Editor {
     /// The Variant dots of each Marker as last painted (window coordinates).
     marker_dots: Vec<element::MarkerDot>,
     hover_tint: Vec<Bounds<Pixels>>,
+    caret_bounds: Option<Bounds<Pixels>>,
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
@@ -125,6 +126,7 @@ impl Editor {
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             painted: None,
+            caret_bounds: None,
             selecting: false,
             autoscroll: false,
             hovered: None,
@@ -219,6 +221,12 @@ impl Editor {
             .into_iter()
             .map(|quad| self.zoomed(quad.bounds))
             .reduce(|all, row| all.union(&row))
+    }
+
+    /// The caret as last painted (window coordinates); `None` when none shows.
+    #[must_use]
+    pub fn caret_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.caret_bounds
     }
 
     /// The Markers as last painted, in document order, each parent before the Slots in it.

@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use app::Workspace;
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{Bounds, Entity, EntityInputHandler, Pixels, TestAppContext, VisualTestContext, px};
 use hamish_core::{Document, LoadedSettings, Settings};
 
 fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
@@ -148,4 +148,66 @@ fn turning_vim_mode_off_gives_back_the_usual_keys(cx: &mut TestAppContext) {
 
     set_vim_mode(cx, true);
     assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+}
+
+#[expect(clippy::unwrap_used, reason = "test fixture")]
+fn caret_x(workspace: &Entity<Workspace>, offset: usize, cx: &mut VisualTestContext) -> Pixels {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    cx.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.bounds_for_range(offset..offset, Bounds::default(), window, cx)
+        })
+    })
+    .unwrap()
+    .origin
+    .x
+}
+
+fn caret_width(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Pixels> {
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    cx.read(|cx| workspace.read(cx).editor().read(cx).caret_bounds())
+        .map(|bounds| bounds.size.width)
+}
+
+#[gpui::test]
+fn normal_mode_shows_a_block_caret_as_wide_as_the_char(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, "mi\n\nx", true);
+
+    let on_m = caret_width(&workspace, cx).unwrap_or_default();
+    cx.simulate_keystrokes("l");
+    let on_i = caret_width(&workspace, cx).unwrap_or_default();
+    cx.simulate_keystrokes("j");
+    assert_eq!(selection(&workspace, cx), 3..3);
+    let on_empty_line = caret_width(&workspace, cx).unwrap_or_default();
+
+    assert!(on_i > px(3.), "block on i: {on_i:?}");
+    let m = caret_x(&workspace, 1, cx) - caret_x(&workspace, 0, cx);
+    assert!(
+        (on_m - m).abs() < px(0.5),
+        "block on m {on_m:?}, m is {m:?} wide"
+    );
+    assert!(
+        on_empty_line > px(3.),
+        "block on an empty line: {on_empty_line:?}"
+    );
+}
+
+#[gpui::test]
+fn insert_mode_and_vim_mode_off_show_the_thin_bar(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, "mi", true);
+
+    cx.simulate_keystrokes("i");
+    let insert = caret_width(&workspace, cx).unwrap_or_default();
+    set_vim_mode(cx, false);
+    let off = caret_width(&workspace, cx).unwrap_or_default();
+
+    assert!(
+        px(1.9) < insert && insert < px(2.5),
+        "bar in Insert mode: {insert:?}"
+    );
+    assert!(
+        px(1.9) < off && off < px(2.5),
+        "bar with Vim mode off: {off:?}"
+    );
 }
