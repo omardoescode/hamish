@@ -2,7 +2,7 @@ use std::fmt;
 use std::ops::Range;
 
 use crate::slot::{self, SlotNode};
-use crate::{Counter, Level, Provenance, Slot, SlotError, SlotId, Variant};
+use crate::{Counter, Cycle, Level, Provenance, Slot, SlotError, SlotId, Variant};
 
 /// One piece of writing: its text, Slots, and edit history.
 #[derive(Debug, Clone, Default)]
@@ -145,6 +145,64 @@ impl Document {
         Ok(id)
     }
 
+    /// Adds a Variant at the end of Slot `id`. The Active variant stays.
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] when `id` is not a visible Slot.
+    pub fn add_variant(
+        &mut self,
+        id: SlotId,
+        text: &str,
+        provenance: Provenance,
+    ) -> Result<(), SlotError> {
+        self.change_slot(id, |node| {
+            node.push_variant(text, provenance);
+            Ok(())
+        })
+    }
+
+    /// Makes Variant `index` of Slot `id` the Active variant (FR-15, FR-16).
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
+    pub fn set_active(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
+        self.change_slot(id, |node| node.set_active(index))
+    }
+
+    /// Moves the Active variant of Slot `id` one step (FR-14).
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] when `id` is not a visible Slot.
+    pub fn cycle_active(&mut self, id: SlotId, cycle: Cycle) -> Result<(), SlotError> {
+        let slot = self.slot(id).ok_or(SlotError::NoSlot(id))?;
+        let count = slot.variants.len();
+        let step = match cycle {
+            Cycle::Next => 1,
+            Cycle::Previous => count.saturating_sub(1),
+        };
+        let index = (slot.active + step).checked_rem(count).unwrap_or(0);
+        self.set_active(id, index)
+    }
+
+    /// Runs `change` on Slot `id`, then shows its Active variant text in its range,
+    /// as one undoable step.
+    fn change_slot(
+        &mut self,
+        id: SlotId,
+        change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
+    ) -> Result<(), SlotError> {
+        let mut slots = self.slots.clone();
+        let (node, base) = slot::find_mut(&mut slots, id, 0).ok_or(SlotError::NoSlot(id))?;
+        let old = base + node.range.start..base + node.range.end;
+        change(node)?;
+        let shown = node.active_text()?.to_owned();
+        node.range.end = node.range.start + shown.len();
+        let changed = self.text.get(old.clone()) != Some(shown.as_str());
+        slot::shift(&mut slots, &old, shown.len(), changed, Some(id));
+        self.commit(old, &shown, slots)?;
+        Ok(())
+    }
+
     /// Inserts `text` at byte offset `at`.
     ///
     /// # Errors
@@ -190,8 +248,13 @@ impl Document {
                 range: range.clone(),
             })?
             .to_owned();
-        self.text.replace_range(range.clone(), inserted);
-        slot::sync(&mut slots, &self.text, 0);
+        let mut text = self.text.clone();
+        text.replace_range(range.clone(), inserted);
+        slot::sync(&mut slots, &text, 0);
+        if text == self.text && slots == self.slots {
+            return Ok(());
+        }
+        self.text = text;
         let slots_before = std::mem::replace(&mut self.slots, slots);
         self.undo_steps.push(Step {
             at: range.start,

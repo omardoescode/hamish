@@ -19,6 +19,13 @@ pub enum Provenance {
     Mixed,
 }
 
+/// Direction to cycle the Active variant. Both wrap around.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cycle {
+    Next,
+    Previous,
+}
+
 /// Stable name of a Slot for the life of its Document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SlotId(u64);
@@ -121,6 +128,97 @@ pub(crate) struct SlotNode {
 }
 
 impl SlotNode {
+    pub(crate) fn active_text(&self) -> Result<&str, SlotError> {
+        self.variants
+            .get(self.active)
+            .map(|variant| variant.text.as_str())
+            .ok_or(self.no_variant(self.active))
+    }
+
+    pub(crate) fn no_variant(&self, index: usize) -> SlotError {
+        SlotError::NoVariant {
+            slot: self.id,
+            index,
+        }
+    }
+
+    pub(crate) fn set_active(&mut self, index: usize) -> Result<(), SlotError> {
+        if index >= self.variants.len() {
+            return Err(self.no_variant(index));
+        }
+        self.active = index;
+        Ok(())
+    }
+
+    pub(crate) fn push_variant(&mut self, text: &str, provenance: Provenance) {
+        self.variants.push(Variant::new(text, provenance));
+    }
+
+    /// Moves or trims this Slot for a text edit at `edit` (relative to the text that holds it).
+    fn follow(
+        &mut self,
+        edit: &Range<usize>,
+        inserted: usize,
+        changed: bool,
+        except: Option<SlotId>,
+    ) {
+        let removed = edit.len();
+        match relation(&self.range, edit) {
+            Relation::Before => {
+                self.range =
+                    self.range.start + inserted - removed..self.range.end + inserted - removed;
+            }
+            Relation::After | Relation::Covered => {}
+            Relation::Within => self.take_within(edit, inserted, changed, except),
+            Relation::PartialLeft => self.lose_left(edit, inserted),
+            Relation::PartialRight => self.lose_right(edit),
+        }
+    }
+
+    fn take_within(
+        &mut self,
+        edit: &Range<usize>,
+        inserted: usize,
+        changed: bool,
+        except: Option<SlotId>,
+    ) {
+        let local = offset_back(edit, self.range.start);
+        if let Ok(children) = self.children_mut() {
+            shift(children, &local, inserted, changed, except);
+        }
+        self.range.end = self.range.end + inserted - edit.len();
+        self.mark_edited(changed);
+    }
+
+    fn lose_left(&mut self, edit: &Range<usize>, inserted: usize) {
+        let lost = 0..edit.end - self.range.start;
+        if let Ok(children) = self.children_mut() {
+            shift(children, &lost, 0, true, None);
+        }
+        self.range = edit.start + inserted..self.range.end + inserted - edit.len();
+        self.mark_edited(true);
+    }
+
+    fn lose_right(&mut self, edit: &Range<usize>) {
+        let lost = edit.start - self.range.start..self.range.end - self.range.start;
+        if let Ok(children) = self.children_mut() {
+            shift(children, &lost, 0, true, None);
+        }
+        self.range.end = edit.start;
+        self.mark_edited(true);
+    }
+
+    /// A writer edit to the text of an AI Variant makes it Mixed.
+    fn mark_edited(&mut self, changed: bool) {
+        let active = self.active;
+        let Some(variant) = self.variants.get_mut(active) else {
+            return;
+        };
+        if changed && variant.provenance == Provenance::Ai {
+            variant.provenance = Provenance::Mixed;
+        }
+    }
+
     fn children(&self) -> &[SlotNode] {
         self.variants
             .get(self.active)
@@ -180,6 +278,80 @@ pub(crate) fn place(slots: &mut Vec<SlotNode>, mut node: SlotNode) -> Result<(),
     slots.push(node);
     slots.sort_by_key(|slot| slot.range.start);
     Ok(())
+}
+
+/// Finds visible Slot `id`. Returns it and the start of the text that holds it.
+pub(crate) fn find_mut(
+    slots: &mut [SlotNode],
+    id: SlotId,
+    base: usize,
+) -> Option<(&mut SlotNode, usize)> {
+    for node in slots {
+        if node.id == id {
+            return Some((node, base));
+        }
+        let start = base + node.range.start;
+        let found = node
+            .children_mut()
+            .ok()
+            .and_then(|children| find_mut(children, id, start));
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Moves, trims, or removes Slots for a text edit: `edit` (relative to the text that holds
+/// `slots`) was replaced by `inserted` bytes. `changed`: the edit changed the text.
+/// Slot `except` is left as it is. A Slot inside the removed text ends.
+pub(crate) fn shift(
+    slots: &mut Vec<SlotNode>,
+    edit: &Range<usize>,
+    inserted: usize,
+    changed: bool,
+    except: Option<SlotId>,
+) {
+    slots
+        .retain(|node| Some(node.id) == except || relation(&node.range, edit) != Relation::Covered);
+    for node in slots.iter_mut().filter(|node| Some(node.id) != except) {
+        node.follow(edit, inserted, changed, except);
+    }
+}
+
+/// Where a text edit lies, seen from a Slot range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Relation {
+    /// Ends at or before the Slot start (an insert at the start goes before the Slot).
+    Before,
+    /// Starts at or after the Slot end (an insert at the end goes after the Slot).
+    After,
+    Within,
+    /// Removes the start of the Slot text.
+    PartialLeft,
+    /// Removes the end of the Slot text.
+    PartialRight,
+    /// Removes all the Slot text and more, or an empty Slot inside it.
+    Covered,
+}
+
+fn relation(slot: &Range<usize>, edit: &Range<usize>) -> Relation {
+    if edit.end <= slot.start {
+        return Relation::Before;
+    }
+    if edit.start >= slot.end {
+        return Relation::After;
+    }
+    if slot.start <= edit.start && edit.end <= slot.end {
+        return Relation::Within;
+    }
+    if edit.start < slot.start && edit.end < slot.end {
+        return Relation::PartialLeft;
+    }
+    if slot.start < edit.start && slot.end < edit.end {
+        return Relation::PartialRight;
+    }
+    Relation::Covered
 }
 
 /// Sets each visible Active variant text to its range of `text`.

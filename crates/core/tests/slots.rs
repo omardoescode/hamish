@@ -1,4 +1,4 @@
-use ka_teb_core::{Document, Level, Provenance};
+use ka_teb_core::{Cycle, Document, Level, Provenance, SlotError};
 
 fn variant_texts(document: &Document, slot: ka_teb_core::SlotId) -> Vec<String> {
     document.slot(slot).map_or_else(Vec::new, |slot| {
@@ -31,4 +31,82 @@ fn create_slot_at_each_level_keeps_the_range_text_as_the_original() {
         assert_eq!(variant_texts(&document, id), [original, "new text"]);
         assert_eq!(document.text(), text);
     }
+}
+
+#[test]
+fn set_active_variant_shows_it_in_the_text_and_counter() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "old dog", Provenance::Writer)
+        .unwrap();
+    document.set_active(id, 1).unwrap();
+    assert_eq!(document.text(), "The old dog sat.");
+    assert_eq!(document.counter().to_string(), "4 words 16 chars");
+    let slot = document.slot(id).unwrap();
+    assert_eq!(slot.range, 4..11);
+    assert_eq!(slot.active, 1);
+    assert_eq!(variant_texts(&document, id), ["cat", "old dog"]);
+}
+
+#[test]
+fn added_variants_keep_their_order_and_do_not_change_the_active_variant() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Ai).unwrap();
+    assert_eq!(variant_texts(&document, id), ["cat", "dog", "fox"]);
+    assert_eq!(
+        document.slot(id).unwrap().variants[2].provenance(),
+        Provenance::Ai
+    );
+    assert_eq!(document.slot(id).unwrap().active, 0);
+    assert_eq!(document.text(), "The cat sat.");
+}
+
+#[test]
+fn cycle_moves_the_active_variant_and_wraps_around() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    let steps = [
+        (Cycle::Next, "The dog sat."),
+        (Cycle::Next, "The fox sat."),
+        (Cycle::Next, "The cat sat."),
+        (Cycle::Previous, "The fox sat."),
+    ];
+    for (cycle, expected) in steps {
+        document.cycle_active(id, cycle).unwrap();
+        assert_eq!(document.text(), expected, "{cycle:?}");
+    }
+}
+
+#[test]
+fn slot_text_after_it_moves_with_an_active_variant_change() {
+    let mut document = Document::new("A cat and a dog.");
+    let cat = document
+        .create_slot(2..5, Level::Word, "lion", Provenance::Writer)
+        .unwrap();
+    let dog = document
+        .create_slot(12..15, Level::Word, "wolf", Provenance::Writer)
+        .unwrap();
+    document.set_active(cat, 1).unwrap();
+    document.set_active(dog, 1).unwrap();
+    assert_eq!(document.text(), "A lion and a wolf.");
+    assert_eq!(document.slot(dog).unwrap().range, 13..17);
+}
+
+#[test]
+fn operations_on_a_missing_slot_or_variant_are_refused() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    assert_eq!(
+        document.set_active(id, 2),
+        Err(SlotError::NoVariant { slot: id, index: 2 })
+    );
+    assert_eq!(document.text(), "The cat sat.");
 }
