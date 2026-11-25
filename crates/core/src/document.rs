@@ -7,6 +7,26 @@ use crate::Counter;
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
+    undo_steps: Vec<Step>,
+    redo_steps: Vec<Step>,
+}
+
+/// One undoable change: `removed` at `at` was swapped for `inserted`.
+#[derive(Debug, Clone)]
+struct Step {
+    at: usize,
+    removed: String,
+    inserted: String,
+}
+
+impl Step {
+    fn inverse(self) -> Self {
+        Self {
+            at: self.at,
+            removed: self.inserted,
+            inserted: self.removed,
+        }
+    }
 }
 
 /// A byte range or offset that is out of bounds or not on a char boundary.
@@ -32,6 +52,7 @@ impl Document {
     pub fn new(text: &str) -> Self {
         Self {
             text: text.to_owned(),
+            ..Self::default()
         }
     }
 
@@ -87,8 +108,45 @@ impl Document {
     /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
     pub fn replace(&mut self, range: Range<usize>, text: &str) -> Result<(), RangeError> {
         self.check(&range)?;
-        self.text.replace_range(range, text);
+        let removed = self.text.get(range.clone()).unwrap_or_default().to_owned();
+        if removed.is_empty() && text.is_empty() {
+            return Ok(());
+        }
+        self.text.replace_range(range.clone(), text);
+        self.undo_steps.push(Step {
+            at: range.start,
+            removed,
+            inserted: text.to_owned(),
+        });
+        self.redo_steps.clear();
         Ok(())
+    }
+
+    /// Reverts the last step. `false` when there is nothing to undo.
+    pub fn undo(&mut self) -> bool {
+        let Some(step) = self.undo_steps.pop() else {
+            return false;
+        };
+        let step = self.apply(step);
+        self.redo_steps.push(step);
+        true
+    }
+
+    /// Applies the last undone step again. `false` when there is nothing to redo.
+    pub fn redo(&mut self) -> bool {
+        let Some(step) = self.redo_steps.pop() else {
+            return false;
+        };
+        let step = self.apply(step);
+        self.undo_steps.push(step);
+        true
+    }
+
+    /// Reverts `step` and returns the step that reverts it back.
+    fn apply(&mut self, step: Step) -> Step {
+        let end = step.at + step.inserted.len();
+        self.text.replace_range(step.at..end, &step.removed);
+        step.inverse()
     }
 
     fn check(&self, range: &Range<usize>) -> Result<(), RangeError> {
