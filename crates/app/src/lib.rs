@@ -42,7 +42,7 @@ pub use save_open::Notice;
 pub use theme::Theme;
 pub use workspace::Workspace;
 
-/// Loads the bundled body font, sets the theme, and binds the keys.
+/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the theme, and binds the keys.
 ///
 /// # Errors
 /// When the bundled font does not load.
@@ -50,6 +50,8 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     cx.text_system().add_fonts(vec![
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf")),
     ])?;
     cx.set_global(Theme::default());
     for context in ["Editor", "OverflowPanel"] {

@@ -6,12 +6,13 @@
 |---|---|
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
 | `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
+| `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |
 | `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest`, `AiError`; `Document::ai_request` / `apply_ai_result` (ADR 0004). |
 | `crates/core/src/ai/claude.rs` | `ClaudeBackend`: runs `claude -p` with the API credentials removed from its environment. Tested with a stub `claude` on `PATH` (`crates/core/tests/claude_backend.rs`). |
 | `crates/app/src/ai.rs` | Global `Ai`: the adapter the app calls on the background executor. `main` sets `ClaudeBackend`; tests set a fake. |
 | `crates/app/src/loading.rs` | Loading dance (FR-34), reused by views that wait on the AI. |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
-| `crates/app/assets/fonts/` | Bundled body font IBM Plex Mono (Regular, Bold) and its license (`OFL.txt`). |
+| `crates/app/assets/fonts/` | Bundled body font IBM Plex Mono (Regular, Bold, Italic, Bold Italic) and its license (`OFL.txt`). |
 | `Cargo.toml` | Workspace, pinned `gpui`, `[workspace.lints]`, `[profile.dist]`. |
 | `rust-toolchain.toml` | Pinned Rust version and components (local and CI). |
 | `rustfmt.toml`, `clippy.toml` | Format and lint config (panic family allowed in tests; banned names, types, methods). |

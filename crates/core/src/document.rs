@@ -3,10 +3,11 @@ use std::ops::Range;
 
 use crate::article;
 use crate::ghost;
+use crate::markdown;
 use crate::slot::{self, SlotNode};
 use crate::{
-    Counter, Cycle, GhostError, LabMark, LabMarkId, Level, Overflow, OverflowError, Provenance,
-    Slot, SlotError, SlotId, TrimProposal, Variant,
+    Counter, Cycle, GhostError, LabMark, LabMarkId, Level, MarkdownSpan, Overflow, OverflowError,
+    Provenance, Slot, SlotError, SlotId, TrimProposal, Variant,
 };
 
 /// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, Trim proposal,
@@ -175,6 +176,12 @@ impl Document {
                 words: all.words + piece.words,
                 chars: all.chars + piece.chars,
             })
+    }
+
+    /// The Markdown styles of the active text, ordered by start; outer before inner.
+    #[must_use]
+    pub fn markdown_styles(&self) -> Vec<MarkdownSpan> {
+        markdown::spans(&self.text)
     }
 
     /// The first line, shown as the title (FR-5). `None` when the first line is blank.
