@@ -405,16 +405,24 @@ impl Editor {
         change: impl FnOnce(&mut Document) -> Result<T, E>,
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
+        self.change_document_in_steps(1, change, cx)
+    }
+
+    /// Like [`Self::change_document`], for a change of `steps` core undo steps.
+    pub(crate) fn change_document_in_steps<T, E>(
+        &mut self,
+        steps: usize,
+        change: impl FnOnce(&mut Document) -> Result<T, E>,
+        cx: &mut Context<Self>,
+    ) -> Result<T, E> {
         let old_text = self.document.text().to_owned();
         let done = change(&mut self.document)?;
         let new_text = self.document.text();
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
             ..follow_change(before.end, &old_text, new_text);
-        self.history.close();
         self.history
-            .record(EditKind::Other, before, self.selection.clone());
-        self.history.close();
+            .record_steps(steps, before, self.selection.clone());
         cx.notify();
         Ok(done)
     }

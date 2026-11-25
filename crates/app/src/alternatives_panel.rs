@@ -304,8 +304,8 @@ impl AlternativesPanel {
             .ok();
     }
 
-    /// FR-24: adds the draft as a Variant. With no Slot yet, it makes one over the target
-    /// text, the Original first. The Active variant stays.
+    /// FR-24: adds the draft as a Variant and makes it the Active variant, as one undo
+    /// step. With no Slot yet, it makes one over the target text, the Original first.
     fn add(&mut self, cx: &mut Context<Self>) {
         if self.draft.is_empty() {
             return;
@@ -315,16 +315,28 @@ impl AlternativesPanel {
             Target::Slot(id) => self
                 .editor
                 .update(cx, |editor, cx| {
-                    editor.change_document(
-                        |document| document.add_variant(id, &draft, Provenance::Writer),
+                    editor.change_document_in_steps(
+                        2,
+                        |document| {
+                            document.add_variant(id, &draft, Provenance::Writer)?;
+                            let last = document
+                                .slot(id)
+                                .map_or(0, |slot| slot.variants.len().saturating_sub(1));
+                            document.set_active(id, last)
+                        },
                         cx,
                     )
                 })
                 .is_ok(),
             Target::Text { range, level } => {
                 let created = self.editor.update(cx, |editor, cx| {
-                    editor.change_document(
-                        |document| document.create_slot(range, level, &draft, Provenance::Writer),
+                    editor.change_document_in_steps(
+                        2,
+                        |document| {
+                            let id =
+                                document.create_slot(range, level, &draft, Provenance::Writer)?;
+                            document.set_active(id, 1).map(|()| id)
+                        },
                         cx,
                     )
                 });

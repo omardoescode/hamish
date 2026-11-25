@@ -74,7 +74,7 @@ fn ctrl_shift_a_on_a_word_opens_the_panel_with_the_word_as_the_original(cx: &mut
 }
 
 #[gpui::test]
-fn return_in_the_last_row_adds_a_variant_and_the_original_stays_active(cx: &mut TestAppContext) {
+fn return_in_the_last_row_adds_a_variant_and_makes_it_active(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, customer_document());
 
     cx.simulate_keystrokes(INTO_CUSTOMER);
@@ -84,9 +84,51 @@ fn return_in_the_last_row_adds_a_variant_and_the_original_stays_active(cx: &mut 
 
     assert_eq!(
         rows(&workspace, cx),
-        vec![row("customer", true), row("client", false)]
+        vec![row("customer", false), row("client", true)]
     );
-    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
+}
+
+#[gpui::test]
+fn after_return_a_new_empty_row_takes_the_next_variant(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("client");
+    cx.simulate_keystrokes("enter");
+
+    cx.simulate_input("patron");
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![
+            row("customer", false),
+            row("client", false),
+            row("patron", true)
+        ]
+    );
+    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
+}
+
+#[gpui::test]
+fn one_undo_removes_a_variant_added_with_return(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("client");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("patron");
+    cx.simulate_keystrokes("enter");
+
+    cx.simulate_keystrokes("escape ctrl-z");
+
+    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
+    let variants = cx.read(|cx| {
+        let document = workspace.read(cx).editor().read(cx).document();
+        document.slots().first().map(|slot| slot.variants.len())
+    });
+    assert_eq!(variants, Some(2));
 }
 
 fn focused_on_editor(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
@@ -229,7 +271,7 @@ fn deleting_all_but_one_variant_ends_the_slot_and_the_panel_keeps_its_text(
     cx.simulate_keystrokes("enter");
     assert_eq!(
         rows(&workspace, cx),
-        vec![row("customer", true), row("buyer", false)]
+        vec![row("customer", false), row("buyer", true)]
     );
 }
 
