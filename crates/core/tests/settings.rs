@@ -53,6 +53,7 @@ fn saved_settings_open_again_the_same() {
         column_width: 700.0,
         reduced_motion: true,
         cycle_sounds: false,
+        focus_zoom: false,
     };
 
     settings.save(&path).unwrap();
@@ -175,4 +176,14 @@ fn reduced_motion_is_off_by_default_and_in_a_file_without_it() {
 
     assert!(!Settings::default().reduced_motion);
     assert!(!Settings::load(&path).settings.reduced_motion);
+}
+
+#[test]
+fn focus_zoom_is_on_by_default_and_in_a_file_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
+
+    assert!(Settings::default().focus_zoom);
+    assert!(Settings::load(&path).settings.focus_zoom);
 }
