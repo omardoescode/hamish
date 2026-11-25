@@ -14,7 +14,7 @@ use ka_teb_core::{Level, Slot, SlotId};
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
 use super::runs::text_runs;
-use super::{Editor, Marker, MarkerKind, focus_zoom};
+use super::{Editor, Marker, MarkerKind, Spotlight, focus_zoom};
 use crate::Theme;
 use crate::caret;
 use crate::effects::Particles;
@@ -179,17 +179,25 @@ impl Element for EditorElement {
             painted.selection_quads(&editor.to_shown(&editor.selection()), theme.selection);
         let lab_marks = lab_mark_quads(&painted, editor, &theme);
         let slots = shown.slots();
-        let hover = editor
+        let shown_in_panel = match editor.spotlight {
+            Some(Spotlight::Slot(id)) => Some(id),
+            Some(Spotlight::Text(_)) | None => None,
+        };
+        let tinted = editor
             .hovered
-            .and_then(|id| slots.iter().find(|slot| slot.id == id))
-            .map_or_default(|slot| {
+            .into_iter()
+            .chain(shown_in_panel.filter(|id| editor.hovered != Some(*id)));
+        let hover: Vec<PaintQuad> = tinted
+            .filter_map(|id| slots.iter().find(|slot| slot.id == id))
+            .flat_map(|slot| {
                 hover_quads(
                     &painted,
                     &slot.range,
                     slot.level,
                     theme.slot_hover_background,
                 )
-            });
+            })
+            .collect();
         let (markers, marker_quads, marker_dots) = slot_markers(&painted, &slots, &theme);
         let underlines = pen_strokes(&painted, editor, &slots, &theme);
         let caret = editor

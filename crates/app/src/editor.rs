@@ -186,8 +186,8 @@ impl Editor {
             .collect()
     }
 
-    /// The hover tint boxes behind the hovered Slot as last painted (window coordinates);
-    /// empty when no Slot is hovered.
+    /// The tint boxes behind the hovered Slot and the Slot the Alternatives panel shows, as
+    /// last painted (window coordinates); empty when there is neither.
     #[must_use]
     pub fn hover_tint(&self) -> Vec<Bounds<Pixels>> {
         self.hover_tint.clone()

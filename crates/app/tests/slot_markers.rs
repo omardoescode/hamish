@@ -393,3 +393,22 @@ fn hovering_a_sentence_slot_tints_only_the_sentence(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(hover_tint(&workspace, cx), Vec::new());
 }
+
+#[gpui::test]
+fn the_sentence_slot_the_alternatives_panel_shows_keeps_its_tint(cx: &mut TestAppContext) {
+    let (document, _) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    let inside = point_at(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+    cx.simulate_click(inside, Modifiers::none());
+    cx.simulate_keystrokes("ctrl-shift-a");
+    hover(&workspace, cx, 10);
+    cx.run_until_parked();
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    let tint = hover_tint(&workspace, cx);
+
+    assert!(tint.len() >= 2, "one box per row: {tint:?}");
+    assert_eq!(tint[0].top(), start.top());
+    assert_eq!(tint[tint.len() - 1].bottom(), end.bottom());
+}
