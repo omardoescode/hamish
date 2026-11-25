@@ -45,8 +45,8 @@ fn assert_above_bar(cx: &mut VisualTestContext, selector: &'static str) {
 }
 
 #[test]
-fn the_chrome_bar_background_is_opaque_in_both_themes() {
-    for name in [ThemeName::Dark, ThemeName::Light] {
+fn the_chrome_bar_background_is_opaque_in_every_theme() {
+    for name in ThemeName::ALL {
         let theme = Theme::new(&Settings {
             theme: name,
             ..Settings::default()
