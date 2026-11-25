@@ -1,4 +1,4 @@
-use ka_teb_core::{AiAdapter, AiError, AiRequest, Document, Level, Provenance, SlotId};
+use ka_teb_core::{AiAdapter, AiError, AiRequest, ApplyError, Document, Level, Provenance, SlotId};
 
 /// Returns fixed Variant texts, as an AI backend would.
 struct FakeAdapter(Vec<&'static str>);
@@ -111,5 +111,53 @@ fn undo_removes_a_slot_the_ai_result_made() {
     assert!(document.undo());
     assert_eq!(document.slots(), []);
     assert_eq!(document.text(), "The cat sat.");
+    assert!(!document.undo());
+}
+
+#[test]
+fn ai_result_for_text_that_changed_since_the_request_is_refused() {
+    let mut document = Document::new("The cat sat.");
+    let request = document.ai_request(4..7, Level::Word).unwrap();
+    document.replace(4..7, "dog").unwrap();
+
+    assert_eq!(
+        document.apply_ai_result(&request, &["fox".to_owned()]),
+        Err(ApplyError::Stale)
+    );
+    assert_eq!(document.slots(), []);
+    assert!(document.undo());
+    assert!(!document.undo());
+}
+
+#[test]
+fn ai_texts_that_are_blank_or_repeat_a_variant_are_dropped() {
+    let mut document = Document::new("The cat sat.");
+    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let texts = ["cat", "dog", "  ", "dog", "fox"].map(str::to_owned);
+
+    let id = document.apply_ai_result(&request, &texts).unwrap();
+
+    assert_eq!(
+        variants(&document, id),
+        owned(&[
+            ("cat", Provenance::Writer),
+            ("dog", Provenance::Ai),
+            ("fox", Provenance::Ai),
+        ])
+    );
+}
+
+#[test]
+fn ai_result_with_no_new_text_is_refused_and_changes_nothing() {
+    let mut document = Document::new("The cat sat.");
+    let request = document.ai_request(4..7, Level::Word).unwrap();
+
+    for texts in [vec![], vec!["cat".to_owned(), String::new()]] {
+        assert_eq!(
+            document.apply_ai_result(&request, &texts),
+            Err(ApplyError::NoVariants)
+        );
+    }
+    assert_eq!(document.slots(), []);
     assert!(!document.undo());
 }

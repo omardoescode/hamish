@@ -1,7 +1,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use crate::{Document, Level, Provenance, RangeError, SlotError, SlotId};
+use crate::{Document, Level, Provenance, RangeError, SlotError, SlotId, Variant};
 
 /// What the AI gets: the selected text and the text around it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,12 +66,18 @@ impl std::error::Error for AiError {}
 /// Why an AI result was not added. A refused result changes nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyError {
+    /// The text at the request range is not the requested selection any more.
+    Stale,
+    /// No text was new: all were blank or repeated a Variant.
+    NoVariants,
     Slot(SlotError),
 }
 
 impl fmt::Display for ApplyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Stale => f.write_str("the text changed since the AI request"),
+            Self::NoVariants => f.write_str("the AI gave no new Variant"),
             Self::Slot(error) => error.fmt(f),
         }
     }
@@ -117,13 +123,27 @@ impl Document {
         request: &AiRequest,
         texts: &[String],
     ) -> Result<SlotId, ApplyError> {
-        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
-        let existing = self
-            .slots()
-            .iter()
-            .rev()
-            .find(|slot| slot.range == request.range)
-            .map(|slot| slot.id);
+        if self.text().get(request.range()) != Some(request.selection()) {
+            return Err(ApplyError::Stale);
+        }
+        let slots = self.slots();
+        let existing = slots.iter().rev().find(|slot| slot.range == request.range);
+        let mut known: Vec<&str> = existing.map_or_else(
+            || vec![request.selection()],
+            |slot| slot.variants.iter().map(Variant::text).collect(),
+        );
+        let mut new = Vec::new();
+        for text in texts {
+            if !text.trim().is_empty() && !known.contains(&text.as_str()) {
+                known.push(text);
+                new.push(text.as_str());
+            }
+        }
+        if new.is_empty() {
+            return Err(ApplyError::NoVariants);
+        }
+        let texts = new;
+        let existing = existing.map(|slot| slot.id);
         let Some(id) = existing else {
             return Ok(self.create_slot_with(
                 request.range(),
