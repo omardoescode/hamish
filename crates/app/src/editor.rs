@@ -10,7 +10,7 @@ use crate::actions::{
     Undo,
 };
 use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
-use crate::context_menu::{self, ContextMenu, ContextMenuItem};
+use crate::context_menu::{ContextMenu, ContextMenuItem};
 use crate::effects::{self, EffectPlayer, PlayingEffect};
 use crate::settings;
 use crate::sounds;
@@ -21,7 +21,7 @@ use gpui::{
 };
 use ka_teb_core::{
     Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, Level, SlotError, SlotId,
-    Sound, follow_change, paragraph_around,
+    Sound, TrimProposal, follow_change, paragraph_around,
 };
 
 use element::EditorElement;
@@ -346,30 +346,13 @@ impl Editor {
         self.session
             .document()
             .trim_proposal()
-            .map_or_else(Vec::new, |proposal| {
-                proposal
-                    .cuts()
-                    .iter()
-                    .filter(|cut| !cut.kept)
-                    .map(|cut| cut.range.clone())
-                    .collect()
-            })
+            .map_or_else(Vec::new, TrimProposal::open_ranges)
     }
 
     /// Counter text: the Document, or the selection with "selected".
     #[must_use]
     pub fn counter_label(&self) -> String {
-        if self.session.selection().is_empty() {
-            return self.session.document().counter().to_string();
-        }
-        match self
-            .session
-            .document()
-            .selection_counter(self.session.selection())
-        {
-            Ok(counter) => format!("{counter} selected"),
-            Err(_) => self.session.document().counter().to_string(),
-        }
+        self.session.counter_label()
     }
 
     fn caret_offset(&self) -> usize {
@@ -450,12 +433,7 @@ impl Editor {
             .session
             .document()
             .trim_proposal()
-            .and_then(|proposal| {
-                proposal
-                    .cuts()
-                    .iter()
-                    .position(|cut| !cut.kept && cut.range.contains(&glyph))
-            });
+            .and_then(|proposal| proposal.open_cut_at(glyph));
         index.is_some_and(|index| {
             self.change_document(|document| document.keep_trim_cut(index), cx)
                 .is_ok()
@@ -629,11 +607,7 @@ impl Editor {
     /// What the menu actions act on: the selection, else the word at the caret,
     /// else the caret.
     pub(crate) fn target(&self) -> Range<usize> {
-        if !self.session.selection().is_empty() {
-            return self.session.selection();
-        }
-        let caret = self.caret_offset();
-        context_menu::word_at(self.session.document().text(), caret).unwrap_or(caret..caret)
+        self.session.target()
     }
 
     /// A right-click opens the context menu. Outside the selection it moves the
@@ -652,8 +626,7 @@ impl Editor {
             caret::press(self, event.position, false, cx);
         }
         let target = self.target();
-        let in_ghost =
-            context_menu::touches_ghost(&self.session.document().ghost_ranges(), &target);
+        let in_ghost = self.session.document().touches_ghost(&target);
         if target.is_empty() && !in_ghost {
             self.context_menu = None;
             return;
@@ -688,15 +661,8 @@ impl Editor {
     fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
         let target = self.target();
-        let ghosted = context_menu::touches_ghost(&self.session.document().ghost_ranges(), &target);
         self.session
-            .change(|document| {
-                if ghosted {
-                    document.revive(target)
-                } else {
-                    document.ghost(target)
-                }
-            })
+            .change(|document| document.toggle_ghost(target))
             .ok();
         cx.notify();
     }

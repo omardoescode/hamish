@@ -169,12 +169,22 @@ impl TrimProposal {
         self
     }
 
-    fn open_ranges(&self) -> Vec<Range<usize>> {
+    /// The ranges of the cuts still in the proposal, in document order.
+    #[must_use]
+    pub fn open_ranges(&self) -> Vec<Range<usize>> {
         self.cuts
             .iter()
             .filter(|cut| !cut.kept)
             .map(|cut| cut.range.clone())
             .collect()
+    }
+
+    /// The index of the cut still in the proposal whose range holds byte `offset`.
+    #[must_use]
+    pub fn open_cut_at(&self, offset: usize) -> Option<usize> {
+        self.cuts
+            .iter()
+            .position(|cut| !cut.kept && cut.range.contains(&offset))
     }
 }
 

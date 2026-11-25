@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::{Caret, CaretEdit, Document, EditHistory, EditedText, SlotId};
+use crate::{Caret, CaretEdit, Document, EditHistory, EditedText, SlotId, word_at};
 
 /// A Document with its selection and its editor undo steps. Each change made through it is
 /// one undo step, and the selection follows the change.
@@ -97,6 +97,31 @@ impl EditSession {
     #[must_use]
     pub fn selection(&self) -> Range<usize> {
         self.caret.selection()
+    }
+
+    /// What the menu actions act on: the selection, else the word at the caret, else the
+    /// caret.
+    #[must_use]
+    pub fn target(&self) -> Range<usize> {
+        let selection = self.selection();
+        if !selection.is_empty() {
+            return selection;
+        }
+        let caret = self.caret.offset();
+        word_at(self.document.text(), caret).unwrap_or(caret..caret)
+    }
+
+    /// Counter text: the Document, or the selection with "selected".
+    #[must_use]
+    pub fn counter_label(&self) -> String {
+        let selection = self.selection();
+        if selection.is_empty() {
+            return self.document.counter().to_string();
+        }
+        match self.document.selection_counter(selection) {
+            Ok(counter) => format!("{counter} selected"),
+            Err(_) => self.document.counter().to_string(),
+        }
     }
 
     /// The Document has changes since the last save or open.

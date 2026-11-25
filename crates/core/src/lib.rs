@@ -1,6 +1,7 @@
 //! Ka-teb core: the Document editing API. No GPUI.
 
 mod ai;
+mod alternatives_list;
 mod around;
 mod article;
 mod caret;
@@ -26,6 +27,10 @@ mod trim;
 mod undo;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
+pub use alternatives_list::{
+    AiAlternativesError, AlternativesList, ListEditor, ListOutcome, ListTarget, QUICK_FILL,
+    VariantRow,
+};
 pub use around::{paragraph_around, sentence_around};
 pub use caret::{Caret, CaretEdit, Motion, byte_range, follow_change, utf16_range, word_at};
 pub use counter::Counter;
