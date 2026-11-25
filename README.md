@@ -13,3 +13,7 @@ Install as a desktop app: `make install` (Linux: binary, `hamish.desktop` and ic
 Release downloads: on Linux, unpack the archive and run `./install.sh` (`./install.sh --uninstall` removes it). On macOS, unzip `Hamish-<target>.app.zip`. The app is unsigned: open it the first time with right-click > Open.
 
 Status: iteration 1 in progress.
+
+## Attribution
+
+The idea of Hamish comes from Jason Fried's Write_On, shown in [this post](https://x.com/jasonfried/status/2105403067793584590): alternative control at the word, sentence, and paragraph level, dimmed text, and text stashed nearby. "Not version control, but alternative control."
