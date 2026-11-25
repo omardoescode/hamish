@@ -113,6 +113,24 @@ pub(crate) enum Spotlight {
     Text(Range<usize>),
 }
 
+/// What shows of a Slot: its Active variant (index and text) and its Variant count.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShownVariant {
+    slot: SlotId,
+    active: usize,
+    count: usize,
+    text: String,
+}
+
+impl ShownVariant {
+    /// A different Variant is active than in `old`. Typing in the Active variant changes
+    /// only its text; an added Variant changes only the count. Neither is a new Active variant.
+    fn replaces(&self, old: &Self) -> bool {
+        let moved = self.active != old.active || self.count != old.count;
+        moved && self.text != old.text
+    }
+}
+
 /// What the editor tells the views around it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorEvent {
@@ -536,25 +554,33 @@ impl Editor {
         true
     }
 
-    /// Each Slot with the index of its Active variant and its Variant count.
-    fn shown_variants(&self) -> Vec<(SlotId, usize, usize)> {
+    /// Each Slot with what shows of it: see [`ShownVariant`].
+    fn shown_variants(&self) -> Vec<ShownVariant> {
         self.document
             .slots()
             .iter()
-            .map(|slot| (slot.id, slot.active, slot.variants.len()))
+            .map(|slot| ShownVariant {
+                slot: slot.id,
+                active: slot.active,
+                count: slot.variants.len(),
+                text: slot
+                    .variants
+                    .get(slot.active)
+                    .map_or_default(|variant| variant.text().to_owned()),
+            })
             .collect()
     }
 
-    /// FR-81: starts the fade-in of a Slot whose Active variant changed since `before`
-    /// (cycle, delete, undo), `delay` from now. Typing in a Variant changes neither, so it
-    /// does not fade.
-    fn fade_in_changed(&mut self, before: &[(SlotId, usize, usize)], delay: Duration, cx: &App) {
-        let changed = self
-            .shown_variants()
-            .into_iter()
-            .find(|shown| before.iter().any(|old| old.0 == shown.0 && old != shown));
-        if let Some((slot, _, _)) = changed {
-            self.fade_in = Some((slot, cx.background_executor().now() + delay));
+    /// Starts the fade-in of a Slot whose Active variant changed since `before` (cycle,
+    /// delete, undo, redo), `delay` from now. See [`ShownVariant::replaces`].
+    fn fade_in_changed(&mut self, before: &[ShownVariant], delay: Duration, cx: &App) {
+        let changed = self.shown_variants().into_iter().find(|shown| {
+            before
+                .iter()
+                .any(|old| old.slot == shown.slot && shown.replaces(old))
+        });
+        if let Some(shown) = changed {
+            self.fade_in = Some((shown.slot, cx.background_executor().now() + delay));
         }
     }
 
