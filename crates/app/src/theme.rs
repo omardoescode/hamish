@@ -6,6 +6,8 @@ pub struct Theme {
     pub background: Hsla,
     pub panel_background: Hsla,
     pub panel_border: Hsla,
+    /// Width of the Alternatives and Overflow panels.
+    pub panel_width: Pixels,
     pub elevated_background: Hsla,
     pub elevated_row_hover: Hsla,
     /// Corner radius of popovers and the context menu.
@@ -29,6 +31,8 @@ pub struct Theme {
     pub font_size_body: Pixels,
     pub font_size_hint: Pixels,
     pub line_height_body: Pixels,
+    pub font_size_overflow: Pixels,
+    pub line_height_overflow: Pixels,
     /// About 65 ch of the body font: IBM Plex Mono advances 0.6 em, so 65 x 0.6 x 15 px.
     pub column_width: Pixels,
     /// Space above the title when scrolled to the start.
@@ -41,6 +45,7 @@ impl Default for Theme {
             background: rgb(0x0007_0a1e).into(),
             panel_background: rgb(0x000c_0f21).into(),
             panel_border: rgb(0x001a_1d30).into(),
+            panel_width: px(205.),
             elevated_background: rgb(0x0012_1424).into(),
             elevated_row_hover: rgb(0x0027_2531).into(),
             elevated_radius: px(6.),
@@ -62,6 +67,8 @@ impl Default for Theme {
             font_size_body: px(15.),
             font_size_hint: px(10.),
             line_height_body: px(27.),
+            font_size_overflow: px(11.),
+            line_height_overflow: px(18.),
             column_width: px(585.),
             column_top: px(170.),
         }

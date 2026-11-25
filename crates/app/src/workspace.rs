@@ -5,12 +5,13 @@ use gpui::{
 use ka_teb_core::Document;
 
 use crate::actions::{ToggleChrome, ToggleOverflow};
-use crate::overflow_panel;
+use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::{Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
 pub struct Workspace {
     editor: Entity<Editor>,
+    overflow_panel: Entity<OverflowPanel>,
     chrome_visible: bool,
     overflow_open: bool,
     _editor_changes: Subscription,
@@ -21,8 +22,10 @@ impl Workspace {
         let editor = cx.new(|cx| Editor::new(document, cx));
         window.focus(&editor.focus_handle(cx));
         let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
         Self {
             editor,
+            overflow_panel,
             chrome_visible: false,
             overflow_open: false,
             _editor_changes: editor_changes,
@@ -46,9 +49,30 @@ impl Workspace {
         self.overflow_open
     }
 
-    fn toggle_overflow(&mut self, _: &ToggleOverflow, _: &mut Window, cx: &mut Context<Self>) {
+    #[must_use]
+    pub fn overflow_panel(&self) -> &Entity<OverflowPanel> {
+        &self.overflow_panel
+    }
+
+    /// Opening gives Overflow the keyboard; closing gives it back to the Document.
+    fn toggle_overflow(&mut self, _: &ToggleOverflow, window: &mut Window, cx: &mut Context<Self>) {
         self.overflow_open = !self.overflow_open;
+        let focus = if self.overflow_open {
+            self.overflow_panel.focus_handle(cx)
+        } else {
+            self.editor.focus_handle(cx)
+        };
+        window.focus(&focus);
         cx.notify();
+    }
+
+    /// FR-47: a block dragged from Overflow goes into the Document at the drop point.
+    fn drop_block(&mut self, _: &OverflowBlockDrag, window: &mut Window, cx: &mut Context<Self>) {
+        let caret = self.overflow_panel.read(cx).caret();
+        let position = window.mouse_position();
+        self.editor.update(cx, |editor, cx| {
+            editor.drop_overflow_block(caret, position, cx);
+        });
     }
 
     fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
@@ -76,7 +100,12 @@ impl Render for Workspace {
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::toggle_overflow))
-            .child(self.editor.clone())
+            .child(
+                div()
+                    .size_full()
+                    .on_drop(cx.listener(Self::drop_block))
+                    .child(self.editor.clone()),
+            )
             .child(
                 div()
                     .absolute()
@@ -95,6 +124,9 @@ impl Render for Workspace {
                     .h(theme.edge_fade_height)
                     .bg(fade(0.)),
             )
+            .when(self.overflow_open, |workspace| {
+                workspace.child(self.overflow_panel.clone())
+            })
             .child(
                 div()
                     .id("counter")
