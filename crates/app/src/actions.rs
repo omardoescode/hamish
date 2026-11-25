@@ -57,6 +57,7 @@ gpui::actions!(
         Save,
         SaveAs,
         Open,
+        NewDocument,
         OpenSettings,
         CloseSettings
     ]

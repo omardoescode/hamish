@@ -36,7 +36,7 @@ pub struct Workspace {
     _editor_changes: Subscription,
     _settings_saves: Subscription,
     _editor_events: Subscription,
-    _lab_changes: Subscription,
+    lab_changes: Subscription,
 }
 
 /// Height of the Chrome bar at UI scale 1.
@@ -82,7 +82,7 @@ impl Workspace {
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
             _editor_events: editor_events,
-            _lab_changes: lab_changes,
+            lab_changes,
         }
     }
 
@@ -232,6 +232,19 @@ impl Workspace {
             .update(cx, |editor, cx| editor.drag_block_over(over, cx));
     }
 
+    /// Closes the panels and starts a new Lab and Overflow panel, as on app start. The
+    /// Document gets the keyboard.
+    pub(crate) fn reset_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.alternatives = None;
+        self.overflow_open = false;
+        let editor = self.editor.clone();
+        self.overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
+        self.lab = cx.new(|cx| Lab::new(editor, cx));
+        self.lab_changes = cx.observe(&self.lab, |_, _, cx| cx.notify());
+        window.focus(&self.editor.focus_handle(cx));
+        cx.notify();
+    }
+
     /// Lab actions that reach the Workspace (the focus is outside the Lab) go to the Lab.
     fn route_lab_actions(&self, root: gpui::Div) -> gpui::Div {
         let lab = &self.lab;
@@ -260,7 +273,7 @@ fn to_lab<A: 'static>(
 }
 
 impl Workspace {
-    /// The Chrome bar: Save and Open left, LAB center, Settings and Overflow right.
+    /// The Chrome bar: New, Save, and Open left, LAB center, Settings and Overflow right.
     fn chrome_bar(&self, theme: &Theme, height: Pixels, cx: &Context<Self>) -> impl IntoElement {
         div()
             .id("chrome")
@@ -359,6 +372,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
+            .on_action(cx.listener(Self::new_document))
             .map(|workspace| self.route_lab_actions(workspace))
             .child(
                 div()

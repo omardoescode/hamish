@@ -32,10 +32,10 @@ use gpui::{App, KeyBinding};
 
 pub use actions::{
     AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, DeleteActiveVariant,
-    LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline,
-    Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs, SelectAll, SelectDown,
-    SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome,
-    ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
+    LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp,
+    NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs,
+    SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp,
+    Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};
 pub use alternatives_panel::AlternativesPanel;
@@ -118,6 +118,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-s", Save, None),
         KeyBinding::new("ctrl-shift-s", SaveAs, None),
         KeyBinding::new("ctrl-o", Open, None),
+        KeyBinding::new("ctrl-n", NewDocument, None),
         KeyBinding::new("ctrl-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
