@@ -1,4 +1,4 @@
-use app::{ToggleChrome, ToggleOverflow, Workspace};
+use app::{ToggleOverflow, Workspace};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
 use ka_teb_core::{Document, LoadedSettings, Settings};
 
@@ -22,7 +22,6 @@ fn open<'a>(
     let text = text.to_owned();
     let (workspace, cx) =
         cx.add_window_view(move |window, cx| Workspace::new(Document::new(&text), window, cx));
-    cx.dispatch_action(ToggleChrome);
     cx.dispatch_action(ToggleOverflow);
     cx.run_until_parked();
     (workspace, cx)

@@ -7,9 +7,7 @@ use gpui::{
 };
 use ka_teb_core::{Document, SlotId, document_title};
 
-use crate::actions::{
-    AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow,
-};
+use crate::actions::{AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
 use crate::lab::{self, Lab};
@@ -26,7 +24,6 @@ pub struct Workspace {
     pub(crate) save_open: SaveOpen,
     lab: Entity<Lab>,
     overflow_panel: Entity<OverflowPanel>,
-    chrome_visible: bool,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
     overflow_open: bool,
     pub(crate) settings_modal: Entity<SettingsModal>,
@@ -75,7 +72,6 @@ impl Workspace {
             overflow_panel,
             save_open: SaveOpen::with_notice(settings::take_start_notice(cx)),
             lab,
-            chrome_visible: false,
             alternatives: None,
             overflow_open: false,
             settings_modal,
@@ -115,12 +111,6 @@ impl Workspace {
         } else {
             title
         }
-    }
-
-    /// Hidden on open; a click on the Counter toggles it.
-    #[must_use]
-    pub fn chrome_visible(&self) -> bool {
-        self.chrome_visible
     }
 
     /// The open Alternatives panel; `None` when it is closed.
@@ -265,11 +255,6 @@ impl Workspace {
             .on_action(to_lab(lab, Lab::walk_cut))
             .on_action(to_lab(lab, Lab::close_trim))
     }
-
-    fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
-        self.chrome_visible = !self.chrome_visible;
-        cx.notify();
-    }
 }
 
 /// An action listener that runs `handle` on `lab`.
@@ -342,7 +327,7 @@ fn title_view(label: String, theme: &Theme) -> impl IntoElement {
         .child(label)
 }
 
-/// The Counter, top left; a click toggles the Chrome.
+/// The Counter, top left.
 fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
     div()
         .id("counter")
@@ -353,8 +338,6 @@ fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
         .left(px(24.))
         .text_size(theme.font_size_hint)
         .text_color(theme.text_muted)
-        .cursor_pointer()
-        .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
         .child(label)
 }
 
@@ -381,7 +364,6 @@ impl Render for Workspace {
             .bg(theme.background)
             .font_family(theme.ui_font.clone())
             .key_context("Workspace")
-            .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::open_alternatives))
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
@@ -425,11 +407,7 @@ impl Render for Workspace {
                     .top_0()
                     .left_0()
                     .right_0()
-                    .bottom(if self.chrome_visible {
-                        bar_height
-                    } else {
-                        px(0.)
-                    })
+                    .bottom(bar_height)
                     .when(self.overflow_open, |panels| {
                         panels.child(self.overflow_panel.clone())
                     })
@@ -437,10 +415,7 @@ impl Render for Workspace {
             )
             .child(title_view(title_label, &theme))
             .child(counter_view(counter_label, &theme))
-            .children(
-                self.chrome_visible
-                    .then(|| self.chrome_bar(&theme, bar_height, cx)),
-            )
+            .child(self.chrome_bar(&theme, bar_height, cx))
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
             .when(self.settings_open, |workspace| {
