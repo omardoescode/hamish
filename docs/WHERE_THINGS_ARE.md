@@ -8,6 +8,7 @@
 | `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
 | `crates/core/src/title.rs` | `document_title`: the title at the top center and on the window (file name, else first line, else "Untitled"). |
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save. |
+| `crates/core/src/theme.rs` | `ThemeName` (named themes, their order, labels, settings file names; `dark`/`light` load as Ka-teb/Ka-teb Light) and each `Palette` (`0xRRGGBB` per color role). |
 | `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
 | `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
 | `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
@@ -33,12 +34,13 @@
 | `crates/app/src/editor/element.rs` | `EditorElement`: layout, prepaint, paint; Markers, hover box, Lab marks, Slot hit test. |
 | `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
 | `crates/app/src/settings.rs` | Settings global: `use_settings`, `is_on` (how views read a setting), the start notice. |
-| `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, save on the background executor. |
+| `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, selects (theme, font), save on the background executor. |
 | `crates/app/src/lab.rs` | `Lab` entity: LAB button, popover with Lab checks, Lab mark card. Holds the `Editor`; the Workspace places it and routes its actions. |
 | `crates/app/src/trim.rs` | Trim part of the `Lab`: trim row, trim bar, Make the cuts, Walk through. |
 | `crates/app/src/sounds.rs` | `SoundSink` and the `Sounds` global; `play` (checks the "Cycle sounds" setting); `DeviceSounds`: cpal/ALSA output on its own thread, silent without a device. |
-| `crates/app/src/theme.rs` | Theme: dark and light colors, sizes from Settings. |
+| `crates/app/src/theme.rs` | Theme: GPUI colors from the `Palette` of the chosen theme, sizes from Settings. |
 | `crates/app/assets/fonts/` | Bundled body font IBM Plex Mono (Regular, Bold, Italic, Bold Italic) and its license (`OFL.txt`). |
+| `crates/app/assets/themes/ATTRIBUTION.md` | Source and license of each named theme palette. |
 | `Cargo.toml` | Workspace, pinned `gpui`, `[workspace.lints]`, `[profile.dist]`. |
 | `rust-toolchain.toml` | Pinned Rust version and components (local and CI). |
 | `rustfmt.toml`, `clippy.toml` | Format and lint config (panic family allowed in tests; banned names, types, methods). |

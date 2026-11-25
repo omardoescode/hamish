@@ -3,8 +3,9 @@
 //! on the background executor.
 
 use gpui::{
-    App, ClickEvent, Context, Div, EventEmitter, FocusHandle, Focusable, IntoElement,
-    MouseDownEvent, Render, SharedString, Stateful, Window, div, prelude::*, px,
+    AnyElement, App, ClickEvent, Context, Corner, Div, EventEmitter, FocusHandle, Focusable,
+    IntoElement, MouseButton, MouseDownEvent, Render, SharedString, Stateful, Window, anchored,
+    deferred, div, prelude::*, px, rgb,
 };
 use ka_teb_core::{Setting, Settings, SettingsError, ThemeName};
 
@@ -18,6 +19,13 @@ enum Section {
     Editor,
 }
 
+/// A select field: a button with the current choice that opens a list of choices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Select {
+    Theme,
+    Font,
+}
+
 /// A settings save failed.
 pub(crate) struct SaveFailed(pub(crate) String);
 
@@ -26,6 +34,8 @@ pub struct SettingsModal {
     section: Section,
     /// The bundled font first, then the fonts the text system knows.
     fonts: Vec<SharedString>,
+    /// The select whose list shows, if one does.
+    open_select: Option<Select>,
     saving: bool,
     /// A save asked for while one runs; it starts when that one ends.
     queued: bool,
@@ -49,6 +59,7 @@ impl SettingsModal {
             focus_handle: cx.focus_handle(),
             section: Section::Appearance,
             fonts,
+            open_select: None,
             saving: false,
             queued: false,
         }
@@ -95,7 +106,116 @@ impl SettingsModal {
 
     fn show(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
+        self.open_select = None;
         cx.notify();
+    }
+
+    fn toggle_select(&mut self, select: Select, cx: &mut Context<Self>) {
+        self.open_select = (self.open_select != Some(select)).then_some(select);
+        cx.notify();
+    }
+
+    fn close_select(&mut self, cx: &mut Context<Self>) {
+        if self.open_select.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// A select field: the button shows `current`; when open, a list of `rows` shows
+    /// under it, over the fields below.
+    fn select(
+        &self,
+        select: Select,
+        current: impl IntoElement,
+        rows: Vec<AnyElement>,
+        theme: &Theme,
+        cx: &Context<Self>,
+    ) -> Div {
+        let (button_id, list_id) = match select {
+            Select::Theme => ("settings-theme-select", "settings-theme-list"),
+            Select::Font => ("settings-font-select", "settings-font-list"),
+        };
+        let open = self.open_select == Some(select);
+        let scale = theme.font_size_hint / px(10.);
+        let width = px(240.) * scale;
+        let button = div()
+            .id(button_id)
+            .debug_selector(|| button_id.to_owned())
+            .w(width)
+            .px(px(8.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(8.))
+            .border_1()
+            .rounded(theme.elevated_radius)
+            .border_color(if open {
+                theme.accent_outline
+            } else {
+                theme.panel_border
+            })
+            .cursor_pointer()
+            .hover(|button| button.bg(theme.elevated_row_hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
+                modal.toggle_select(select, cx);
+            }))
+            .child(div().overflow_hidden().whitespace_nowrap().child(current))
+            .child(div().text_color(theme.text_muted).child(if open {
+                "\u{25b4}"
+            } else {
+                "\u{25be}"
+            }));
+        let list = open.then(|| {
+            deferred(
+                anchored()
+                    .anchor(Corner::TopLeft)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(
+                        div()
+                            .id(list_id)
+                            .occlude()
+                            .mt(px(2.))
+                            .w(width)
+                            .max_h(px(220.) * scale)
+                            .overflow_y_scroll()
+                            .p(px(4.))
+                            .bg(theme.elevated_background)
+                            .border_1()
+                            .border_color(theme.panel_border)
+                            .rounded(theme.elevated_radius)
+                            .shadow_md()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .children(rows),
+                    ),
+            )
+        });
+        div().flex().flex_col().child(button).children(list)
+    }
+
+    /// One choice in the list of a select; `chosen` shows in the accent color.
+    fn select_row(
+        id: String,
+        chosen: bool,
+        theme: &Theme,
+        cx: &Context<Self>,
+        change: impl Fn(&mut Settings) + 'static,
+    ) -> Stateful<Div> {
+        div()
+            .id(SharedString::from(id.clone()))
+            .debug_selector(move || id.clone())
+            .px(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .rounded(theme.elevated_radius)
+            .cursor_pointer()
+            .hover(|row| row.bg(theme.elevated_row_hover))
+            .text_color(if chosen { theme.accent } else { theme.text })
+            .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
+                modal.open_select = None;
+                modal.change(cx, &change);
+            }))
     }
 
     fn section_row(&self, section: Section, theme: &Theme, cx: &Context<Self>) -> Stateful<Div> {
@@ -117,18 +237,28 @@ impl SettingsModal {
             .child(label)
     }
 
-    fn appearance(settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let choice = |name: ThemeName| {
-            let (id, label) = match name {
-                ThemeName::Dark => ("settings-theme-dark", "Dark"),
-                ThemeName::Light => ("settings-theme-light", "Light"),
-            };
-            choice_button(id, label, settings.theme == name, theme).on_click(cx.listener(
-                move |modal, _: &ClickEvent, _, cx| {
-                    modal.change(cx, |settings| settings.theme = name);
-                },
-            ))
-        };
+    fn appearance(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
+        let themes = ThemeName::ALL
+            .into_iter()
+            .map(|name| {
+                Self::select_row(
+                    format!("settings-theme-{}", name.slug()),
+                    settings.theme == name,
+                    theme,
+                    cx,
+                    move |settings| settings.theme = name,
+                )
+                .child(swatch(name, theme))
+                .child(name.label())
+                .into_any_element()
+            })
+            .collect();
+        let current = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(swatch(settings.theme, theme))
+            .child(settings.theme.label());
         let motion = |reduced: bool| {
             let (id, label) = if reduced {
                 ("settings-reduced-motion-on", "On")
@@ -160,11 +290,7 @@ impl SettingsModal {
             .child(field(
                 "Theme",
                 theme,
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(choice(ThemeName::Dark))
-                    .child(choice(ThemeName::Light)),
+                self.select(Select::Theme, current, themes, theme, cx),
             ))
             .child(Self::stepper(Setting::UiScale, settings, theme, cx))
             .child(field(
@@ -188,25 +314,27 @@ impl SettingsModal {
     }
 
     fn editor(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let fonts = self.fonts.iter().enumerate().map(|(index, family)| {
-            let id = format!("settings-font-{index}");
-            let chosen = settings.font_family == family.as_ref();
-            let pick = family.to_string();
-            div()
-                .id(SharedString::from(id.clone()))
-                .debug_selector(move || id.clone())
-                .px(px(6.))
-                .rounded(theme.elevated_radius)
-                .cursor_pointer()
-                .hover(|row| row.bg(theme.elevated_row_hover))
-                .text_color(if chosen { theme.accent } else { theme.text })
+        let fonts = self
+            .fonts
+            .iter()
+            .enumerate()
+            .map(|(index, family)| {
+                let pick = family.to_string();
+                Self::select_row(
+                    format!("settings-font-{index}"),
+                    settings.font_family == family.as_ref(),
+                    theme,
+                    cx,
+                    move |settings| settings.font_family.clone_from(&pick),
+                )
                 .font_family(family.clone())
-                .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
-                    let pick = pick.clone();
-                    modal.change(cx, |settings| settings.font_family = pick);
-                }))
                 .child(family.clone())
-        });
+                .into_any_element()
+            })
+            .collect();
+        let current = div()
+            .font_family(settings.font_family.clone())
+            .child(settings.font_family.clone());
         div()
             .flex()
             .flex_col()
@@ -214,15 +342,7 @@ impl SettingsModal {
             .child(field(
                 "Font",
                 theme,
-                div()
-                    .id("settings-fonts")
-                    .h(px(140.) * (theme.font_size_hint / px(10.)))
-                    .w_full()
-                    .overflow_y_scroll()
-                    .border_1()
-                    .border_color(theme.panel_border)
-                    .rounded(theme.elevated_radius)
-                    .children(fonts),
+                self.select(Select::Font, current, fonts, theme, cx),
             ))
             .child(Self::stepper(Setting::FontSize, settings, theme, cx))
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
@@ -337,6 +457,21 @@ fn choice_button(
         .child(label)
 }
 
+/// A small square in the background color of `name` with a dot in its accent color.
+fn swatch(name: ThemeName, theme: &Theme) -> Div {
+    let palette = name.palette();
+    div()
+        .size(px(12.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(2.))
+        .border_1()
+        .border_color(theme.panel_border)
+        .bg(rgb(palette.background))
+        .child(div().size(px(4.)).rounded_full().bg(rgb(palette.accent)))
+}
+
 /// A field row: its label above its control.
 fn field(label: &'static str, theme: &Theme, control: impl IntoElement) -> Div {
     div()
@@ -358,7 +493,7 @@ impl Render for SettingsModal {
         let theme = cx.global::<Theme>().clone();
         let settings = cx.global::<SettingsStore>().settings.clone();
         let fields = match self.section {
-            Section::Appearance => Self::appearance(&settings, &theme, cx),
+            Section::Appearance => self.appearance(&settings, &theme, cx),
             Section::Editor => self.editor(&settings, &theme, cx),
         };
         let scale = theme.font_size_hint / px(10.);
@@ -391,7 +526,13 @@ impl Render for SettingsModal {
                     .text_size(theme.font_size_overflow)
                     .line_height(theme.line_height_overflow)
                     .text_color(theme.text)
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|modal, _: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            modal.close_select(cx);
+                        }),
+                    )
                     .child(
                         div()
                             .w(px(140.) * scale)
