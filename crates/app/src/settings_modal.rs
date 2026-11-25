@@ -35,6 +35,12 @@ pub fn use_settings(path: Option<PathBuf>, loaded: LoadedSettings, cx: &mut App)
     });
 }
 
+/// Effects are instant (spec NFR "Reduced motion").
+pub(crate) fn reduced_motion(cx: &App) -> bool {
+    cx.try_global::<SettingsStore>()
+        .is_some_and(|store| store.settings.reduced_motion)
+}
+
 /// The notice for a settings file that did not load at start; it shows one time.
 pub(crate) fn take_start_notice(cx: &mut App) -> Option<Notice> {
     let problem = cx

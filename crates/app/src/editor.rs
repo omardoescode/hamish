@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::time::Instant;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
@@ -8,7 +9,7 @@ use gpui::{
     Size, Style, TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point,
     prelude::*, px, relative, size,
 };
-use ka_teb_core::{Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, SlotId};
+use ka_teb_core::{Cycle, Document, Effect, LabError, Level, MarkdownSpan, MarkdownStyle, SlotId};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
@@ -20,6 +21,7 @@ use crate::actions::{
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
+use crate::settings_modal;
 
 /// How a Slot shows that it has Variants (FR-12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +54,9 @@ const HOVER_RADIUS: Pixels = px(3.);
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
 
+/// Opacity of new Active variant text when its fade-in starts (FR-81: "low opacity").
+const FADE_IN_START_OPACITY: f32 = 0.2;
+
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
 pub struct Editor {
     document: Document,
@@ -70,6 +75,8 @@ pub struct Editor {
     spotlight: Option<Spotlight>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
+    /// The Slot whose Active variant last changed, and when (FR-81).
+    fade_in: Option<(SlotId, Instant)>,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims (FR-27).
@@ -119,6 +126,7 @@ impl Editor {
             context_menu: None,
             spotlight: None,
             saved: None,
+            fade_in: None,
         }
     }
 
@@ -353,6 +361,43 @@ impl Editor {
         true
     }
 
+    /// Each Slot with the index of its Active variant and its Variant count.
+    fn shown_variants(&self) -> Vec<(SlotId, usize, usize)> {
+        self.document
+            .slots()
+            .iter()
+            .map(|slot| (slot.id, slot.active, slot.variants.len()))
+            .collect()
+    }
+
+    /// FR-81: starts the fade-in of a Slot whose Active variant changed since `before`
+    /// (cycle, delete, undo). Typing in a Variant changes neither, so it does not fade.
+    fn fade_in_changed(&mut self, before: &[(SlotId, usize, usize)], cx: &App) {
+        let changed = self
+            .shown_variants()
+            .into_iter()
+            .find(|shown| before.iter().any(|old| old.0 == shown.0 && old != shown));
+        if let Some((slot, _, _)) = changed {
+            self.fade_in = Some((slot, cx.background_executor().now()));
+        }
+    }
+
+    /// The Slot whose new Active variant fades in now, and its text opacity. `None` when
+    /// no fade runs; with reduced motion a fade is done at once.
+    #[must_use]
+    pub fn fading_in(&self, cx: &App) -> Option<(SlotId, f32)> {
+        let (slot, started) = self.fade_in?;
+        let elapsed = cx
+            .background_executor()
+            .now()
+            .saturating_duration_since(started);
+        let progress = Effect::VariantFadeIn.progress(elapsed, settings_modal::reduced_motion(cx));
+        (progress < 1.).then_some((
+            slot,
+            FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,
+        ))
+    }
+
     /// Runs one Document API call that makes at most one core undo step, as one editor
     /// undo step. The selection follows the text change.
     pub(crate) fn change_document<T, E>(
@@ -361,7 +406,9 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
         let old_text = self.document.text().to_owned();
+        let shown = self.shown_variants();
         let done = change(&mut self.document)?;
+        self.fade_in_changed(&shown, cx);
         let new_text = self.document.text();
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
@@ -508,9 +555,11 @@ impl Editor {
         let Some(group) = self.history.undo() else {
             return;
         };
+        let shown = self.shown_variants();
         for _ in 0..group.steps {
             self.document.undo();
         }
+        self.fade_in_changed(&shown, cx);
         self.selection = group.before;
         self.reversed = false;
         self.autoscroll = true;
@@ -521,9 +570,11 @@ impl Editor {
         let Some(group) = self.history.redo() else {
             return;
         };
+        let shown = self.shown_variants();
         for _ in 0..group.steps {
             self.document.redo();
         }
+        self.fade_in_changed(&shown, cx);
         self.selection = group.after;
         self.reversed = false;
         self.autoscroll = true;
@@ -1254,6 +1305,13 @@ impl EditorElement {
             }
         })
         .collect();
+        let fading = editor
+            .fading_in(cx)
+            .and_then(|(id, opacity)| editor.document.slot(id).map(|slot| (slot.range, opacity)));
+        let runs = match fading {
+            Some((range, opacity)) => faded_runs(&runs, &range, opacity),
+            None => runs,
+        };
         if runs.is_empty() {
             let empty = TextRun {
                 len: 0,
@@ -1359,6 +1417,40 @@ fn shape_sized(
         start = end + 1;
     }
     lines
+}
+
+/// `runs` (which cover the text from offset 0) with the part inside byte `range` at
+/// `opacity`.
+fn faded_runs(runs: &[TextRun], range: &Range<usize>, opacity: f32) -> Vec<TextRun> {
+    let mut at = 0;
+    let mut faded = Vec::with_capacity(runs.len() + 2);
+    for run in runs {
+        let start = at;
+        at += run.len;
+        let inside = start.max(range.start)..at.min(range.end);
+        if inside.is_empty() {
+            faded.push(run.clone());
+            continue;
+        }
+        let parts = [
+            (start..inside.start, 1.),
+            (inside.clone(), opacity),
+            (inside.end..at, 1.),
+        ];
+        faded.extend(parts.into_iter().filter(|(part, _)| !part.is_empty()).map(
+            |(part, factor)| TextRun {
+                len: part.len(),
+                color: run.color.opacity(factor),
+                background_color: run.background_color.map(|color| color.opacity(factor)),
+                underline: run.underline.map(|underline| UnderlineStyle {
+                    color: underline.color.map(|color| color.opacity(factor)),
+                    ..underline
+                }),
+                ..run.clone()
+            },
+        ));
+    }
+    faded
 }
 
 /// The parts of `runs` (which cover the text from offset 0) inside byte `range`.
@@ -1501,6 +1593,9 @@ impl Element for EditorElement {
                     theme.accent,
                 )
             });
+        if editor.fading_in(cx).is_some() {
+            window.request_animation_frame();
+        }
         if editor.autoscroll {
             scroll_into_view(
                 &editor.scroll_handle,
@@ -1707,7 +1802,26 @@ pub(crate) fn scroll_into_view(
 mod tests {
     use ka_teb_core::{MarkdownSpan, MarkdownStyle};
 
-    use super::{Span, follow_change, heading_lines, spans};
+    use gpui::{TextRun, font, hsla};
+
+    use super::{Span, faded_runs, follow_change, heading_lines, spans};
+
+    #[test]
+    fn a_fade_splits_the_runs_at_its_range_and_dims_only_inside() {
+        let run = |len| TextRun {
+            len,
+            font: font("IBM Plex Mono"),
+            color: hsla(0., 0., 1., 1.),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+
+        let faded = faded_runs(&[run(4), run(6)], &(2..7), 0.5);
+
+        let shape: Vec<(usize, f32)> = faded.iter().map(|run| (run.len, run.color.a)).collect();
+        assert_eq!(shape, [(2, 1.), (2, 0.5), (3, 0.5), (3, 1.)]);
+    }
 
     #[test]
     fn ghost_and_slot_ranges_split_the_text_into_styled_spans() {
