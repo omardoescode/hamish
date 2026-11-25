@@ -12,6 +12,8 @@ pub enum Effect {
     Explosion,
     /// Burst when an undo puts a deleted Variant back (FR-79); shorter than the explosion.
     UndoBurst,
+    /// The paragraph with the caret zooms in, the one it left zooms out (FR-83).
+    FocusZoom,
 }
 
 impl Effect {
@@ -19,9 +21,9 @@ impl Effect {
     #[must_use]
     pub const fn duration(self) -> Duration {
         match self {
-            Self::VariantFadeIn => Duration::from_millis(150),
             Self::Explosion => Duration::from_millis(650),
             Self::UndoBurst => Duration::from_millis(450),
+            Self::VariantFadeIn | Self::FocusZoom => Duration::from_millis(150),
         }
     }
 

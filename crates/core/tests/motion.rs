@@ -31,6 +31,14 @@ fn the_undo_burst_runs_450_ms() {
 }
 
 #[test]
+fn the_focus_zoom_runs_150_ms() {
+    let zoom = Effect::FocusZoom;
+    assert_eq!(zoom.duration(), ms(150));
+    assert!((zoom.progress(ms(75), false) - 0.5).abs() < 1e-6);
+    assert!((zoom.progress(ms(0), true) - 1.0).abs() < 1e-6);
+}
+
+#[test]
 fn with_reduced_motion_an_effect_is_done_at_once() {
     assert!((Effect::VariantFadeIn.progress(ms(0), true) - 1.0).abs() < 1e-6);
     assert!((Effect::Explosion.progress(ms(0), true) - 1.0).abs() < 1e-6);
