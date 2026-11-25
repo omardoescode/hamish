@@ -70,3 +70,25 @@ fn selection_counter_rejects_a_range_outside_the_text() {
     let document = Document::new("Hello");
     assert!(document.selection_counter(2..9).is_err());
 }
+
+#[test]
+fn title_is_the_first_line_when_it_has_text() {
+    let examples = [
+        ("My draft\nThe body starts here.", Some("My draft")),
+        ("One line only", Some("One line only")),
+        ("Windows title\r\nBody", Some("Windows title")),
+        ("", None),
+        ("\nBody after an empty first line", None),
+        ("   \nBody after a blank first line", None),
+    ];
+    for (text, expected) in examples {
+        assert_eq!(Document::new(text).title(), expected, "{text:?}");
+    }
+}
+
+#[test]
+fn title_follows_edits_to_the_first_line() {
+    let mut document = Document::new("\nBody");
+    document.insert(0, "Late title").unwrap();
+    assert_eq!(document.title(), Some("Late title"));
+}

@@ -45,6 +45,15 @@ impl Document {
         Counter::of(&self.text)
     }
 
+    /// The first line, shown as the title (FR-5). `None` when the first line is blank.
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.text
+            .lines()
+            .next()
+            .filter(|line| !line.trim().is_empty())
+    }
+
     /// Counter of the text in byte range `selection`.
     ///
     /// # Errors
