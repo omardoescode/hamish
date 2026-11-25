@@ -2,7 +2,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use app::{Ai, AiAlternatives, AiStatus, AlternativesPanel, Workspace};
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{
+    Bounds, Entity, EntityInputHandler, Keystroke, Modifiers, MouseButton, TestAppContext,
+    VisualTestContext, point, px,
+};
 use ka_teb_core::{
     AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, Provenance, TrimRequest,
 };
@@ -155,4 +158,134 @@ fn the_panel_shows_the_loading_row_while_the_ai_works(cx: &mut TestAppContext) {
     cx.update(|window, _| window.refresh());
 
     assert!(cx.debug_bounds("alternatives-ai-status").is_some());
+}
+
+#[gpui::test]
+fn one_undo_removes_the_whole_ai_request(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(client_and_patron()));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-g");
+    assert_eq!(rows(&workspace, cx).len(), 3);
+
+    cx.simulate_keystrokes("escape ctrl-z");
+
+    let slots = cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .document()
+            .slots()
+            .len()
+    });
+    assert_eq!(slots, 0);
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+}
+
+#[gpui::test]
+fn ai_variants_can_be_removed_one_by_one(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(client_and_patron()));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-g");
+
+    cx.simulate_keystrokes("up ctrl-backspace");
+
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![
+            row("customer", Provenance::Writer, true),
+            row("client", Provenance::Ai, false),
+        ]
+    );
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+}
+
+#[gpui::test]
+fn ctrl_shift_g_in_the_panel_adds_ai_variants_to_the_slot_it_shows(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(client_and_patron()));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up");
+    cx.simulate_input("buyer");
+    cx.simulate_keystrokes("enter up");
+    assert_eq!(text(&workspace, cx), "Title\nThe buyer waits.");
+
+    cx.simulate_keystrokes("ctrl-shift-g");
+
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![
+            row("customer", Provenance::Writer, false),
+            row("buyer", Provenance::Writer, true),
+            row("client", Provenance::Ai, false),
+            row("patron", Provenance::Ai, false),
+        ]
+    );
+    assert_eq!(text(&workspace, cx), "Title\nThe buyer waits.");
+}
+
+#[gpui::test]
+fn a_result_that_arrives_after_the_panel_closed_is_still_added(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(client_and_patron()));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+
+    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+    cx.update(|window, cx| {
+        let escape = Keystroke::parse("escape").expect("a valid keystroke");
+        window.dispatch_keystroke(escape, cx)
+    });
+    assert!(cx.read(|cx| workspace.read(cx).alternatives_panel().is_none()));
+    cx.run_until_parked();
+
+    let variants = cx.read(|cx| {
+        let document = workspace.read(cx).editor().read(cx).document();
+        document.slots().first().map(|slot| {
+            slot.variants
+                .iter()
+                .map(|variant| variant.text().to_owned())
+                .collect::<Vec<_>>()
+        })
+    });
+    assert_eq!(
+        variants,
+        Some(vec![
+            "customer".to_owned(),
+            "client".to_owned(),
+            "patron".to_owned()
+        ])
+    );
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn right_click_on(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, offset: usize) {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    let bounds = cx
+        .update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.bounds_for_range(offset..offset, Bounds::default(), window, cx)
+            })
+        })
+        .expect("the editor painted the text");
+    let position = bounds.origin + point(px(3.), bounds.size.height / 2.);
+    cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
+}
+
+#[gpui::test]
+fn the_context_menu_row_asks_the_ai_for_the_word(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(client_and_patron()));
+    right_click_on(&workspace, cx, 13);
+
+    let menu_row = cx
+        .debug_bounds("context-menu-row-1")
+        .expect("the menu is open");
+    cx.simulate_click(menu_row.center(), Modifiers::none());
+
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![
+            row("customer", Provenance::Writer, true),
+            row("client", Provenance::Ai, false),
+            row("patron", Provenance::Ai, false),
+        ]
+    );
 }
