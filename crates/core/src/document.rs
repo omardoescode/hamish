@@ -6,10 +6,11 @@ use crate::ghost;
 use crate::slot::{self, SlotNode};
 use crate::{
     Counter, Cycle, GhostError, LabMark, LabMarkId, Level, Overflow, OverflowError, Provenance,
-    Slot, SlotError, SlotId, Variant,
+    Slot, SlotError, SlotId, TrimProposal, Variant,
 };
 
-/// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, and edit history.
+/// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, Trim proposal,
+/// and edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
@@ -19,6 +20,7 @@ pub struct Document {
     next_slot: SlotId,
     lab_marks: Vec<LabMark>,
     next_lab_mark: LabMarkId,
+    pub(crate) trim: Option<TrimProposal>,
     undo_steps: Vec<Step>,
     redo_steps: Vec<Step>,
 }
@@ -101,7 +103,7 @@ impl Document {
     /// Counter of the Document. Ghost text is not counted; a Ghost range splits words.
     #[must_use]
     pub fn counter(&self) -> Counter {
-        self.count(0..self.text.len())
+        self.count_outside(0..self.text.len(), &[])
     }
 
     /// The visible Ghost ranges in document order, as byte ranges of the active text.
@@ -152,11 +154,14 @@ impl Document {
         Ok(())
     }
 
-    /// Counter of the text in `range` outside Ghost ranges, each piece on its own.
-    fn count(&self, range: Range<usize>) -> Counter {
+    /// Counter of the text in `range` outside Ghost ranges and `excluded`, each piece on its own.
+    pub(crate) fn count_outside(&self, range: Range<usize>, excluded: &[Range<usize>]) -> Counter {
+        let mut skipped = self.ghost_ranges();
+        skipped.extend_from_slice(excluded);
+        skipped.sort_by_key(|skip| skip.start);
         let mut pieces = Vec::new();
         let mut from = range.start;
-        for ghost in self.ghost_ranges() {
+        for ghost in skipped {
             let to = ghost.start.clamp(from, range.end);
             pieces.push(from..to);
             from = ghost.end.clamp(from, range.end);
@@ -189,7 +194,7 @@ impl Document {
         if self.text.get(selection.clone()).is_none() {
             return Err(RangeError { range: selection });
         }
-        Ok(self.count(selection))
+        Ok(self.count_outside(selection, &[]))
     }
 
     /// The visible Slots in document order, each parent before the Slots nested in it.
@@ -460,6 +465,38 @@ impl Document {
         self.commit(range, text, self.tree(slots, ghosts))
     }
 
+    /// Deletes `ranges` as one undoable writer edit. `ranges` are sorted and do not overlap.
+    pub(crate) fn delete_ranges(&mut self, ranges: &[Range<usize>]) -> Result<(), RangeError> {
+        let (Some(first), Some(last)) = (ranges.first(), ranges.last()) else {
+            return Ok(());
+        };
+        let span = first.start..last.end;
+        let mut kept = self
+            .text
+            .get(span.clone())
+            .ok_or(RangeError {
+                range: span.clone(),
+            })?
+            .to_owned();
+        let mut slots = self.slots.clone();
+        let mut ghosts = self.ghosts.clone();
+        let mut marks = self.lab_marks.clone();
+        for range in ranges.iter().rev() {
+            let piece = range.start - span.start..range.end - span.start;
+            kept.get(piece.clone()).ok_or(RangeError {
+                range: range.clone(),
+            })?;
+            kept.replace_range(piece, "");
+            slot::shift(&mut slots, &mut ghosts, range, 0, true, None);
+            marks = marks
+                .into_iter()
+                .filter_map(|mark| mark.follow(range, 0))
+                .collect();
+        }
+        let tree = self.tree(slots, ghosts);
+        self.record(span, &kept, tree, marks)
+    }
+
     /// The open Lab marks in document order.
     #[must_use]
     pub fn lab_marks(&self) -> &[LabMark] {
@@ -495,7 +532,7 @@ impl Document {
     }
 
     /// Replaces `range` with `inserted` and sets the Slots, Ghost ranges, and Lab marks,
-    /// as one undoable step.
+    /// as one undoable step. The Trim proposal follows the edit.
     fn record(
         &mut self,
         range: Range<usize>,
@@ -525,6 +562,7 @@ impl Document {
         self.text = text;
         self.set_tree(tree.clone());
         let marks_before = std::mem::replace(&mut self.lab_marks, marks);
+        self.follow_trim(&range, inserted.len());
         self.undo_steps.push(Step {
             at: range.start,
             removed,
@@ -630,6 +668,7 @@ impl Document {
         self.text.replace_range(step.at..end, &step.removed);
         self.set_tree(step.before.clone());
         self.lab_marks.clone_from(&step.marks_before);
+        self.follow_trim(&(step.at..end), step.removed.len());
         step.inverse()
     }
 

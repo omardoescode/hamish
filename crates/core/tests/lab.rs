@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use ka_teb_core::{
     AiAdapter, AiError, AiRequest, Document, LabCheck, LabError, LabFinding, LabMark, LabMarkId,
-    LabRequest, Level, Provenance,
+    LabRequest, Level, Provenance, TrimRequest,
 };
 
 /// Returns fixed findings, as an AI backend would.
@@ -15,6 +15,10 @@ impl AiAdapter for FakeAdapter {
 
     fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
         Ok(self.0.clone())
+    }
+
+    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+        Ok(Vec::new())
     }
 }
 

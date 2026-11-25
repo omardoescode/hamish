@@ -7,7 +7,8 @@ use std::time::Duration;
 pub use claude::ClaudeBackend;
 
 use crate::{
-    Document, LabFinding, LabRequest, Level, Provenance, RangeError, SlotError, SlotId, Variant,
+    Document, LabFinding, LabRequest, Level, Provenance, RangeError, SlotError, SlotId,
+    TrimRequest, Variant,
 };
 
 /// What the AI gets: the selected text and the text around it.
@@ -43,7 +44,7 @@ impl AiRequest {
     }
 }
 
-/// The one way to ask an AI for Variants and Lab checks. Implementations block, so the app calls them
+/// The one way to ask an AI for Variants, Lab checks, and Trims. Implementations block, so the app calls them
 /// on a background thread.
 pub trait AiAdapter: Send + Sync {
     /// Variant texts for the selection of `request`.
@@ -58,6 +59,13 @@ pub trait AiAdapter: Send + Sync {
     /// # Errors
     /// [`AiError`] when the AI gives no usable answer.
     fn lab_check(&self, request: &LabRequest) -> Result<Vec<LabFinding>, AiError>;
+
+    /// The byte ranges of the request text to cut for the Trim level of `request`.
+    /// It never rewrites text.
+    ///
+    /// # Errors
+    /// [`AiError`] when the AI gives no usable answer.
+    fn trim(&self, request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError>;
 }
 
 /// Why an AI call gave no answer.
