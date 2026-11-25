@@ -865,3 +865,47 @@ fn undo_restores_nested_slots_and_their_choices() {
     document.set_active(paragraph, 1).unwrap();
     assert_eq!(document.slot(dog).unwrap().active, 1);
 }
+
+#[test]
+fn a_delete_that_ends_a_slot_returns_the_range_of_its_kept_text() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    assert_eq!(document.delete_variant(id, 1), Ok(None));
+    document.set_active(id, 1).unwrap();
+    assert_eq!(document.delete_variant(id, 0), Ok(Some(4..7)));
+    assert_eq!(document.text(), "The fox sat.");
+}
+
+#[test]
+fn the_kept_text_range_of_an_ended_slot_follows_a_changed_article() {
+    let mut document = Document::new("It is a thumbtack here.");
+    let id = document
+        .create_slot(8..17, Level::Word, "eraser", Provenance::Writer)
+        .unwrap();
+    assert_eq!(document.delete_variant(id, 0), Ok(Some(9..15)));
+    assert_eq!(document.text(), "It is an eraser here.");
+}
+
+#[test]
+fn the_kept_text_range_of_an_ended_nested_slot_is_in_the_document() {
+    let mut document = Document::new(
+        "Title
+The cat sat.",
+    );
+    let sentence = document
+        .create_slot(6..18, Level::Sentence, "No.", Provenance::Writer)
+        .unwrap();
+    let word = document
+        .create_slot(10..13, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    assert_eq!(document.delete_variant(word, 0), Ok(Some(10..13)));
+    assert_eq!(
+        document.text(),
+        "Title
+The dog sat."
+    );
+    assert!(document.slot(sentence).is_some());
+}

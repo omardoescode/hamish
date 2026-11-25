@@ -301,7 +301,8 @@ impl Document {
         self.change_slot(id, SlotChange::Switch, |node| {
             node.push_variant(text, provenance);
             Ok(())
-        })
+        })?;
+        Ok(())
     }
 
     /// Adds `texts` as Variants at the end of Slot `id`, as one undoable step.
@@ -316,7 +317,8 @@ impl Document {
                 node.push_variant(text, provenance);
             }
             Ok(())
-        })
+        })?;
+        Ok(())
     }
 
     /// Makes Variant `index` of Slot `id` the Active variant.
@@ -347,17 +349,22 @@ impl Document {
 
     /// Deletes Variant `index` of Slot `id`; any Variant can go, the Original too. When it
     /// was active, the next Variant shows; after the last one, the first.
-    /// A Slot left with fewer than two Variants ends; its active text stays.
+    /// A Slot left with fewer than two Variants ends; its active text stays. Returns the
+    /// byte range of that kept text when the Slot ends (Article agreement may move it), else `None`.
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
-    pub fn delete_variant(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
+    pub fn delete_variant(
+        &mut self,
+        id: SlotId,
+        index: usize,
+    ) -> Result<Option<Range<usize>>, SlotError> {
         let steps = self.undo_steps.len();
-        self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))?;
+        let kept = self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))?;
         if let Some(step) = self.undo_steps.get_mut(steps) {
             step.variant_deleted = Some(id);
         }
-        Ok(())
+        Ok(kept)
     }
 
     /// The Slot whose Variant the next [`Document::undo`] puts back: `Some` when the last
@@ -375,17 +382,18 @@ impl Document {
     pub fn edit_variant(&mut self, id: SlotId, index: usize, text: &str) -> Result<(), SlotError> {
         self.change_slot(id, SlotChange::WriterText, |node| {
             node.edit_variant(index, text)
-        })
+        })?;
+        Ok(())
     }
 
     /// Runs `change` on Slot `id`, then shows its Active variant text in its range,
-    /// as one undoable step.
+    /// as one undoable step. Returns the range of the shown text when the Slot ends.
     fn change_slot(
         &mut self,
         id: SlotId,
         kind: SlotChange,
         change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
-    ) -> Result<(), SlotError> {
+    ) -> Result<Option<Range<usize>>, SlotError> {
         let mut slots = self.slots.clone();
         let (node, base) = slot::find_mut(&mut slots, id, 0).ok_or(SlotError::NoSlot(id))?;
         let old = base + node.range.start..base + node.range.end;
@@ -412,8 +420,9 @@ impl Document {
             .then(|| self.article_agreement(id, &old, &shown))
             .flatten()
         else {
+            let kept = ends.then(|| old.start..old.start + shown.len());
             self.commit(old, &shown, self.tree(slots, ghosts))?;
-            return Ok(());
+            return Ok(kept);
         };
         slot::shift(
             &mut slots,
@@ -428,12 +437,14 @@ impl Document {
             .get(article_range.end..old.start)
             .unwrap_or_default();
         let inserted = format!("{article}{gap}{shown}");
+        let start = old.start - article_range.len() + article.len();
+        let kept = ends.then(|| start..start + shown.len());
         self.commit(
             article_range.start..old.end,
             &inserted,
             self.tree(slots, ghosts),
         )?;
-        Ok(())
+        Ok(kept)
     }
 
     /// Article agreement for Word Slot `id` at `old`, now showing `shown`:

@@ -644,30 +644,20 @@ impl AlternativesPanel {
         }
         let level = slot.level;
         let range = slot.range.clone();
-        let start = slot.range.start;
-        let kept = (slot.variants.len() == 2).then(|| {
-            let other = usize::from(row == 0);
-            slot.variants
-                .get(other)
-                .map_or_default(|variant| variant.text().to_owned())
-        });
         let deleted = self
             .editor
             .update(cx, |editor, cx| editor.delete_variant(id, row, cx));
-        if deleted.is_err() {
+        let Ok(kept) = deleted else {
             return;
-        }
+        };
         let playing = PlayingEffect {
             effect: Effect::Explosion,
             range,
         };
         let seed = u64::try_from(row).unwrap_or_default().wrapping_add(0x5eed);
         self.explosion = effects::plays(cx).then(|| (row, Particles::new(playing, seed)));
-        if let Some(kept) = kept {
-            let text = self.editor.read(cx).document().text();
-            let target = ended_slot_text(text, start, &kept)
-                .map_or(Target::Nothing, |range| Target::Text { range, level });
-            self.set_target(target, cx);
+        if let Some(range) = kept {
+            self.set_target(Target::Text { range, level }, cx);
         }
         self.editing = None;
         self.row = self.rows(cx).len();
@@ -738,15 +728,6 @@ impl AlternativesPanel {
         }
         self.sync_preview(cx);
     }
-}
-
-/// Where the text `kept` of a Slot that ended at `start` lies now. An "a"/"an" before it
-/// may have changed (Article agreement), which moves it by one byte.
-fn ended_slot_text(text: &str, start: usize, kept: &str) -> Option<Range<usize>> {
-    [start, start + 1, start.saturating_sub(1)]
-        .into_iter()
-        .map(|start| start..start + kept.len())
-        .find(|range| text.get(range.clone()) == Some(kept))
 }
 
 /// The Level a new Slot over `range` of `text` gets: Paragraph for a whole paragraph or
@@ -1043,17 +1024,9 @@ impl Render for AlternativesPanel {
 mod tests {
     use ka_teb_core::Level;
 
-    use super::{ended_slot_text, level_for};
+    use super::level_for;
 
     const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
-
-    #[test]
-    fn the_text_of_an_ended_slot_is_found_past_a_changed_article() {
-        let text = "Title\nIt is an eraser here.";
-        assert_eq!(ended_slot_text(text, 14, "eraser"), Some(15..21));
-        assert_eq!(ended_slot_text(text, 15, "eraser"), Some(15..21));
-        assert_eq!(ended_slot_text(text, 14, "thumbtack"), None);
-    }
 
     #[test]
     fn a_word_or_short_phrase_is_word_level() {

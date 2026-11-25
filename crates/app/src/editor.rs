@@ -225,20 +225,20 @@ impl Editor {
     }
 
     /// Deletes Variant `index` of Slot `id` as one undo step, with an
-    /// explosion at the span.
+    /// explosion at the span. Returns the range of the kept text when the Slot ends.
     pub(crate) fn delete_variant(
         &mut self,
         id: SlotId,
         index: usize,
         cx: &mut Context<Self>,
-    ) -> Result<(), SlotError> {
+    ) -> Result<Option<Range<usize>>, SlotError> {
         let range = self
             .session
             .document()
             .slot(id)
             .ok_or(SlotError::NoSlot(id))?
             .range;
-        self.change_document(|document| document.delete_variant(id, index), cx)?;
+        let kept = self.change_document(|document| document.delete_variant(id, index), cx)?;
         let len = self.session.document().text().len();
         self.play(
             Effect::Explosion,
@@ -247,7 +247,7 @@ impl Editor {
         );
         sounds::play(Sound::Explosion, cx);
         cx.emit(EditorEvent::VariantDeleted(id));
-        Ok(())
+        Ok(kept)
     }
 
     /// With the caret in a Slot span, deletes its Active variant.
