@@ -1,6 +1,7 @@
 use std::f32::consts::TAU;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
+use std::time::Instant;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
@@ -10,18 +11,22 @@ use gpui::{
     ScrollHandle, SharedString, Size, Style, TextRun, UTF16Selection, Window, WrappedLine, div,
     fill, point, prelude::*, px, relative, size,
 };
-use ka_teb_core::{Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotId};
+use ka_teb_core::{
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId,
+    TrimError,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
 use crate::actions::{
-    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
-    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
-    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
-    ToggleGhost, Undo,
+    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, DeleteActiveVariant, MoveDown,
+    MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste,
+    Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart,
+    SelectUp, Stash, ToggleGhost, Undo,
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
+use crate::effects::{Effect, EffectKind, Playing};
 use crate::sounds;
 
 /// How a Slot shows that it has Variants (FR-12).
@@ -83,6 +88,9 @@ pub struct Editor {
     spotlight: Option<Spotlight>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
+    /// FR-78, FR-79: effects that play over the text.
+    effects: Vec<Playing>,
+    effect_seed: u64,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims (FR-27).
@@ -97,6 +105,11 @@ pub(crate) enum Spotlight {
 pub(crate) enum EditorEvent {
     /// A click on the text of a visible Slot (FR-21).
     SlotClicked(SlotId),
+    /// A Variant of the Slot was deleted; its explosion plays (FR-78). The explosion sound
+    /// hooks here (#27).
+    VariantDeleted(SlotId),
+    /// An undo put a deleted Variant of the Slot back; its burst plays (FR-79).
+    VariantRestored(SlotId),
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -133,6 +146,8 @@ impl Editor {
             context_menu: None,
             spotlight: None,
             saved: None,
+            effects: Vec::new(),
+            effect_seed: 0,
         }
     }
 
@@ -181,6 +196,58 @@ impl Editor {
         &self.markers
     }
 
+    /// The effects that play now, oldest first (FR-78, FR-79).
+    #[must_use]
+    pub fn effects(&self) -> Vec<Effect> {
+        self.effects
+            .iter()
+            .map(|playing| playing.effect.clone())
+            .collect()
+    }
+
+    fn play(&mut self, kind: EffectKind, range: Range<usize>) {
+        self.effect_seed = self.effect_seed.wrapping_add(1);
+        self.effects
+            .push(Playing::new(Effect { kind, range }, self.effect_seed));
+    }
+
+    /// FR-77, FR-80: deletes Variant `index` of Slot `id` as one undo step, with an
+    /// explosion at the span (FR-78).
+    pub(crate) fn delete_variant(
+        &mut self,
+        id: SlotId,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SlotError> {
+        let range = self.document.slot(id).ok_or(SlotError::NoSlot(id))?.range;
+        self.change_document(|document| document.delete_variant(id, index), cx)?;
+        let len = self.document.text().len();
+        self.play(
+            EffectKind::Explosion,
+            range.start.min(len)..range.end.min(len),
+        );
+        cx.emit(EditorEvent::VariantDeleted(id));
+        Ok(())
+    }
+
+    /// FR-77: with the caret in a Slot span, deletes its Active variant.
+    fn delete_active_variant(
+        &mut self,
+        _: &DeleteActiveVariant,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(slot) = self
+            .document
+            .slot_at(self.cursor())
+            .and_then(|id| self.document.slot(id))
+        else {
+            return;
+        };
+        let (id, active) = (slot.id, slot.active);
+        self.delete_variant(id, active, cx).ok();
+    }
+
     /// The centre line of the underline of `slot` as last painted (window coordinates), row
     /// by row; empty when it has none.
     #[must_use]
@@ -204,7 +271,8 @@ impl Editor {
         self.context_menu.as_ref().map(ContextMenu::items)
     }
 
-    /// The text cut at Slot, Ghost and bright paragraph edges: what a Slot underline needs.
+    /// The text cut at Slot, Ghost, Trim cut and bright paragraph edges: what a Slot
+    /// underline needs.
     fn underline_spans(&self) -> Vec<Span> {
         let underlined: Vec<Range<usize>> = self
             .document
@@ -218,6 +286,7 @@ impl Editor {
             0,
             &underlined,
             &self.document.ghost_ranges(),
+            &self.trim_fades(),
             &[],
             self.bright_paragraph().as_ref(),
         )
@@ -239,6 +308,20 @@ impl Editor {
             self.spotlight = spotlight;
             cx.notify();
         }
+    }
+
+    /// The ranges of the cuts still in the Trim proposal, which fade (FR-55).
+    fn trim_fades(&self) -> Vec<Range<usize>> {
+        self.document
+            .trim_proposal()
+            .map_or_else(Vec::new, |proposal| {
+                proposal
+                    .cuts()
+                    .iter()
+                    .filter(|cut| !cut.kept)
+                    .map(|cut| cut.range.clone())
+                    .collect()
+            })
     }
 
     /// Counter text: the Document, or the selection with "selected" (FR-3, FR-4).
@@ -381,10 +464,16 @@ impl Editor {
         }
     }
 
-    /// FR-14: Up/Down over a Slot cycle its Active variant in place, as one undo step.
-    /// `false` when no Slot is under the pointer.
+    /// FR-14: Up/Down over a Slot, or with the caret in a Slot span, cycle its Active variant
+    /// in place, as one undo step. `false` when there is no such Slot.
     fn cycle_hovered(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
-        let Some(id) = self.hovered else {
+        let at_caret = || {
+            self.selection
+                .is_empty()
+                .then(|| self.document.slot_at(self.cursor()))
+                .flatten()
+        };
+        let Some(id) = self.hovered.or_else(at_caret) else {
             return false;
         };
         let Ok(switch) = self.change_document(|document| document.cycle_active(id, cycle), cx)
@@ -441,6 +530,51 @@ impl Editor {
         self.history.close();
         cx.notify();
         Ok(result)
+    }
+
+    /// Runs a Trim `step` on the Document. A step that changes text is one undo step and
+    /// the selection follows it; a step that only changes the proposal records none.
+    pub(crate) fn trim_step<T>(
+        &mut self,
+        step: impl FnOnce(&mut Document) -> Result<T, TrimError>,
+        cx: &mut Context<Self>,
+    ) -> Result<T, TrimError> {
+        let old_text = self.document.text().to_owned();
+        let result = step(&mut self.document)?;
+        let new_text = self.document.text();
+        if new_text != old_text {
+            let before = self.selection.clone();
+            self.selection = follow_change(before.start, &old_text, new_text)
+                ..follow_change(before.end, &old_text, new_text);
+            self.reversed = false;
+            self.history.close();
+            self.history
+                .record(EditKind::Other, before, self.selection.clone());
+            self.history.close();
+        }
+        cx.notify();
+        Ok(result)
+    }
+
+    /// FR-57: a click on a faded word keeps its cut. `false` when no open cut is there.
+    fn keep_trim_cut_at(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        let Some(glyph) = self
+            .painted
+            .as_ref()
+            .and_then(|painted| painted.glyph_at(position - painted.bounds.origin))
+        else {
+            return false;
+        };
+        let index = self.document.trim_proposal().and_then(|proposal| {
+            proposal
+                .cuts()
+                .iter()
+                .position(|cut| !cut.kept && cut.range.contains(&glyph))
+        });
+        index.is_some_and(|index| {
+            self.trim_step(|document| document.keep_trim_cut(index), cx)
+                .is_ok()
+        })
     }
 
     fn move_to_line_start(&mut self, _: &MoveToLineStart, _: &mut Window, cx: &mut Context<Self>) {
@@ -551,8 +685,17 @@ impl Editor {
         let Some(group) = self.history.undo() else {
             return;
         };
+        let mut restored = Vec::new();
         for _ in 0..group.steps {
+            restored.extend(self.document.undo_restores_variant());
             self.document.undo();
+        }
+        for id in restored {
+            let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
+                continue;
+            };
+            self.play(EffectKind::Burst, range);
+            cx.emit(EditorEvent::VariantRestored(id));
         }
         self.selection = group.before;
         self.reversed = false;
@@ -640,6 +783,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
+        self.keep_trim_cut_at(event.position, cx);
         self.selecting = true;
         let offset = self.offset_for_mouse(event.position);
         if event.modifiers.shift {
@@ -890,6 +1034,21 @@ impl PaintedText {
         painted.start + index
     }
 
+    /// Offset of the glyph under `local` (relative to the text origin); `None` off the glyphs.
+    fn glyph_at(&self, local: Point<Pixels>) -> Option<usize> {
+        let painted = self
+            .lines
+            .iter()
+            .rev()
+            .find(|line| line.top <= local.y && local.x >= px(0.))?;
+        let row_point = point(local.x, local.y - painted.top);
+        let index = painted
+            .line
+            .index_for_position(row_point, self.line_height)
+            .ok()?;
+        Some(painted.start + index)
+    }
+
     /// Rows from the row of `range.start` to the row of `range.end` (local tops).
     fn rows(&self, range: &Range<usize>) -> Option<(Point<Pixels>, Point<Pixels>)> {
         Some((
@@ -1087,6 +1246,26 @@ impl PaintedText {
     }
 
     /// Quads that cover `range` (window coordinates), one per visual row.
+    /// The effects that still play at `now`, each with its progress and the rows of its span.
+    fn effect_frames(
+        &self,
+        effects: &[Playing],
+        now: Instant,
+    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+        effects
+            .iter()
+            .filter_map(|playing| {
+                let progress = playing.progress(now)?;
+                let rows = self
+                    .selection_quads(&playing.effect.range, Hsla::default())
+                    .into_iter()
+                    .map(|quad| quad.bounds)
+                    .collect();
+                Some((playing.clone(), progress, rows))
+            })
+            .collect()
+    }
+
     pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
             (self.position_for(range.start), self.position_for(range.end))
@@ -1248,6 +1427,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::stash))
             .on_action(cx.listener(Self::close_menu))
+            .on_action(cx.listener(Self::delete_active_variant))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -1286,6 +1466,8 @@ struct EditorElement {
 
 struct EditorPrepaint {
     lines: Vec<PaintedLine>,
+    /// Each playing effect, its progress, and the rows of its span.
+    effects: Vec<(Playing, f32, Vec<Bounds<Pixels>>)>,
     hover: Vec<PaintQuad>,
     lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
@@ -1295,10 +1477,32 @@ struct EditorPrepaint {
 }
 
 impl EditorElement {
+    /// The effects that play now, each with its progress and the rows of its span. Ended
+    /// effects drop; while one plays, the next frame comes (FR-78, FR-79).
+    fn effect_frames(
+        &self,
+        painted: &PaintedText,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+        let now = Instant::now();
+        let effects = painted.effect_frames(&self.editor.read(cx).effects, now);
+        self.editor.update(cx, |editor, _| {
+            editor
+                .effects
+                .retain(|playing| playing.progress(now).is_some());
+        });
+        if !effects.is_empty() {
+            window.request_animation_frame();
+        }
+        effects
+    }
+
     /// Text runs and the heading lines with their font size. The title line is bold in the
     /// title color (FR-5) unless it is a Markdown heading, which uses the heading style.
-    /// Ghost text dims (FR-37), and so does text outside the bright paragraph while the
-    /// Alternatives panel is open (FR-27). Slot underlines are pen strokes, not text runs.
+    /// Ghost text dims (FR-37), Trim cuts fade (FR-55), and so does text outside the bright
+    /// paragraph while the Alternatives panel is open (FR-27). Slot underlines are pen
+    /// strokes, not text runs.
     fn runs(&self, window: &Window, cx: &App) -> (Vec<TextRun>, Vec<(usize, Pixels)>) {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
@@ -1341,6 +1545,7 @@ impl EditorElement {
             title_end,
             &underlined,
             &editor.document.ghost_ranges(),
+            &editor.trim_fades(),
             &markdown,
             editor.bright_paragraph().as_ref(),
         )
@@ -1563,11 +1768,18 @@ impl Element for EditorElement {
         let theme = cx.global::<Theme>().clone();
         let editor = self.editor.read(cx);
         let selection = painted.selection_quads(&editor.selection, theme.selection);
+        let walked = editor.document.trim_proposal().and_then(|proposal| {
+            proposal
+                .current()
+                .and_then(|current| proposal.cuts().get(current))
+        });
         let lab_marks = editor
             .document
             .lab_marks()
             .iter()
-            .flat_map(|mark| painted.selection_quads(&mark.range, theme.lab_mark))
+            .map(|mark| &mark.range)
+            .chain(walked.map(|cut| &cut.range))
+            .flat_map(|range| painted.selection_quads(range, theme.lab_mark))
             .collect();
         let slots = editor.document.slots();
         let hover = editor
@@ -1625,8 +1837,10 @@ impl Element for EditorElement {
             editor.markers = markers;
             editor.underlines.clone_from(&underlines);
         });
+        let effects = self.effect_frames(&painted, window, cx);
         EditorPrepaint {
             lines: painted.lines,
+            effects,
             hover,
             lab_marks,
             selection,
@@ -1669,6 +1883,10 @@ impl Element for EditorElement {
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        let background = cx.global::<Theme>().background;
+        for (playing, progress, rows) in prepaint.effects.drain(..) {
+            playing.paint(&rows, line_height, progress, background, window);
         }
         for stroke in &prepaint.underlines {
             if let Some(path) = stroke.path() {
@@ -1719,15 +1937,18 @@ struct Span {
     markdown: Vec<MarkdownStyle>,
     /// Outside the bright paragraph while the Alternatives panel is open (FR-27).
     dimmed: bool,
+    /// In a cut of the Trim proposal (FR-55).
+    faded: bool,
 }
 
-/// Splits text of `len` bytes at the title end, at each underlined, Ghost, and Markdown
+/// Splits text of `len` bytes at the title end, at each underlined, Ghost, Trim cut, and Markdown
 /// range edge, and at the edges of the `bright` range, outside of which text is dimmed.
 fn spans(
     len: usize,
     title_end: usize,
     underlined: &[Range<usize>],
     ghosts: &[Range<usize>],
+    cuts: &[Range<usize>],
     markdown: &[MarkdownSpan],
     bright: Option<&Range<usize>>,
 ) -> Vec<Span> {
@@ -1737,6 +1958,7 @@ fn spans(
         underlined
             .iter()
             .chain(ghosts)
+            .chain(cuts)
             .chain(markdown.iter().map(|span| &span.range))
             .flat_map(|range| [range.start, range.end]),
     );
@@ -1760,13 +1982,14 @@ fn spans(
                 .filter(|span| span.range.start <= start && end <= span.range.end)
                 .map(|span| span.style)
                 .collect(),
+            faded: within(cuts, start, end),
             dimmed: bright.is_some_and(|bright| !within(std::slice::from_ref(bright), start, end)),
         })
         .collect()
 }
 
 impl Span {
-    /// Ghost and dim opacity of the text and its underline.
+    /// Ghost, dim, and Trim fade opacity of the text and its underline.
     fn opacity(&self, theme: &Theme) -> f32 {
         let ghost = if self.ghost { theme.ghost_opacity } else { 1. };
         let dim = if self.dimmed {
@@ -1774,7 +1997,12 @@ impl Span {
         } else {
             1.
         };
-        ghost * dim
+        let fade = if self.faded {
+            theme.trim_fade_opacity
+        } else {
+            1.
+        };
+        ghost * dim * fade
     }
 }
 
@@ -1957,6 +2185,7 @@ mod tests {
             ghost,
             markdown: Vec::new(),
             dimmed: false,
+            faded: false,
         };
         assert_eq!(
             spans(
@@ -1964,6 +2193,7 @@ mod tests {
                 5,
                 std::slice::from_ref(&(14..21)),
                 std::slice::from_ref(&(6..13)),
+                &[],
                 &[],
                 None
             ),
@@ -1988,11 +2218,13 @@ mod tests {
             ghost: false,
             markdown,
             dimmed: false,
+            faded: false,
         };
         assert_eq!(
             spans(
                 12,
                 0,
+                &[],
                 &[],
                 &[],
                 &[
@@ -2026,13 +2258,41 @@ mod tests {
     #[test]
     fn text_outside_the_bright_range_is_dimmed() {
         let dimmed: Vec<(std::ops::Range<usize>, bool)> =
-            spans(30, 5, &[], &[], &[], Some(&(6..18)))
+            spans(30, 5, &[], &[], &[], &[], Some(&(6..18)))
                 .into_iter()
                 .map(|span| (span.range, span.dimmed))
                 .collect();
         assert_eq!(
             dimmed,
             vec![(0..5, true), (5..6, true), (6..18, false), (18..30, true)]
+        );
+    }
+
+    #[test]
+    fn trim_cuts_fade_apart_from_ghost_ranges() {
+        let faded: Vec<(std::ops::Range<usize>, bool, bool)> = spans(
+            20,
+            0,
+            &[],
+            std::slice::from_ref(&(8..12)),
+            &[2..5, 10..15],
+            &[],
+            None,
+        )
+        .into_iter()
+        .map(|span| (span.range, span.ghost, span.faded))
+        .collect();
+        assert_eq!(
+            faded,
+            vec![
+                (0..2, false, false),
+                (2..5, false, true),
+                (5..8, false, false),
+                (8..10, true, false),
+                (10..12, true, true),
+                (12..15, false, true),
+                (15..20, false, false),
+            ]
         );
     }
 

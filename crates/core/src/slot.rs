@@ -189,7 +189,8 @@ impl SlotNode {
         self.variants.push(Variant::new(text, provenance));
     }
 
-    /// Removes Variant `index`. When it was active, the Original becomes active.
+    /// Removes Variant `index`. When it was active, the next Variant becomes active;
+    /// after the last one, the first (FR-77).
     pub(crate) fn remove_variant(&mut self, index: usize) -> Result<(), SlotError> {
         if index >= self.variants.len() {
             return Err(self.no_variant(index));
@@ -197,6 +198,7 @@ impl SlotNode {
         self.variants.remove(index);
         self.active = match index.cmp(&self.active) {
             Ordering::Less => self.active - 1,
+            Ordering::Equal if index < self.variants.len() => index,
             Ordering::Equal => 0,
             Ordering::Greater => self.active,
         };

@@ -45,6 +45,8 @@ struct Step {
     after: Tree,
     marks_before: Vec<LabMark>,
     marks_after: Vec<LabMark>,
+    /// The step deleted a Variant of this Slot (FR-79: its undo plays a burst).
+    variant_deleted: Option<SlotId>,
 }
 
 /// The Slots, top-level Ghost ranges (ADR 0006), and Overflow of the Document at one time.
@@ -65,6 +67,7 @@ impl Step {
             after: self.before,
             marks_before: self.marks_after,
             marks_after: self.marks_before,
+            variant_deleted: self.variant_deleted,
         }
     }
 }
@@ -218,6 +221,17 @@ impl Document {
         self.slots().into_iter().find(|slot| slot.id == id)
     }
 
+    /// The innermost visible Slot whose span holds byte offset `caret`, edges included
+    /// (FR-14, FR-77: the caret at the end of a span is in it).
+    #[must_use]
+    pub fn slot_at(&self, caret: usize) -> Option<SlotId> {
+        self.slots()
+            .iter()
+            .rev()
+            .find(|slot| slot.range.start <= caret && caret <= slot.range.end)
+            .map(|slot| slot.id)
+    }
+
     /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.
     /// The Original stays the Active variant. A range inside a visible Slot makes a Slot
     /// nested in that Slot's Active variant (ADR 0006): it shows only while that Variant does.
@@ -326,13 +340,26 @@ impl Document {
         self.set_active(id, index)
     }
 
-    /// Deletes Variant `index` of Slot `id`. When it was active, the Original shows.
+    /// Deletes Variant `index` of Slot `id`; any Variant can go, the Original too. When it
+    /// was active, the next Variant shows; after the last one, the first (FR-77).
     /// A Slot left with fewer than two Variants ends; its active text stays (FR-18).
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
     pub fn delete_variant(&mut self, id: SlotId, index: usize) -> Result<(), SlotError> {
-        self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))
+        let steps = self.undo_steps.len();
+        self.change_slot(id, SlotChange::Switch, |node| node.remove_variant(index))?;
+        if let Some(step) = self.undo_steps.get_mut(steps) {
+            step.variant_deleted = Some(id);
+        }
+        Ok(())
+    }
+
+    /// The Slot whose Variant the next [`Document::undo`] puts back: `Some` when the last
+    /// step is a Variant delete (FR-79).
+    #[must_use]
+    pub fn undo_restores_variant(&self) -> Option<SlotId> {
+        self.undo_steps.last()?.variant_deleted
     }
 
     /// Sets the text of Variant `index` of Slot `id`, as a writer edit:
@@ -579,6 +606,7 @@ impl Document {
             after: tree,
             marks_before,
             marks_after: self.lab_marks.clone(),
+            variant_deleted: None,
         });
         self.redo_steps.clear();
         Ok(())

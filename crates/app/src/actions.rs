@@ -29,6 +29,7 @@ gpui::actions!(
         ToggleGhost,
         Stash,
         CloseMenu,
+        DeleteActiveVariant,
     ]
 );
 
