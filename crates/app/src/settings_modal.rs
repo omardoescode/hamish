@@ -421,6 +421,7 @@ impl SettingsModal {
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
             .child(Self::stepper(Setting::ColumnWidth, settings, theme, cx))
             .child(Self::toggle(Toggle::CycleSounds, settings, theme, cx))
+            .child(Self::toggle(Toggle::VimMode, settings, theme, cx))
     }
 
     /// A label and one button that shows "On" or "Off" and flips the setting.

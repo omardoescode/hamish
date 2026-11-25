@@ -1,5 +1,5 @@
 //! Settings: theme, UI scale, UI font, Text font and other editor font values, cycle sounds,
-//! reduced motion, and focus zoom, with their defaults, limits, labels, and the JSON file
+//! reduced motion, focus zoom, and Vim mode, with their defaults, limits, labels, and the JSON file
 //! in the XDG config dir.
 
 use std::ffi::{OsStr, OsString};
@@ -81,6 +81,7 @@ pub enum Toggle {
     ReducedMotion,
     FocusZoom,
     CycleSounds,
+    VimMode,
 }
 
 impl Toggle {
@@ -91,6 +92,7 @@ impl Toggle {
             Self::ReducedMotion => "Reduced motion",
             Self::FocusZoom => "Focus zoom",
             Self::CycleSounds => "Cycle sounds",
+            Self::VimMode => "Vim mode",
         }
     }
 
@@ -101,6 +103,7 @@ impl Toggle {
             Self::ReducedMotion => "reduced-motion",
             Self::FocusZoom => "focus-zoom",
             Self::CycleSounds => "cycle-sounds",
+            Self::VimMode => "vim-mode",
         }
     }
 }
@@ -109,6 +112,10 @@ impl Toggle {
 /// its default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent on/off setting the Settings toggles flip"
+)]
 pub struct Settings {
     pub theme: ThemeName,
     pub ui_scale: f32,
@@ -129,6 +136,8 @@ pub struct Settings {
     pub cycle_sounds: bool,
     /// The paragraph with the caret shows a little larger.
     pub focus_zoom: bool,
+    /// The Editor has a Normal mode and an Insert mode, with Vim keys. Off by default.
+    pub vim_mode: bool,
 }
 
 impl Default for Settings {
@@ -145,6 +154,7 @@ impl Default for Settings {
             reduced_motion: false,
             cycle_sounds: true,
             focus_zoom: true,
+            vim_mode: false,
         }
     }
 }
@@ -319,6 +329,7 @@ impl Settings {
             Toggle::ReducedMotion => &self.reduced_motion,
             Toggle::FocusZoom => &self.focus_zoom,
             Toggle::CycleSounds => &self.cycle_sounds,
+            Toggle::VimMode => &self.vim_mode,
         }
     }
 
@@ -327,6 +338,7 @@ impl Settings {
             Toggle::ReducedMotion => &mut self.reduced_motion,
             Toggle::FocusZoom => &mut self.focus_zoom,
             Toggle::CycleSounds => &mut self.cycle_sounds,
+            Toggle::VimMode => &mut self.vim_mode,
         }
     }
 

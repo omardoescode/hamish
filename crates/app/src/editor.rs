@@ -16,12 +16,12 @@ use crate::settings;
 use crate::sounds;
 use gpui::{
     App, Bounds, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, IntoElement,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, ScrollHandle,
-    SharedString, Window, div, prelude::*,
+    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render,
+    ScrollHandle, SharedString, Window, div, prelude::*,
 };
 use hamish_core::{
     Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
-    SlotId, Sound, TrimProposal, follow_change, paragraph_around,
+    SlotId, Sound, TrimProposal, Vim, VimCommand, VimKey, VimMode, follow_change, paragraph_around,
 };
 
 use element::EditorElement;
@@ -94,6 +94,8 @@ pub struct Editor {
     text_font: SharedString,
     /// Offsets of the glyphs last painted with synthetic bold.
     synthetic_bold: Vec<usize>,
+    /// The Vim key state; it starts again each time Vim mode turns on.
+    vim: Vim,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims.
@@ -141,6 +143,7 @@ impl Editor {
             drop_target: None,
             text_font: SharedString::default(),
             synthetic_bold: Vec::new(),
+            vim: Vim::default(),
         }
     }
 
@@ -695,13 +698,56 @@ impl Editor {
         cx.notify();
     }
 
-    /// Esc closes the context menu; with none open, a view up the tree takes it.
+    /// Esc closes the context menu. With none open, Insert mode goes back to Normal mode;
+    /// else a view up the tree takes it.
     fn close_menu(&mut self, _: &CloseMenu, _: &mut Window, cx: &mut Context<Self>) {
         if self.context_menu.take().is_some() {
             cx.notify();
-        } else {
+            return;
+        }
+        let in_insert = self.vim_mode(cx) == Some(VimMode::Insert);
+        if self.vim_mode(cx).is_some() {
+            self.run_vim(VimKey::Escape, cx);
+        }
+        if !in_insert {
             cx.propagate();
         }
+    }
+
+    /// The Vim mode of the Editor; `None` when the Vim mode setting is off.
+    #[must_use]
+    pub fn vim_mode(&self, cx: &App) -> Option<VimMode> {
+        vim_on(cx).then(|| self.vim.mode())
+    }
+
+    /// The Vim mode and the keys of a command not yet complete, as the Chrome bar shows
+    /// them; `None` when the Vim mode setting is off.
+    #[must_use]
+    pub fn vim_status(&self, cx: &App) -> Option<String> {
+        vim_on(cx).then(|| self.vim.status())
+    }
+
+    /// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
+    /// so in Normal mode no key reaches the text input.
+    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if vim_on(cx) && self.run_vim(vim_key(&event.keystroke), cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key on.
+    fn run_vim(&mut self, key: VimKey, cx: &mut Context<Self>) -> bool {
+        let command = self
+            .vim
+            .key(key, self.session.document().text(), self.session.caret());
+        match command {
+            VimCommand::PassOn => return false,
+            VimCommand::Nothing => {}
+            VimCommand::Select(caret) => CaretView::select(self, caret, cx),
+            VimCommand::Edit(edit) => CaretView::edit(self, &edit, cx),
+        }
+        cx.notify();
+        true
     }
 
     /// Ghost the target, or Revive it when it touches a Ghost range, as one
@@ -796,6 +842,35 @@ impl CaretView for Editor {
     fn take_vertical_key(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
         self.cycle_hovered(cycle, cx)
     }
+
+    fn takes_text(&self, cx: &App) -> bool {
+        self.vim_mode(cx) != Some(VimMode::Normal)
+    }
+}
+
+fn vim_on(cx: &App) -> bool {
+    settings::is_on(cx, |settings| settings.vim_mode)
+}
+
+/// `keystroke` as Vim mode reads it: the char it types, or a named key.
+fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
+    let modifiers = keystroke.modifiers;
+    if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
+        return VimKey::Other;
+    }
+    match keystroke.key.as_str() {
+        "escape" => VimKey::Escape,
+        "enter" => VimKey::Enter,
+        "backspace" => VimKey::Backspace,
+        _ => one_char(keystroke.key_char.as_deref()).map_or(VimKey::Other, VimKey::Char),
+    }
+}
+
+/// The char of `typed` when it is exactly one char.
+fn one_char(typed: Option<&str>) -> Option<char> {
+    let mut chars = typed?.chars();
+    let first = chars.next()?;
+    chars.next().is_none().then_some(first)
 }
 
 caret_input_handler!(Editor);
@@ -813,9 +888,17 @@ impl Render for Editor {
             self.drop_target = None;
         }
         let theme = cx.global::<Theme>().clone();
+        if !vim_on(cx) {
+            self.vim = Vim::default();
+        }
+        let key_context = match self.vim_mode(cx) {
+            None => "Editor",
+            Some(VimMode::Normal) => "Editor VimNormal",
+            Some(VimMode::Insert) => "Editor VimInsert",
+        };
         let editor = div()
             .id("editor")
-            .key_context("Editor")
+            .key_context(key_context)
             .track_focus(&self.focus_handle)
             .cursor(CursorStyle::IBeam);
         caret_actions(editor, cx)
@@ -827,6 +910,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::stash))
             .on_action(cx.listener(Self::close_menu))
             .on_action(cx.listener(Self::delete_active_variant))
+            .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))

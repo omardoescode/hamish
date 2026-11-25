@@ -56,6 +56,7 @@ fn saved_settings_open_again_the_same() {
         reduced_motion: true,
         cycle_sounds: false,
         focus_zoom: false,
+        vim_mode: true,
     };
 
     settings.save(&path).unwrap();
@@ -253,6 +254,7 @@ fn each_toggle_has_a_label_and_a_slug() {
         Toggle::ReducedMotion,
         Toggle::FocusZoom,
         Toggle::CycleSounds,
+        Toggle::VimMode,
     ]
     .into_iter()
     .map(|toggle| (toggle.label(), toggle.slug()))
@@ -263,6 +265,7 @@ fn each_toggle_has_a_label_and_a_slug() {
             ("Reduced motion", "reduced-motion"),
             ("Focus zoom", "focus-zoom"),
             ("Cycle sounds", "cycle-sounds"),
+            ("Vim mode", "vim-mode"),
         ]
     );
 }
@@ -287,6 +290,16 @@ fn a_flip_turns_a_toggle_on_or_off_and_shows_it() {
             ..Settings::default()
         }
     );
+}
+
+#[test]
+fn vim_mode_is_off_by_default_and_in_a_file_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
+
+    assert!(!Settings::default().vim_mode);
+    assert!(!Settings::load(&path).settings.vim_mode);
 }
 
 #[test]

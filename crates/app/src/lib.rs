@@ -125,6 +125,12 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
+    // In Normal mode these keys go to Vim mode, not to their text edits.
+    let vim_normal = Some("Editor && VimNormal");
+    cx.bind_keys(
+        ["backspace", "delete", "enter", "ctrl-x", "ctrl-v"]
+            .map(|key| KeyBinding::new(key, gpui::NoAction {}, vim_normal)),
+    );
     for context in ["AlternativesPanel", "Lab"] {
         let context = Some(context);
         cx.bind_keys([
