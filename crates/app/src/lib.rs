@@ -5,10 +5,12 @@
     reason = "gpui's Action derive builds actions from key binding JSON"
 )]
 mod actions;
+mod ai;
 mod alternatives_panel;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod lab;
 mod overflow_panel;
 mod save_open;
 mod theme;
@@ -29,15 +31,17 @@ pub use actions::{
     SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo,
     UseOverflowBlock,
 };
+pub use ai::Ai;
 pub use alternatives_panel::{AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use theme::Theme;
 pub use workspace::Workspace;
 
-/// Loads the bundled body font, sets the theme, and binds the keys.
+/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the theme, and binds the keys.
 ///
 /// # Errors
 /// When the bundled font does not load.
@@ -45,6 +49,8 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     cx.text_system().add_fonts(vec![
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Regular.ttf")),
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Italic.ttf")),
+        Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-BoldItalic.ttf")),
     ])?;
     cx.set_global(Theme::default());
     for context in ["Editor", "OverflowPanel"] {
@@ -87,6 +93,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-s", Save, None),
         KeyBinding::new("ctrl-shift-s", SaveAs, None),
         KeyBinding::new("ctrl-o", Open, None),
+        KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
     let panel = Some("AlternativesPanel");
     cx.bind_keys([

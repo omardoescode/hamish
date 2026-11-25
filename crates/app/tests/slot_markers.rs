@@ -214,6 +214,34 @@ fn the_innermost_slot_under_the_pointer_is_hovered(cx: &mut TestAppContext) {
     assert_eq!(hovered_slot(&workspace, cx), Some(paragraph));
 }
 
+#[gpui::test]
+fn up_down_cycle_word_slots_on_and_under_a_markdown_heading(cx: &mut TestAppContext) {
+    let mut document = Document::new("# A tension here\nIt is **bold** and quiet.");
+    let in_heading = document
+        .create_slot(4..11, Level::Word, "struggle", Provenance::Writer)
+        .unwrap();
+    let in_body = document
+        .create_slot(36..41, Level::Word, "calm", Provenance::Writer)
+        .unwrap();
+    let (workspace, cx) = open(cx, document);
+
+    hover(&workspace, cx, 6);
+    assert_eq!(hovered_slot(&workspace, cx), Some(in_heading));
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        text(&workspace, cx),
+        "# A struggle here\nIt is **bold** and quiet."
+    );
+
+    hover(&workspace, cx, 38);
+    assert_eq!(hovered_slot(&workspace, cx), Some(in_body));
+    cx.simulate_keystrokes("down");
+    assert_eq!(
+        text(&workspace, cx),
+        "# A struggle here\nIt is **bold** and calm."
+    );
+}
+
 fn underline(
     workspace: &Entity<Workspace>,
     cx: &mut VisualTestContext,
