@@ -192,7 +192,7 @@ impl Editor {
         let mark = self.selected_lab_mark()?;
         self.painted
             .as_ref()?
-            .selection_quads(&mark.range, gpui::Hsla::default())
+            .text_quads(&mark.range, gpui::Hsla::default())
             .into_iter()
             .map(|quad| self.zoomed(quad.bounds))
             .reduce(|all, row| all.union(&row))

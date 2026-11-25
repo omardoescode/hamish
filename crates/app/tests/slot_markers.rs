@@ -327,17 +327,18 @@ fn a_sentence_slot_mid_paragraph_shows_a_sentence_marker_with_dots_after_its_end
         }]
     );
     let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
-    let next_sentence = caret_box(&workspace, cx, MIDDLE_SENTENCE.end + 5);
+    let next_sentence = caret_box(&workspace, cx, MIDDLE_SENTENCE.end + 1);
+    assert_eq!(
+        next_sentence.top(),
+        end.top(),
+        "the next sentence is on the row"
+    );
     let dots = marker_dots(&workspace, cx, slot);
     assert_eq!(dots.len(), 2);
     for dot in &dots {
         assert!(
-            dot.left() >= end.left(),
-            "dot {dot:?} is after the end {end:?}"
-        );
-        assert!(
-            dot.left() < next_sentence.left(),
-            "dot {dot:?} is before the next sentence"
+            dot.right() <= next_sentence.left(),
+            "dot {dot:?} does not cover the next sentence {next_sentence:?}"
         );
         assert!(
             dot.top() >= end.top() && dot.bottom() <= end.bottom(),
@@ -392,6 +393,43 @@ fn hovering_a_sentence_slot_tints_only_the_sentence(cx: &mut TestAppContext) {
     hover(&workspace, cx, 10);
     cx.run_until_parked();
     assert_eq!(hover_tint(&workspace, cx), Vec::new());
+}
+
+/// "Title\n" then one sentence whose long last word wraps, which leaves a gap at the
+/// right of the first row.
+const SHORT_ROW: &str =
+    "Title\nThe start is short and abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij.";
+
+#[gpui::test]
+fn the_hover_tint_of_a_wrapped_slot_ends_at_the_text_end_of_each_row(cx: &mut TestAppContext) {
+    let mut document = Document::new(SHORT_ROW);
+    document
+        .create_slot(
+            6..SHORT_ROW.len(),
+            Level::Sentence,
+            "Short.",
+            Provenance::Writer,
+        )
+        .expect("valid range");
+    let (workspace, cx) = open(cx, document);
+    let last_word = SHORT_ROW.len() - 51;
+    let first_row = caret_box(&workspace, cx, 6);
+    assert!(
+        caret_box(&workspace, cx, last_word + 1).top() > first_row.top(),
+        "the last word wraps"
+    );
+    let row_end = caret_box(&workspace, cx, last_word - 1).left();
+
+    hover(&workspace, cx, 8);
+    cx.run_until_parked();
+    let tint = hover_tint(&workspace, cx);
+
+    assert_eq!(tint.len(), 2, "one box per row: {tint:?}");
+    assert!(
+        tint[0].right() > row_end - px(1.) && tint[0].right() < row_end + px(4.),
+        "the box {:?} ends at the text end {row_end:?}",
+        tint[0]
+    );
 }
 
 #[gpui::test]

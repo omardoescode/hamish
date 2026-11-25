@@ -69,7 +69,7 @@ impl EditorElement {
             .into_iter()
             .map(|(playing, progress)| {
                 let rows = painted
-                    .selection_quads(&playing.playing.range, Hsla::default())
+                    .text_quads(&playing.playing.range, Hsla::default())
                     .into_iter()
                     .map(|quad| quad.bounds)
                     .collect();
@@ -198,7 +198,8 @@ impl Element for EditorElement {
                 )
             })
             .collect();
-        let (markers, marker_quads, marker_dots) = slot_markers(&painted, &slots, &theme);
+        let (markers, marker_quads, marker_dots) =
+            slot_markers(&painted, shown.text(), &slots, &theme);
         let underlines = pen_strokes(&painted, editor, &slots, &theme);
         let caret = match editor.drop_target {
             Some(at) => caret::caret_quad(&painted, editor.to_shown(&(at..at)).start, theme.accent),
@@ -362,7 +363,7 @@ fn hover_quads(
         return vec![fill(bounds, color).corner_radii(HOVER_RADIUS)];
     }
     painted
-        .selection_quads(range, color)
+        .text_quads(range, color)
         .into_iter()
         .map(|quad| {
             let bounds = Bounds::from_corners(
@@ -378,6 +379,7 @@ fn hover_quads(
 /// Variant dot (window coordinates).
 fn slot_markers(
     painted: &PaintedText,
+    text: &str,
     slots: &[Slot],
     theme: &Theme,
 ) -> (Vec<Marker>, Vec<PaintQuad>, Vec<MarkerDot>) {
@@ -404,7 +406,7 @@ fn slot_markers(
                     && slot.range.end <= outer.range.end
             })
             .count();
-        let quads = marker_quads_for(painted, &slot.range, &marker, depth, theme);
+        let quads = marker_quads_for(painted, text, &slot.range, &marker, depth, theme);
         let dots = quads.iter().rev().take(marker.dots).rev();
         marker_dots.extend(dots.map(|quad| (slot.id, quad.bounds)));
         marker_quads.extend(quads);
@@ -417,6 +419,7 @@ fn slot_markers(
 /// a text run. `depth`: how many Paragraph Slots hold it; each moves a margin line left.
 fn marker_quads_for(
     painted: &PaintedText,
+    text: &str,
     range: &Range<usize>,
     marker: &Marker,
     depth: usize,
@@ -440,7 +443,7 @@ fn marker_quads_for(
             None,
         ),
         MarkerKind::SentenceUnderline => (
-            sentence_dots_at(painted, end, dots_length),
+            sentence_dots_at(painted, text, range.end, end, dots_length),
             point(DOT_SIZE + DOT_GAP, px(0.)),
             None,
         ),
@@ -477,15 +480,26 @@ fn marker_quads_for(
 }
 
 /// Where the first Variant dot of a Sentence Marker goes (local coordinates): after the
-/// sentence's last char, in the middle of its row. Past the right edge, the dots go under
-/// the row and end at the last char.
+/// sentence's last char, in the middle of its row. When the gap to the next text on the
+/// row or to the right edge is too narrow, the dots go under the row and end at the last char.
 fn sentence_dots_at(
     painted: &PaintedText,
+    text: &str,
+    end_offset: usize,
     end: Point<Pixels>,
     dots_length: Pixels,
 ) -> Point<Pixels> {
     let after = end.x + DOT_GAP * 2.;
-    if after + dots_length <= painted.bounds.size.width {
+    let next_text = text
+        .get(end_offset..)
+        .unwrap_or_default()
+        .trim_start_matches(' ');
+    let next_on_line = !next_text.is_empty() && !next_text.starts_with('\n');
+    let room = painted
+        .position_for(text.len() - next_text.len())
+        .filter(|next| next_on_line && next.y == end.y)
+        .map_or(painted.bounds.size.width, |next| next.x - DOT_GAP * 2.);
+    if after + dots_length <= room {
         return point(after, end.y + (painted.line_height - DOT_SIZE) / 2.);
     }
     point(
@@ -512,7 +526,7 @@ fn lab_mark_quads(painted: &PaintedText, editor: &Editor, theme: &Theme) -> Vec<
         .chain(walked.map(|cut| (&cut.range, false)))
         .flat_map(|(range, outlined)| {
             painted
-                .selection_quads(range, theme.lab_mark)
+                .text_quads(range, theme.lab_mark)
                 .into_iter()
                 .map(move |quad| {
                     if outlined {
