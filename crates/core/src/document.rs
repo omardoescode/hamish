@@ -162,15 +162,15 @@ impl Document {
             .filter(|line| !line.trim().is_empty())
     }
 
-    /// Counter of the text in byte range `selection`.
+    /// Counter of the text in byte range `selection`. Ghost text is not counted.
     ///
     /// # Errors
     /// [`RangeError`] when `selection` is out of bounds, reversed, or not on char boundaries.
     pub fn selection_counter(&self, selection: Range<usize>) -> Result<Counter, RangeError> {
-        self.text
-            .get(selection.clone())
-            .map(Counter::of)
-            .ok_or(RangeError { range: selection })
+        if self.text.get(selection.clone()).is_none() {
+            return Err(RangeError { range: selection });
+        }
+        Ok(self.count(selection))
     }
 
     /// The visible Slots in document order, each parent before the Slots nested in it.

@@ -113,3 +113,17 @@ fn deleting_part_of_a_ghost_range_trims_it_and_deleting_all_of_it_ends_it() {
     assert!(document.undo());
     assert_eq!(document.ghost_ranges(), [0..8]);
 }
+
+#[test]
+fn selection_counter_excludes_ghost_text() {
+    let mut document = Document::new("Keep this aside now.");
+    document.ghost(5..15).unwrap();
+    assert_eq!(
+        document.selection_counter(0..12).unwrap().to_string(),
+        "1 word 5 chars"
+    );
+    assert_eq!(
+        document.selection_counter(7..20).unwrap().to_string(),
+        "1 word 5 chars"
+    );
+}
