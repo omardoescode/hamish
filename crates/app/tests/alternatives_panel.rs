@@ -306,8 +306,8 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span(cx: &mut TestAppC
     let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
     assert_eq!(
         effects,
-        vec![app::Effect {
-            kind: app::EffectKind::Explosion,
+        vec![app::PlayingEffect {
+            effect: ka_teb_core::Effect::Explosion,
             range: 10..16
         }]
     );

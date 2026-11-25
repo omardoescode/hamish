@@ -12,7 +12,7 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, EditHistory, EditKind, FocusZoom, LabError, Level, MarkdownSpan,
+    Cycle, Document, EditHistory, EditKind, Effect, FocusZoom, LabError, Level, MarkdownSpan,
     MarkdownStyle, Slot, SlotError, SlotId, Sound, TrimError, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -25,7 +25,7 @@ use crate::actions::{
     SelectUp, Stash, ToggleGhost, Undo,
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
-use crate::effects::{self, Effect, EffectKind, Playing};
+use crate::effects::{self, Particles, PlayingEffect};
 use crate::settings_modal;
 use crate::sounds;
 
@@ -99,7 +99,7 @@ pub struct Editor {
     /// The Slot whose Active variant last changed, and when (FR-81).
     fade_in: Option<(SlotId, Instant)>,
     /// FR-78, FR-79: effects that play over the text.
-    effects: Vec<Playing>,
+    effects: Vec<Particles>,
     effect_seed: u64,
     focus_zoom: FocusZoom,
     /// The zoomed paragraphs as last painted (FR-83).
@@ -214,20 +214,22 @@ impl Editor {
 
     /// The effects that play now, oldest first (FR-78, FR-79).
     #[must_use]
-    pub fn effects(&self) -> Vec<Effect> {
+    pub fn effects(&self) -> Vec<PlayingEffect> {
         self.effects
             .iter()
-            .map(|playing| playing.effect.clone())
+            .map(|particles| particles.playing.clone())
             .collect()
     }
 
-    fn play(&mut self, kind: EffectKind, range: Range<usize>, cx: &App) {
+    fn play(&mut self, effect: Effect, range: Range<usize>, cx: &App) {
         if !effects::plays(cx) {
             return;
         }
         self.effect_seed = self.effect_seed.wrapping_add(1);
-        self.effects
-            .push(Playing::new(Effect { kind, range }, self.effect_seed));
+        self.effects.push(Particles::new(
+            PlayingEffect { effect, range },
+            self.effect_seed,
+        ));
     }
 
     /// FR-77, FR-80: deletes Variant `index` of Slot `id` as one undo step, with an
@@ -242,7 +244,7 @@ impl Editor {
         self.change_document(|document| document.delete_variant(id, index), cx)?;
         let len = self.document.text().len();
         self.play(
-            EffectKind::Explosion,
+            Effect::Explosion,
             range.start.min(len)..range.end.min(len),
             cx,
         );
@@ -565,8 +567,7 @@ impl Editor {
             .background_executor()
             .now()
             .saturating_duration_since(started);
-        let progress = ka_teb_core::Effect::VariantFadeIn
-            .progress(elapsed, settings_modal::reduced_motion(cx));
+        let progress = Effect::VariantFadeIn.progress(elapsed, settings_modal::reduced_motion(cx));
         (progress < 1.).then_some((
             slot,
             FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,
@@ -793,13 +794,13 @@ impl Editor {
         let after_burst = if restored.is_empty() || !effects::plays(cx) {
             Duration::ZERO
         } else {
-            ka_teb_core::Effect::UndoBurst.duration()
+            Effect::UndoBurst.duration()
         };
         for id in restored {
             let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
                 continue;
             };
-            self.play(EffectKind::Burst, range, cx);
+            self.play(Effect::UndoBurst, range, cx);
             cx.emit(EditorEvent::VariantRestored(id));
         }
         self.fade_in_changed(&shown, after_burst, cx);
@@ -1357,15 +1358,15 @@ impl PaintedText {
     /// The effects that still play at `now`, each with its progress and the rows of its span.
     fn effect_frames(
         &self,
-        effects: &[Playing],
+        effects: &[Particles],
         now: Instant,
-    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+    ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
         effects
             .iter()
             .filter_map(|playing| {
                 let progress = playing.progress(now)?;
                 let rows = self
-                    .selection_quads(&playing.effect.range, Hsla::default())
+                    .selection_quads(&playing.playing.range, Hsla::default())
                     .into_iter()
                     .map(|quad| quad.bounds)
                     .collect();
@@ -1575,7 +1576,7 @@ struct EditorElement {
 struct EditorPrepaint {
     lines: Vec<PaintedLine>,
     /// Each playing effect, its progress, and the rows of its span.
-    effects: Vec<(Playing, f32, Vec<Bounds<Pixels>>)>,
+    effects: Vec<(Particles, f32, Vec<Bounds<Pixels>>)>,
     hover: Vec<PaintQuad>,
     lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
@@ -1594,7 +1595,7 @@ impl EditorElement {
         painted: &PaintedText,
         window: &mut Window,
         cx: &mut App,
-    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+    ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
         let now = Instant::now();
         let effects = painted.effect_frames(&self.editor.read(cx).effects, now);
         self.editor.update(cx, |editor, _| {

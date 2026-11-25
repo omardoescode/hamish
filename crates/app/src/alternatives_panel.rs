@@ -8,7 +8,8 @@ use gpui::{
     Modifiers, Render, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
 use ka_teb_core::{
-    AiError, AiRequest, AiTrigger, Level, Provenance, SlotId, paragraph_around, sentence_around,
+    AiError, AiRequest, AiTrigger, Effect, Level, Provenance, SlotId, paragraph_around,
+    sentence_around,
 };
 
 use crate::actions::{
@@ -16,7 +17,7 @@ use crate::actions::{
     SelectPreviousVariant,
 };
 use crate::editor::Spotlight;
-use crate::effects::{self, Effect, EffectKind, Playing};
+use crate::effects::{self, Particles, PlayingEffect};
 use crate::sounds;
 use crate::{Ai, Editor, Theme};
 use crate::{context_menu, loading, settings_modal};
@@ -81,7 +82,7 @@ pub struct AlternativesPanel {
     /// The text of the selected Variant while the writer edits it (FR-26).
     editing: Option<String>,
     /// FR-80: the row that a delete blows up, and its explosion.
-    explosion: Option<(usize, Playing)>,
+    explosion: Option<(usize, Particles)>,
     ai: AiStatus,
     quick_fill: Option<QuickFill>,
     /// The last row is hidden after a quick fill, until the writer goes to it (FR-73).
@@ -637,12 +638,12 @@ impl AlternativesPanel {
         if deleted.is_err() {
             return;
         }
-        let effect = Effect {
-            kind: EffectKind::Explosion,
+        let playing = PlayingEffect {
+            effect: Effect::Explosion,
             range,
         };
         let seed = u64::try_from(row).unwrap_or_default().wrapping_add(0x5eed);
-        self.explosion = effects::plays(cx).then(|| (row, Playing::new(effect, seed)));
+        self.explosion = effects::plays(cx).then(|| (row, Particles::new(playing, seed)));
         if let Some(kept) = kept {
             let text = self.editor.read(cx).document().text();
             let target = ended_slot_text(text, start, &kept)

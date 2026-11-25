@@ -39,7 +39,7 @@ pub use ai::Ai;
 pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
-pub use effects::{Effect, EffectKind};
+pub use effects::PlayingEffect;
 pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
