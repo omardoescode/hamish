@@ -11,6 +11,7 @@ name = "ka-teb"
 path = "src/main.rs"
 
 [dependencies]
+cpal = "0.18.2"
 gpui.workspace = true
 ka-teb-core = { path = "../core", version = "0.1.0" }
 unicode-segmentation = "1.12.0"

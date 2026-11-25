@@ -12,6 +12,7 @@ use crate::actions::{
 };
 use crate::context_menu;
 use crate::editor::{Spotlight, paragraph_around};
+use crate::sounds;
 use crate::{Editor, Theme};
 
 /// Alternatives list text (spec: about 12 px).
@@ -256,11 +257,12 @@ impl AlternativesPanel {
         if active.is_none_or(|active| active == row) {
             return;
         }
-        self.editor
-            .update(cx, |editor, cx| {
-                editor.change_document(|document| document.set_active(id, row), cx)
-            })
-            .ok();
+        let switched = self.editor.update(cx, |editor, cx| {
+            editor.change_document(|document| document.set_active(id, row), cx)
+        });
+        if let Ok(switch) = switched {
+            sounds::play(switch.sound(), cx);
+        }
     }
 
     /// FR-24: Esc closes the panel.

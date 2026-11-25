@@ -14,6 +14,7 @@ mod lab;
 mod overflow_panel;
 mod save_open;
 mod settings_modal;
+mod sounds;
 mod theme;
 mod workspace;
 
@@ -40,6 +41,7 @@ pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings_modal::{SettingsModal, use_settings};
+pub use sounds::{DeviceSounds, SoundSink, Sounds};
 pub use theme::Theme;
 pub use workspace::Workspace;
 

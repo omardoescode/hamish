@@ -22,6 +22,7 @@ use crate::actions::{
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
+use crate::sounds;
 
 /// How a Slot shows that it has Variants (FR-12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -386,13 +387,12 @@ impl Editor {
         let Some(id) = self.hovered else {
             return false;
         };
-        if self
-            .change_document(|document| document.cycle_active(id, cycle), cx)
-            .is_err()
-        {
+        let Ok(switch) = self.change_document(|document| document.cycle_active(id, cycle), cx)
+        else {
             self.hovered = None;
             return false;
-        }
+        };
+        sounds::play(switch.sound(), cx);
         true
     }
 
