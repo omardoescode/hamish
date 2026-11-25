@@ -173,6 +173,8 @@ fn an_acronym_read_as_a_word_takes_the_article_of_its_first_sound() {
         ("an", "FIFA", "a FIFA"),
         ("an", "UNESCO", "a UNESCO"),
         ("an", "UNICEF", "a UNICEF"),
+        ("an", "UEFA", "a UEFA"),
+        ("an", "USB", "a USB"),
     ];
     for (article, variant, expected) in examples {
         let text = format!("{article} word");
