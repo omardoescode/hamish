@@ -2,6 +2,7 @@
 //! and the stacks that undo and redo them.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use crate::tree::Tree;
 use crate::{LabMark, Overflow, SlotId};
@@ -21,8 +22,8 @@ pub(crate) struct Step {
     pub(crate) at: usize,
     pub(crate) removed: String,
     pub(crate) inserted: String,
-    pub(crate) before: Snapshot,
-    pub(crate) after: Snapshot,
+    pub(crate) before: Arc<Snapshot>,
+    pub(crate) after: Arc<Snapshot>,
     /// The step deleted a Variant of this Slot (its undo plays a burst).
     pub(crate) variant_deleted: Option<SlotId>,
 }

@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::ops::Range;
+use std::sync::{Arc, OnceLock};
 
 use crate::article;
 use crate::markdown;
@@ -19,13 +20,20 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
-    tree: Tree,
-    overflow: Overflow,
+    /// The Tree, Overflow, and Lab marks; undo steps share it.
+    state: Arc<Snapshot>,
     next_slot: SlotId,
-    lab_marks: Vec<LabMark>,
     next_lab_mark: LabMarkId,
     pub(crate) trim: Option<TrimProposal>,
     steps: UndoSteps,
+    derived: Derived,
+}
+
+/// Values that follow from the text and the Tree, made at the first ask after a change.
+#[derive(Debug, Clone, Default)]
+struct Derived {
+    counter: OnceLock<Counter>,
+    markdown: OnceLock<Vec<MarkdownSpan>>,
 }
 
 /// How a Slot change reaches the text. Only a writer text edit makes an
@@ -73,13 +81,16 @@ impl Document {
     /// Counter of the Document. Ghost text is not counted; a Ghost range splits words.
     #[must_use]
     pub fn counter(&self) -> Counter {
-        self.count_outside(0..self.text.len(), &[])
+        *self
+            .derived
+            .counter
+            .get_or_init(|| self.count_outside(0..self.text.len(), &[]))
     }
 
     /// The visible Ghost ranges in document order, as byte ranges of the active text.
     #[must_use]
     pub fn ghost_ranges(&self) -> Vec<Range<usize>> {
-        self.tree.ghost_ranges()
+        self.state.tree.ghost_ranges()
     }
 
     /// Ghosts `range`: the text stays in the Document, dimmed. Ghost ranges
@@ -96,7 +107,7 @@ impl Document {
         if range.is_empty() {
             return Err(GhostError::EmptyRange);
         }
-        let mut tree = self.tree.clone();
+        let mut tree = self.state.tree.clone();
         tree.place_ghost(range.clone())?;
         self.commit(range.start..range.start, "", tree)?;
         Ok(())
@@ -108,7 +119,7 @@ impl Document {
     /// # Errors
     /// [`GhostError::NoGhost`] when `range` touches no Ghost range.
     pub fn revive(&mut self, range: Range<usize>) -> Result<(), GhostError> {
-        let mut tree = self.tree.clone();
+        let mut tree = self.state.tree.clone();
         if tree.revive(&range) == 0 {
             return Err(GhostError::NoGhost(range));
         }
@@ -142,7 +153,10 @@ impl Document {
     /// The Markdown styles of the active text, ordered by start; outer before inner.
     #[must_use]
     pub fn markdown_styles(&self) -> Vec<MarkdownSpan> {
-        markdown::spans(&self.text)
+        self.derived
+            .markdown
+            .get_or_init(|| markdown::spans(&self.text))
+            .clone()
     }
 
     /// The first line, shown as the title. `None` when the first line is blank.
@@ -168,7 +182,7 @@ impl Document {
     /// The visible Slots in document order, each parent before the Slots nested in it.
     #[must_use]
     pub fn slots(&self) -> Vec<Slot<'_>> {
-        self.tree.visible_slots()
+        self.state.tree.visible_slots()
     }
 
     /// The visible Slot `id`. `None` when it ended or sits in an inactive Variant.
@@ -288,7 +302,7 @@ impl Document {
             variants,
             active: 0,
         };
-        let mut tree = self.tree.clone();
+        let mut tree = self.state.tree.clone();
         tree.place(node)?;
         Ok((id, tree))
     }
@@ -422,7 +436,7 @@ impl Document {
         kind: SlotChange,
         change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
     ) -> Result<Option<Range<usize>>, SlotError> {
-        self.change_slot_in(self.tree.clone(), id, kind, change)
+        self.change_slot_in(self.state.tree.clone(), id, kind, change)
     }
 
     /// Like [`Self::change_slot`], on `tree` in place of the current Tree.
@@ -522,7 +536,7 @@ impl Document {
             return Ok(());
         }
         let writer_edit = removed != text;
-        let mut tree = self.tree.clone();
+        let mut tree = self.state.tree.clone();
         tree.shift(&range, text.len(), writer_edit, None);
         self.commit(range, text, tree)
     }
@@ -540,8 +554,8 @@ impl Document {
                 range: span.clone(),
             })?
             .to_owned();
-        let mut tree = self.tree.clone();
-        let mut marks = self.lab_marks.clone();
+        let mut tree = self.state.tree.clone();
+        let mut marks = self.state.lab_marks.clone();
         for range in ranges.iter().rev() {
             let piece = range.start - span.start..range.end - span.start;
             kept.get(piece.clone()).ok_or(RangeError {
@@ -556,7 +570,7 @@ impl Document {
         }
         let after = Snapshot {
             tree,
-            overflow: self.overflow.clone(),
+            overflow: self.state.overflow.clone(),
             lab_marks: marks,
         };
         self.record(span, &kept, after)
@@ -565,7 +579,7 @@ impl Document {
     /// The open Lab marks in document order.
     #[must_use]
     pub fn lab_marks(&self) -> &[LabMark] {
-        &self.lab_marks
+        &self.state.lab_marks
     }
 
     pub(crate) fn new_lab_mark_id(&mut self) -> LabMarkId {
@@ -577,8 +591,8 @@ impl Document {
     /// Sets the Lab marks to `marks` as one undoable step. The text stays.
     pub(crate) fn commit_lab_marks(&mut self, marks: Vec<LabMark>) -> Result<(), RangeError> {
         let after = Snapshot {
-            tree: self.tree.clone(),
-            overflow: self.overflow.clone(),
+            tree: self.state.tree.clone(),
+            overflow: self.state.overflow.clone(),
             lab_marks: marks,
         };
         self.record(0..0, "", after)
@@ -592,7 +606,7 @@ impl Document {
         inserted: &str,
         tree: Tree,
     ) -> Result<(), RangeError> {
-        self.commit_with(range, inserted, tree, self.overflow.clone())
+        self.commit_with(range, inserted, tree, self.state.overflow.clone())
     }
 
     /// Like [`Self::commit`], and sets the Overflow to `overflow`.
@@ -604,6 +618,7 @@ impl Document {
         overflow: Overflow,
     ) -> Result<(), RangeError> {
         let lab_marks = self
+            .state
             .lab_marks
             .iter()
             .filter_map(|mark| mark.clone().follow(&range, inserted.len()))
@@ -631,20 +646,14 @@ impl Document {
                 range: range.clone(),
             })?
             .to_owned();
-        let mut text = self.text.clone();
-        text.replace_range(range.clone(), inserted);
-        after.tree.sync(&text);
-        let before = Snapshot {
-            tree: std::mem::take(&mut self.tree),
-            overflow: std::mem::take(&mut self.overflow),
-            lab_marks: std::mem::take(&mut self.lab_marks),
-        };
-        if text == self.text && after == before {
-            self.set_snapshot(before);
+        self.text.replace_range(range.clone(), inserted);
+        after.tree.sync(&self.text);
+        if removed == inserted && after == *self.state {
             return Ok(());
         }
-        self.text = text;
-        self.set_snapshot(after.clone());
+        let after = Arc::new(after);
+        let before = std::mem::replace(&mut self.state, Arc::clone(&after));
+        self.derived = Derived::default();
         self.follow_trim(&range, inserted.len());
         self.steps.push(Step {
             at: range.start,
@@ -660,7 +669,7 @@ impl Document {
     /// The Overflow of the Document.
     #[must_use]
     pub fn overflow(&self) -> &Overflow {
-        &self.overflow
+        &self.state.overflow
     }
 
     /// Replaces the Overflow text in byte range `range` with `text`.
@@ -668,12 +677,16 @@ impl Document {
     /// # Errors
     /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
     pub fn edit_overflow(&mut self, range: Range<usize>, text: &str) -> Result<(), RangeError> {
-        self.overflow.text().get(range.clone()).ok_or(RangeError {
-            range: range.clone(),
-        })?;
-        let mut overflow = self.overflow.clone();
+        self.state
+            .overflow
+            .text()
+            .get(range.clone())
+            .ok_or(RangeError {
+                range: range.clone(),
+            })?;
+        let mut overflow = self.state.overflow.clone();
         overflow.text_mut().replace_range(range, text);
-        self.commit_with(0..0, "", self.tree.clone(), overflow)
+        self.commit_with(0..0, "", self.state.tree.clone(), overflow)
     }
 
     /// Stash: moves the text in `range` from the Document to the end of Overflow,
@@ -688,9 +701,9 @@ impl Document {
         if stashed.is_empty() {
             return Err(OverflowError::EmptyRange);
         }
-        let mut overflow = self.overflow.clone();
+        let mut overflow = self.state.overflow.clone();
         overflow.append(stashed);
-        let mut tree = self.tree.clone();
+        let mut tree = self.state.tree.clone();
         tree.shift(&range, 0, true, None);
         self.commit_with(range, "", tree, overflow)?;
         Ok(())
@@ -705,6 +718,7 @@ impl Document {
     /// [`OverflowError::Range`] when `at` is out of bounds or not on a char boundary.
     pub fn use_block(&mut self, caret: usize, at: usize) -> Result<(), OverflowError> {
         let block = self
+            .state
             .overflow
             .block_at(caret)
             .ok_or(OverflowError::NoBlock(caret))?
@@ -720,6 +734,7 @@ impl Document {
     /// As [`Document::use_block`].
     pub fn drop_block(&mut self, caret: usize, at: usize) -> Result<(), OverflowError> {
         let block = self
+            .state
             .overflow
             .block_at(caret)
             .ok_or(OverflowError::NoBlock(caret))?;
@@ -770,7 +785,8 @@ impl Document {
     fn apply(&mut self, step: Step) -> Step {
         let inserted = step.inserted_range();
         self.text.replace_range(inserted.clone(), &step.removed);
-        self.set_snapshot(step.before.clone());
+        self.state = Arc::clone(&step.before);
+        self.derived = Derived::default();
         self.follow_trim(&inserted, step.removed.len());
         step.inverse()
     }
@@ -787,24 +803,35 @@ impl Document {
         let last_mark = lab_marks.iter().map(|mark| mark.id.0).max().unwrap_or(0);
         Self {
             text,
-            tree,
-            overflow,
+            state: Arc::new(Snapshot {
+                tree,
+                overflow,
+                lab_marks,
+            }),
             next_slot,
-            lab_marks,
             next_lab_mark: LabMarkId(last_mark).next(),
             trim: None,
             steps: UndoSteps::default(),
+            derived: Derived::default(),
         }
     }
 
     /// The Slots and Ghost ranges of the Document text (ADR 0006).
     pub(crate) fn tree(&self) -> &Tree {
-        &self.tree
+        &self.state.tree
     }
 
-    fn set_snapshot(&mut self, snapshot: Snapshot) {
-        self.tree = snapshot.tree;
-        self.overflow = snapshot.overflow;
-        self.lab_marks = snapshot.lab_marks;
+    /// A copy of this Document with no undo steps, for a save or a preview.
+    #[must_use]
+    pub fn without_history(&self) -> Self {
+        Self {
+            text: self.text.clone(),
+            state: Arc::clone(&self.state),
+            next_slot: self.next_slot,
+            next_lab_mark: self.next_lab_mark,
+            trim: self.trim.clone(),
+            steps: UndoSteps::default(),
+            derived: self.derived.clone(),
+        }
     }
 }

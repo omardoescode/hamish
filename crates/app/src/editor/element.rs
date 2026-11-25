@@ -280,6 +280,9 @@ impl Element for EditorElement {
             window.paint_quad(quad);
         }
         let line_height = window.line_height();
+        let visible = window.content_mask().bounds;
+        let in_view =
+            |top: Pixels, bottom: Pixels| top <= visible.bottom() && bottom >= visible.top();
         let normal = prepaint.lines.iter().enumerate().filter(|(index, _)| {
             !prepaint
                 .zoom
@@ -289,6 +292,9 @@ impl Element for EditorElement {
         });
         for (_, painted) in normal {
             let origin = bounds.origin + point(px(0.), painted.top);
+            if !in_view(origin.y, origin.y + painted.line.size(line_height).height) {
+                continue;
+            }
             // A failed glyph paint leaves that line blank; the next frame tries again.
             painted
                 .line
@@ -305,7 +311,13 @@ impl Element for EditorElement {
         for (playing, progress, rows) in prepaint.effects.drain(..) {
             playing.paint(&rows, line_height, progress, background, window);
         }
-        for stroke in &prepaint.underlines {
+        let strokes = prepaint.underlines.iter().filter(|stroke| {
+            stroke
+                .centre
+                .iter()
+                .any(|at| in_view(at.y - line_height, at.y + line_height))
+        });
+        for stroke in strokes {
             if let Some(path) = stroke.path() {
                 window.paint_path(path, stroke.color);
             }
