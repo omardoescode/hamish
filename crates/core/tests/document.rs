@@ -30,3 +30,43 @@ fn edit_outside_text_or_inside_a_char_is_rejected_and_changes_nothing() {
     assert!(document.replace(reversed, "x").is_err());
     assert_eq!(document.text(), "كاتب");
 }
+
+#[test]
+fn counter_counts_words_and_chars_of_the_document() {
+    let examples = [
+        ("", "0 words 0 chars"),
+        ("Hello, dear world", "3 words 17 chars"),
+        ("كاتب يكتب", "2 words 9 chars"),
+        ("Title\n\nOne two.  Three", "4 words 22 chars"),
+    ];
+    for (text, expected) in examples {
+        assert_eq!(
+            Document::new(text).counter().to_string(),
+            expected,
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn selection_counter_counts_only_the_selected_text() {
+    let document = Document::new("Hello, dear world");
+    assert_eq!(
+        document.selection_counter(7..11).unwrap().to_string(),
+        "1 words 4 chars"
+    );
+    assert_eq!(
+        document.selection_counter(2..9).unwrap().to_string(),
+        "2 words 7 chars"
+    );
+    assert_eq!(
+        document.selection_counter(5..5).unwrap().to_string(),
+        "0 words 0 chars"
+    );
+}
+
+#[test]
+fn selection_counter_rejects_a_range_outside_the_text() {
+    let document = Document::new("Hello");
+    assert!(document.selection_counter(2..9).is_err());
+}

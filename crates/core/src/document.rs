@@ -1,6 +1,8 @@
 use std::fmt;
 use std::ops::Range;
 
+use crate::Counter;
+
 /// One piece of writing and its edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
@@ -38,6 +40,22 @@ impl Document {
         &self.text
     }
 
+    #[must_use]
+    pub fn counter(&self) -> Counter {
+        Counter::of(&self.text)
+    }
+
+    /// Counter of the text in byte range `selection`.
+    ///
+    /// # Errors
+    /// [`RangeError`] when `selection` is out of bounds, reversed, or not on char boundaries.
+    pub fn selection_counter(&self, selection: Range<usize>) -> Result<Counter, RangeError> {
+        self.text
+            .get(selection.clone())
+            .map(Counter::of)
+            .ok_or(RangeError { range: selection })
+    }
+
     /// Inserts `text` at byte offset `at`.
     ///
     /// # Errors
@@ -65,10 +83,7 @@ impl Document {
     }
 
     fn check(&self, range: &Range<usize>) -> Result<(), RangeError> {
-        let valid = range.start <= range.end
-            && self.text.is_char_boundary(range.start)
-            && self.text.is_char_boundary(range.end);
-        if valid {
+        if self.text.get(range.clone()).is_some() {
             Ok(())
         } else {
             Err(RangeError {
