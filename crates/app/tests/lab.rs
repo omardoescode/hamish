@@ -8,7 +8,7 @@ use gpui::{
 };
 use ka_teb_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabCheck, LabFinding, LabRequest,
-    TrimRequest,
+    LoadedSettings, Settings, TrimRequest,
 };
 
 /// Gives fixed findings for each Lab check, or fails, as an AI backend would.
@@ -352,4 +352,91 @@ fn the_trim_level_buttons_fit_the_popover_and_do_not_overlap(cx: &mut TestAppCon
             );
         }
     }
+}
+
+fn open_scaled(
+    cx: &mut TestAppContext,
+    ui_scale: f32,
+) -> (Entity<Workspace>, &mut VisualTestContext) {
+    assert!(cx.update(app::init).is_ok(), "bundled font loads");
+    cx.update(|cx| {
+        app::use_settings(
+            None,
+            LoadedSettings {
+                settings: Settings {
+                    ui_scale,
+                    ..Settings::default()
+                },
+                problem: None,
+            },
+            cx,
+        );
+        cx.set_global(Ai(Arc::new(typo_and_hedge())));
+    });
+    let (workspace, cx) =
+        cx.add_window_view(|window, cx| Workspace::new(Document::new(TEXT), window, cx));
+    cx.dispatch_action(ToggleChrome);
+    cx.run_until_parked();
+    (workspace, cx)
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<gpui::Pixels> {
+    cx.debug_bounds(selector)
+        .expect("the window shows the element")
+}
+
+/// Runs "Mark hedges and filler" to its end, then starts "Mark words that don't fit the
+/// tone" and checks its progress at `ui_scale` while the AI works.
+fn assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(
+    cx: &mut TestAppContext,
+    ui_scale: f32,
+) {
+    let (workspace, cx) = open_scaled(cx, ui_scale);
+    click(cx, "lab-button");
+    click(cx, "lab-check-5");
+    assert_eq!(cx.debug_bounds("ai-bar"), None);
+
+    cx.update(|window, cx| {
+        window.dispatch_action(Box::new(RunLabCheck(LabCheck::OffToneWords)), cx);
+    });
+    assert_eq!(
+        status(&workspace, cx, LabCheck::OffToneWords),
+        LabStatus::Running
+    );
+
+    let bar = bounds(cx, "ai-bar");
+    let popover = bounds(cx, "lab-popover");
+    assert!(
+        bar.bottom() <= popover.top(),
+        "the AI bar {bar:?} overlaps the popover {popover:?}"
+    );
+    let label = bounds(cx, "lab-check-label-4");
+    assert!(
+        popover.left() <= label.left() && label.right() <= popover.right(),
+        "the running label {label:?} is outside the popover {popover:?}"
+    );
+    let marked_label = bounds(cx, "lab-check-label-5");
+    let marked_status = bounds(cx, "lab-check-status-5");
+    assert!(
+        !marked_label.intersects(&marked_status),
+        "the label {marked_label:?} overlaps its status {marked_status:?}"
+    );
+    assert!(
+        marked_status.right() <= popover.right(),
+        "the status {marked_status:?} is outside the popover {popover:?}"
+    );
+
+    cx.run_until_parked();
+    assert_eq!(cx.debug_bounds("ai-bar"), None);
+}
+
+#[gpui::test]
+fn a_running_check_shows_the_ai_bar_clear_of_the_rows(cx: &mut TestAppContext) {
+    assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 1.);
+}
+
+#[gpui::test]
+fn a_running_check_shows_the_ai_bar_clear_of_the_rows_at_a_large_ui_scale(cx: &mut TestAppContext) {
+    assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 2.);
 }
