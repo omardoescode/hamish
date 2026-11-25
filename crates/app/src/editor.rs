@@ -1017,7 +1017,7 @@ impl Focusable for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         div()
             .id("editor")
             .key_context("Editor")
@@ -1251,7 +1251,7 @@ impl Element for EditorElement {
             line_height,
             lines,
         };
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         let editor = self.editor.read(cx);
         let selection = painted.selection_quads(&editor.selection, theme.selection);
         let slots = editor.document.slots();
