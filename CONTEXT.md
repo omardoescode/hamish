@@ -102,6 +102,10 @@ The UI tools around the text: icons, buttons, counter.
 **Counter**:
 Live word and character count of the Document, or of the selection.
 
+**Settings**:
+The writer's choices for theme, UI scale, body font, font size, line height, and column width. They apply at once and save to a JSON file in the XDG config dir.
+_Avoid_: Preferences, config
+
 ### Lab
 
 **Lab**:

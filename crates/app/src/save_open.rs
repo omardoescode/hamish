@@ -19,6 +19,9 @@ pub enum Notice {
     OpenFailed(String),
     /// The open could not put these items back on the `.md` text (ADR 0003).
     Dropped(Vec<Dropped>),
+    /// The settings file did not load at start; the defaults are in use.
+    SettingsNotLoaded(String),
+    SettingsNotSaved(String),
 }
 
 /// Where the Document is saved, and the open notice.
@@ -30,6 +33,15 @@ pub(crate) struct SaveOpen {
     /// A save asked for while one runs; it starts when that one ends, so two saves never
     /// write the same files at once.
     queued: Option<PathBuf>,
+}
+
+impl SaveOpen {
+    pub(crate) fn with_notice(notice: Option<Notice>) -> Self {
+        Self {
+            notice,
+            ..Self::default()
+        }
+    }
 }
 
 impl Workspace {
@@ -191,7 +203,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn show(&mut self, notice: Notice, cx: &mut Context<Self>) {
+    pub(crate) fn show(&mut self, notice: Notice, cx: &mut Context<Self>) {
         self.save_open.notice = Some(notice);
         cx.notify();
     }
@@ -258,6 +270,10 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
     match notice {
         Notice::SaveFailed(error) => vec![format!("Not saved: {error}").into()],
         Notice::OpenFailed(error) => vec![format!("Not opened: {error}").into()],
+        Notice::SettingsNotLoaded(error) => {
+            vec![format!("Settings not loaded, defaults in use: {error}").into()]
+        }
+        Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
         Notice::Dropped(dropped) => {
             std::iter::once("The .md file changed outside Ka-teb. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))
