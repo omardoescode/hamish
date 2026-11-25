@@ -84,15 +84,31 @@ fn the_settings_icon_in_the_chrome_opens_settings(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_light_theme_changes_the_editor_at_once(cx: &mut TestAppContext) {
+fn ka_teb_light_from_the_theme_select_changes_the_editor_at_once(cx: &mut TestAppContext) {
     let (_, cx) = open(cx);
     assert_eq!(theme(cx).background, rgb(0x0007_0a1e).into());
 
     cx.simulate_keystrokes("ctrl-,");
-    click(cx, "settings-theme-light");
+    click(cx, "settings-theme-select");
+    click(cx, "settings-theme-ka-teb-light");
 
     assert_eq!(theme(cx).background, rgb(0x00f7_f3ec).into());
     assert_eq!(theme(cx).text, rgb(0x002b_2824).into());
+}
+
+#[gpui::test]
+fn a_named_theme_from_the_theme_select_applies_and_saves(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let (_, cx) = open_with_file(cx, path.clone());
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-theme-select");
+    click(cx, "settings-theme-rose-pine");
+
+    assert_eq!(theme(cx).background, rgb(0x0019_1724).into());
+    assert_eq!(theme(cx).accent, rgb(0x00c4_a7e7).into());
+    assert_eq!(Settings::load(&path).settings.theme, ThemeName::RosePine);
 }
 
 #[gpui::test]
@@ -134,18 +150,24 @@ fn line_height_and_column_width_change_the_editor(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_font_list_starts_with_the_bundled_font_and_a_click_uses_a_font(cx: &mut TestAppContext) {
-    let (_, cx) = open(cx);
+fn a_font_from_the_font_select_changes_the_setting(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");
     click(cx, "settings-section-editor");
     assert_eq!(theme(cx).font_family, "IBM Plex Mono");
 
+    click(cx, "settings-font-select");
     click(cx, "settings-font-1");
     assert_ne!(theme(cx).font_family, "IBM Plex Mono");
+    assert_ne!(Settings::load(&path).settings.font_family, "IBM Plex Mono");
 
+    click(cx, "settings-font-select");
     click(cx, "settings-font-0");
     assert_eq!(theme(cx).font_family, "IBM Plex Mono");
+    assert_eq!(Settings::load(&path).settings.font_family, "IBM Plex Mono");
 }
 
 #[gpui::test]
@@ -155,7 +177,8 @@ fn a_change_saves_to_the_settings_file(cx: &mut TestAppContext) {
     let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");
-    click(cx, "settings-theme-light");
+    click(cx, "settings-theme-select");
+    click(cx, "settings-theme-ka-teb-light");
     click(cx, "settings-section-editor");
     click(cx, "settings-font-size-up");
 
@@ -164,7 +187,7 @@ fn a_change_saves_to_the_settings_file(cx: &mut TestAppContext) {
     assert_eq!(
         loaded.settings,
         Settings {
-            theme: ThemeName::Light,
+            theme: ThemeName::KaTebLight,
             font_size: 16.0,
             ..Settings::default()
         }

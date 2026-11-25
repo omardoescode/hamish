@@ -29,9 +29,9 @@ fn a_relative_or_empty_xdg_config_home_is_ignored() {
 }
 
 #[test]
-fn defaults_are_the_dark_theme_and_the_bundled_font_at_the_default_sizes() {
+fn defaults_are_the_ka_teb_theme_and_the_bundled_font_at_the_default_sizes() {
     let settings = Settings::default();
-    assert_eq!(settings.theme, ThemeName::Dark);
+    assert_eq!(settings.theme, ThemeName::KaTeb);
     assert!((settings.ui_scale - 1.0).abs() < 1e-6);
     assert_eq!(settings.font_family, "IBM Plex Mono");
     assert!((settings.font_size - 15.0).abs() < 1e-6);
@@ -45,7 +45,7 @@ fn saved_settings_open_again_the_same() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ka-teb").join("settings.json");
     let settings = Settings {
-        theme: ThemeName::Light,
+        theme: ThemeName::KaTebLight,
         ui_scale: 1.2,
         font_family: "DejaVu Serif".to_owned(),
         font_size: 18.0,
@@ -98,7 +98,7 @@ fn a_field_not_in_the_file_takes_its_default() {
     assert_eq!(
         loaded.settings,
         Settings {
-            theme: ThemeName::Light,
+            theme: ThemeName::KaTebLight,
             font_size: 20.0,
             ..Settings::default()
         }
@@ -186,4 +186,74 @@ fn focus_zoom_is_on_by_default_and_in_a_file_without_it() {
 
     assert!(Settings::default().focus_zoom);
     assert!(Settings::load(&path).settings.focus_zoom);
+}
+
+#[test]
+fn the_old_dark_and_light_names_load_as_ka_teb_and_ka_teb_light() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    fs::write(&path, r#"{ "theme": "dark" }"#).unwrap();
+    assert_eq!(Settings::load(&path).settings.theme, ThemeName::KaTeb);
+
+    fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
+    assert_eq!(Settings::load(&path).settings.theme, ThemeName::KaTebLight);
+}
+
+#[test]
+fn a_named_theme_saves_by_its_name_and_loads_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let settings = Settings {
+        theme: ThemeName::RosePineDawn,
+        ..Settings::default()
+    };
+
+    settings.save(&path).unwrap();
+
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains(r#""theme": "rose-pine-dawn""#)
+    );
+    assert_eq!(
+        Settings::load(&path).settings.theme,
+        ThemeName::RosePineDawn
+    );
+}
+
+#[test]
+fn the_theme_list_names_each_theme_in_order() {
+    let labels: Vec<&str> = ThemeName::ALL.iter().map(|name| name.label()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Ka-teb",
+            "Ka-teb Light",
+            "Rosé Pine",
+            "Rosé Pine Dawn",
+            "One Dark",
+            "One Light",
+            "Catppuccin Mocha",
+            "Gruvbox Dark",
+            "Tokyo Night",
+            "Nord",
+        ]
+    );
+}
+
+#[test]
+fn a_theme_palette_uses_the_published_colors() {
+    let rose_pine = ThemeName::RosePine.palette();
+    assert_eq!(rose_pine.background, 0x0019_1724);
+    assert_eq!(rose_pine.text, 0x00e0_def4);
+    assert_eq!(rose_pine.accent, 0x00c4_a7e7);
+    assert!(rose_pine.dark);
+
+    let nord = ThemeName::Nord.palette();
+    assert_eq!(nord.background, 0x002e_3440);
+    assert_eq!(nord.accent, 0x0088_c0d0);
+
+    assert!(!ThemeName::OneLight.palette().dark);
+    assert_eq!(ThemeName::OneLight.palette().background, 0x00fa_fafa);
 }

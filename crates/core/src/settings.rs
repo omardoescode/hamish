@@ -10,14 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// The two themes. Dark is the default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ThemeName {
-    #[default]
-    Dark,
-    Light,
-}
+use crate::ThemeName;
 
 /// A numeric setting the writer steps up and down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +78,7 @@ impl Default for Settings {
     /// 15 px body font on 27 px lines, a 585 px column.
     fn default() -> Self {
         Self {
-            theme: ThemeName::Dark,
+            theme: ThemeName::KaTeb,
             ui_scale: 1.0,
             font_family: "IBM Plex Mono".to_owned(),
             font_size: 15.0,
