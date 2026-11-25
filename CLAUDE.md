@@ -12,7 +12,7 @@ For work that is a GitHub issue (skip for a small fix the user asks for directly
 - If the task needs changes to >3 files outside its scope, stop and ask the user.
 
 ## Project process
-- Repo: private GitHub `omardoescode/hamish`. Work merges through PRs.
+- Repo: public GitHub `omardoescode/hamish`. Work merges through PRs.
 - Max 3 sub-agents at the same time (more in total is OK).
 - Agent worktrees: `.claude/hooks/worktree-create.sh` copies `target/` with btrfs reflink. WorktreeRemove does not fire for subagent worktrees: clean them with `git worktree remove` + `git branch -D`.
 - Merges: a subagent merges `origin/dev` into its own branch. Only the main session merges into `dev`.
