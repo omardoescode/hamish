@@ -16,9 +16,11 @@ hosting = "github"
 # Release workflow runs on version tags only (no PR runs; saves CI minutes)
 pr-run-mode = "skip"
 
-# GPUI build libraries (Linux): xkbcommon-x11, wayland-client, fontconfig, freetype
+# GPUI build libraries (Linux): xkbcommon-x11, wayland-client, fontconfig, freetype;
+# ALSA for the cycle sounds (cpal)
 [dist.dependencies.apt]
 libxkbcommon-x11-dev = "*"
 libwayland-dev = "*"
 libfontconfig-dev = "*"
 libfreetype-dev = "*"
+libasound2-dev = "*"

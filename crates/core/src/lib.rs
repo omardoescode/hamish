@@ -10,6 +10,7 @@ mod markdown;
 mod overflow;
 mod settings;
 mod slot;
+mod sound;
 mod storage;
 mod trim;
 
@@ -21,6 +22,7 @@ pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
 pub use markdown::{MarkdownSpan, MarkdownStyle};
 pub use overflow::{Overflow, OverflowError};
 pub use settings::{LoadedSettings, Setting, Settings, SettingsError, ThemeName, settings_path};
-pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Variant};
+pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};
+pub use sound::Sound;
 pub use storage::{Dropped, Opened, StorageError, sidecar_path};
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};

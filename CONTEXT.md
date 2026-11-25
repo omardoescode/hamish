@@ -57,6 +57,10 @@ List marker of a Writer Variant.
 **Bot point**:
 List marker (robot icon) of an AI Variant.
 
+**Cycle sound**:
+A short tone when the Active variant changes: high for a Variant that is not the Original, low for a return to the Original. The "Cycle sounds" setting turns it, and the Variant delete sound, on or off.
+_Avoid_: Beep, click
+
 ### Ghost and Overflow
 
 **Ghost**:

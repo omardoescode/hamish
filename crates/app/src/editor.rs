@@ -12,7 +12,7 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId,
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId, Sound,
     TrimError,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -27,6 +27,7 @@ use crate::actions::{
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
 use crate::effects::{Effect, EffectKind, Playing};
+use crate::sounds;
 
 /// How a Slot shows that it has Variants (FR-12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,8 +105,7 @@ pub(crate) enum Spotlight {
 pub(crate) enum EditorEvent {
     /// A click on the text of a visible Slot (FR-21).
     SlotClicked(SlotId),
-    /// A Variant of the Slot was deleted; its explosion plays (FR-78). The explosion sound
-    /// hooks here (#27).
+    /// A Variant of the Slot was deleted; its explosion and its sound (#27) play (FR-78).
     VariantDeleted(SlotId),
     /// An undo put a deleted Variant of the Slot back; its burst plays (FR-79).
     VariantRestored(SlotId),
@@ -225,6 +225,7 @@ impl Editor {
             EffectKind::Explosion,
             range.start.min(len)..range.end.min(len),
         );
+        sounds::play(Sound::Explosion, cx);
         cx.emit(EditorEvent::VariantDeleted(id));
         Ok(())
     }
@@ -475,13 +476,12 @@ impl Editor {
         let Some(id) = self.hovered.or_else(at_caret) else {
             return false;
         };
-        if self
-            .change_document(|document| document.cycle_active(id, cycle), cx)
-            .is_err()
-        {
+        let Ok(switch) = self.change_document(|document| document.cycle_active(id, cycle), cx)
+        else {
             self.hovered = None;
             return false;
-        }
+        };
+        sounds::play(switch.sound(), cx);
         true
     }
 
