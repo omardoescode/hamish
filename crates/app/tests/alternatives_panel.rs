@@ -355,3 +355,22 @@ fn a_click_on_the_sentence_tab_shows_the_sentence_around_the_word(cx: &mut TestA
     let level = panel(&workspace, cx).map(|panel| cx.read(|cx| panel.read(cx).level(cx)));
     assert_eq!(level, Some(Some(Level::Sentence)));
 }
+
+#[gpui::test]
+fn one_undo_in_the_editor_removes_a_variant_the_panel_added(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("buyer");
+    cx.simulate_keystrokes("enter escape ctrl-z ctrl-shift-a");
+
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![
+            row("customer", true),
+            row("client", false),
+            row("patron", false)
+        ]
+    );
+}
