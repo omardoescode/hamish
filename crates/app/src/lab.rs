@@ -319,6 +319,8 @@ impl Lab {
             .w(POPOVER_WIDTH)
             .pb(px(4.))
             .bg(theme.elevated_background)
+            .border_1()
+            .border_color(theme.panel_border)
             .rounded(theme.elevated_radius)
             .shadow_md()
             .text_size(theme.font_size_hint)
