@@ -21,12 +21,16 @@ fn open(
     let slot = document
         .create_slot(14..21, Level::Word, "struggle", Provenance::Writer)
         .unwrap();
+    document
+        .add_variant(slot, "strain", Provenance::Writer)
+        .unwrap();
     let (workspace, cx) = cx.add_window_view(|window, cx| Workspace::new(document, window, cx));
     cx.run_until_parked();
     (workspace, slot, cx)
 }
 
-/// Puts the pointer on the Slot "tension" (bytes 14..21).
+/// Puts the pointer on the Slot "tension" (bytes 14..21; Variants "tension", "struggle",
+/// "strain").
 #[expect(clippy::unwrap_used, reason = "test fixture")]
 fn hover_slot(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
     let editor = cx.read(|cx| workspace.read(cx).editor().clone());
@@ -117,4 +121,28 @@ fn with_reduced_motion_a_variant_switch_shows_at_once(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("down");
 
     assert_eq!(fading_in(&workspace, cx), None);
+}
+#[gpui::test]
+fn undo_of_a_variant_delete_fades_the_text_in_after_the_burst(cx: &mut TestAppContext) {
+    let (workspace, slot, cx) = open(cx, Settings::default());
+
+    cx.simulate_keystrokes("down right right right right right right right right right");
+    cx.simulate_keystrokes("ctrl-shift-backspace");
+    wait(cx, 1000);
+    cx.simulate_keystrokes("ctrl-z");
+
+    let (fading, opacity) = fading_in(&workspace, cx).unwrap();
+    assert_eq!(fading, slot);
+    assert!((opacity - 0.2).abs() < 1e-3, "{opacity}");
+
+    wait(cx, 450);
+    let (_, opacity) = fading_in(&workspace, cx).unwrap();
+    assert!(
+        (opacity - 0.2).abs() < 1e-3,
+        "under the 450 ms burst: {opacity}"
+    );
+
+    wait(cx, 75);
+    let (_, opacity) = fading_in(&workspace, cx).unwrap();
+    assert!((opacity - 0.6).abs() < 1e-3, "{opacity}");
 }

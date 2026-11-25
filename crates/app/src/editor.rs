@@ -1,7 +1,7 @@
 use std::f32::consts::TAU;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
@@ -506,14 +506,15 @@ impl Editor {
     }
 
     /// FR-81: starts the fade-in of a Slot whose Active variant changed since `before`
-    /// (cycle, delete, undo). Typing in a Variant changes neither, so it does not fade.
-    fn fade_in_changed(&mut self, before: &[(SlotId, usize, usize)], cx: &App) {
+    /// (cycle, delete, undo), `delay` from now. Typing in a Variant changes neither, so it
+    /// does not fade.
+    fn fade_in_changed(&mut self, before: &[(SlotId, usize, usize)], delay: Duration, cx: &App) {
         let changed = self
             .shown_variants()
             .into_iter()
             .find(|shown| before.iter().any(|old| old.0 == shown.0 && old != shown));
         if let Some((slot, _, _)) = changed {
-            self.fade_in = Some((slot, cx.background_executor().now()));
+            self.fade_in = Some((slot, cx.background_executor().now() + delay));
         }
     }
 
@@ -544,7 +545,7 @@ impl Editor {
         let old_text = self.document.text().to_owned();
         let shown = self.shown_variants();
         let done = change(&mut self.document)?;
-        self.fade_in_changed(&shown, cx);
+        self.fade_in_changed(&shown, Duration::ZERO, cx);
         let new_text = self.document.text();
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
@@ -742,6 +743,12 @@ impl Editor {
             restored.extend(self.document.undo_restores_variant());
             self.document.undo();
         }
+        // FR-79: the restored text fades in after its burst.
+        let after_burst = if restored.is_empty() || !effects::plays(cx) {
+            Duration::ZERO
+        } else {
+            ka_teb_core::Effect::UndoBurst.duration()
+        };
         for id in restored {
             let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
                 continue;
@@ -749,7 +756,7 @@ impl Editor {
             self.play(EffectKind::Burst, range, cx);
             cx.emit(EditorEvent::VariantRestored(id));
         }
-        self.fade_in_changed(&shown, cx);
+        self.fade_in_changed(&shown, after_burst, cx);
         self.selection = group.before;
         self.reversed = false;
         self.autoscroll = true;
@@ -764,7 +771,7 @@ impl Editor {
         for _ in 0..group.steps {
             self.document.redo();
         }
-        self.fade_in_changed(&shown, cx);
+        self.fade_in_changed(&shown, Duration::ZERO, cx);
         self.selection = group.after;
         self.reversed = false;
         self.autoscroll = true;
