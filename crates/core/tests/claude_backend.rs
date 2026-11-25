@@ -7,7 +7,7 @@ use std::{env, fs};
 use ka_teb_core::{AiAdapter, AiError, AiRequest, ClaudeBackend, Document, Level, RangeError};
 
 /// A `claude` stand-in. The selection picks its behavior; by default it answers with the
-/// args it got, the API key it saw, and the prompt, as three Variant texts.
+/// args it got, the API key and auth token it saw, and the prompt, as three Variant texts.
 const STUB: &str = r#"#!/bin/sh
 prompt=$(cat)
 case "$prompt" in
@@ -21,14 +21,14 @@ esc() { printf '%s' "$1" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 args=""
 for arg in "$@"; do args="$args \"$(esc "$arg")\""; done
 args=$(printf '%s' "$args" | sed 's/^ //; s/" "/", "/g')
-key="${ANTHROPIC_API_KEY-unset}"
+key="${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_AUTH_TOKEN-unset}"
 printf '{"type":"result","is_error":false,"result":"","structured_output":{"variants":["%s","%s","%s"]}}' \
   "$(esc "$args")" "$(esc "$key")" "$(esc "$prompt")"
 "#;
 
 static STUB_WRITTEN: Once = Once::new();
 
-/// A backend whose environment has the stub first on PATH and an API key set.
+/// A backend whose environment has the stub first on PATH and an API key and auth token set.
 fn backend() -> std::io::Result<ClaudeBackend> {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("claude-stub");
     let mut written = Ok(());
@@ -40,6 +40,10 @@ fn backend() -> std::io::Result<ClaudeBackend> {
         (
             "ANTHROPIC_API_KEY".into(),
             "sk-must-not-reach-claude".into(),
+        ),
+        (
+            "ANTHROPIC_AUTH_TOKEN".into(),
+            "token-must-not-reach-claude".into(),
         ),
     ];
     Ok(ClaudeBackend::new(environment).with_timeout(Duration::from_secs(5)))
@@ -58,7 +62,7 @@ fn request(text: &str) -> Result<AiRequest, RangeError> {
 }
 
 #[test]
-fn backend_runs_claude_print_without_the_api_key_and_sends_the_request() {
+fn backend_runs_claude_print_without_api_credentials_and_sends_the_request() {
     let request = Document::new("The cat sat.")
         .ai_request(4..7, Level::Word)
         .unwrap();
@@ -70,7 +74,7 @@ fn backend_runs_claude_print_without_the_api_key_and_sends_the_request() {
         answer[0],
         r#""-p", "--output-format", "json", "--json-schema", "{\"type\":\"object\",\"properties\":{\"variants\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"minItems\":1}},\"required\":[\"variants\"]}", "--tools", "", "--no-session-persistence""#
     );
-    assert_eq!(answer[1], "unset");
+    assert_eq!(answer[1], "unset unset");
     assert!(answer[2].contains("cat"), "prompt: {}", answer[2]);
     assert!(answer[2].contains("The cat sat."), "prompt: {}", answer[2]);
 }

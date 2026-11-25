@@ -12,14 +12,15 @@ use crate::Level;
 /// Asks for an object with a non-empty list of Variant texts.
 const SCHEMA: &str = r#"{"type":"object","properties":{"variants":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["variants"]}"#;
 
-/// With this key set, `claude` bills the API, not the user subscription (ADR 0004).
-const API_KEY: &str = "ANTHROPIC_API_KEY";
+/// With one of these set, `claude` bills the API, not the user subscription (ADR 0004).
+const API_CREDENTIALS: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
 const POLL: Duration = Duration::from_millis(10);
 
 /// Development AI backend: runs `claude -p` as a subprocess (ADR 0004).
 ///
-/// The child gets the given environment without `ANTHROPIC_API_KEY`, and finds `claude`
+/// The child gets the given environment without `ANTHROPIC_API_KEY` and
+/// `ANTHROPIC_AUTH_TOKEN`, and finds `claude`
 /// on its `PATH`.
 #[derive(Debug, Clone)]
 pub struct ClaudeBackend {
@@ -28,7 +29,7 @@ pub struct ClaudeBackend {
 }
 
 impl ClaudeBackend {
-    /// A backend whose child process gets `environment` (less the API key). Timeout: 2 minutes.
+    /// A backend whose child process gets `environment` (less the API credentials). Timeout: 2 minutes.
     #[must_use]
     pub fn new(environment: Vec<(OsString, OsString)>) -> Self {
         Self {
@@ -57,7 +58,7 @@ impl ClaudeBackend {
             .envs(
                 self.environment
                     .iter()
-                    .filter(|(key, _)| key != API_KEY)
+                    .filter(|(key, _)| !API_CREDENTIALS.iter().any(|credential| key == credential))
                     .map(|(key, value)| (key, value)),
             )
             .stdin(Stdio::piped())
@@ -97,7 +98,7 @@ impl ClaudeBackend {
 }
 
 impl Default for ClaudeBackend {
-    /// A backend whose child gets this process's environment (less the API key).
+    /// A backend whose child gets this process's environment (less the API credentials).
     fn default() -> Self {
         Self::new(std::env::vars_os().collect())
     }
