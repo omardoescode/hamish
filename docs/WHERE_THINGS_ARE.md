@@ -9,6 +9,7 @@
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save (issue #21). |
 | `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
 | `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
+| `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
 | `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). It keeps the Document `Caret` and makes its `CaretEdit`s. The Editor and all views change the Document only through it. |
 | `crates/core/src/caret.rs` | `Caret`: selection, caret end, input method composed text over a plain text. Grapheme moves (`Motion`), edits at the caret (`CaretEdit`), clamp to a changed text, UTF-16 ranges (`utf16_range`, `byte_range`), `follow_change`. No pixels. |
 | `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`. |
