@@ -53,7 +53,7 @@ pub use theme::Theme;
 pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
 pub use workspace::Workspace;
 
-/// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the default settings
+/// Loads the bundled font (Regular, Bold, Italic, Bold Italic), sets the default settings
 /// and theme, and binds the keys. [`use_settings`] then puts in the settings from the file.
 ///
 /// # Errors

@@ -1,4 +1,4 @@
-//! Settings: theme, UI scale, editor font values, cycle sounds,
+//! Settings: theme, UI scale, UI font, Text font and other editor font values, cycle sounds,
 //! reduced motion, and focus zoom, with their defaults, limits, labels, and the JSON file
 //! in the XDG config dir.
 
@@ -17,7 +17,7 @@ use crate::ThemeName;
 pub enum Setting {
     /// Scale of the Chrome and panels; 1.0 is the default size.
     UiScale,
-    /// Body font size in pixels.
+    /// Text font size in pixels.
     FontSize,
     /// Body line height as a multiple of the font size.
     LineHeight,
@@ -112,8 +112,13 @@ impl Toggle {
 pub struct Settings {
     pub theme: ThemeName,
     pub ui_scale: f32,
-    /// Body font family; the bundled IBM Plex Mono by default (ADR 0023).
-    pub font_family: String,
+    /// Font family of the Chrome, panels, Settings, menus and popovers; the bundled
+    /// IBM Plex Mono by default (ADR 0023).
+    pub ui_font: String,
+    /// Font family of the Document text and the Overflow text. `None` (the default) uses
+    /// the UI font. An old file's `font_family` reads as this field.
+    #[serde(alias = "font_family")]
+    pub text_font: Option<String>,
     pub font_size: f32,
     pub line_height: f32,
     pub column_width: f32,
@@ -127,12 +132,13 @@ pub struct Settings {
 }
 
 impl Default for Settings {
-    /// 15 px body font on 27 px lines, a 585 px column.
+    /// 15 px Text font on 27 px lines, a 585 px column.
     fn default() -> Self {
         Self {
             theme: ThemeName::KaTeb,
             ui_scale: 1.0,
-            font_family: "IBM Plex Mono".to_owned(),
+            ui_font: "IBM Plex Mono".to_owned(),
+            text_font: None,
             font_size: 15.0,
             line_height: 1.8,
             column_width: 585.0,
@@ -261,6 +267,13 @@ impl Settings {
         fs::rename(&next, path).map_err(io_error)
     }
 
+    /// The font family of the Document text: the Text font, or the UI font when the Text font
+    /// is the default.
+    #[must_use]
+    pub fn text_font_family(&self) -> &str {
+        self.text_font.as_deref().unwrap_or(&self.ui_font)
+    }
+
     /// The current value of `setting`, in its own unit.
     #[must_use]
     pub fn value(&self, setting: Setting) -> f32 {
@@ -354,9 +367,17 @@ impl Settings {
                 bad.push(setting.name());
             }
         }
-        if self.font_family.trim().is_empty() {
-            self.font_family = defaults.font_family;
-            bad.push("font_family");
+        if self.ui_font.trim().is_empty() {
+            self.ui_font = defaults.ui_font;
+            bad.push("ui_font");
+        }
+        if self
+            .text_font
+            .as_ref()
+            .is_some_and(|family| family.trim().is_empty())
+        {
+            self.text_font = None;
+            bad.push("text_font");
         }
         bad
     }

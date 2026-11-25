@@ -14,6 +14,7 @@ use ka_teb_core::{Level, Slot, SlotId};
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
 use super::runs::text_runs;
+use super::synthetic_bold::{self, BoldGlyph};
 use super::{Editor, Marker, MarkerKind, Spotlight, focus_zoom};
 use crate::Theme;
 use crate::caret;
@@ -50,6 +51,8 @@ pub(super) struct EditorPrepaint {
     pub(super) underlines: Vec<PenStroke>,
     pub(super) caret: Option<PaintQuad>,
     pub(super) zoom: focus_zoom::Frame,
+    /// Synthetic bold glyphs of the lines that are not zoomed.
+    pub(super) bold: Vec<BoldGlyph>,
 }
 
 impl EditorElement {
@@ -217,7 +220,17 @@ impl Element for EditorElement {
             caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), cx);
             window.request_animation_frame();
         }
+        let text_font = runs
+            .first()
+            .map_or_else(SharedString::default, |run| run.font.family.clone());
+        let bold_ranges = synthetic_bold::ranges(&runs, window);
+        let zoom = self.focus_zoom(&painted, (&runs, &bold_ranges), window, cx);
+        let mut bold = synthetic_bold::glyphs(&painted, &runs, &bold_ranges);
+        let synthetic_bold: Vec<usize> = bold.iter().map(|glyph| glyph.offset).collect();
+        bold.retain(|glyph| !zoom.lines.iter().any(|zoomed| zoomed.line == glyph.line));
         self.editor.update(cx, |editor, _| {
+            editor.text_font = text_font;
+            editor.synthetic_bold = synthetic_bold;
             editor.autoscroll = false;
             editor.markers = markers;
             editor.marker_dots = marker_dots;
@@ -226,7 +239,8 @@ impl Element for EditorElement {
         });
         EditorPrepaint {
             effects: self.effect_frames(&painted, window, cx),
-            zoom: self.focus_zoom(&painted, &runs, window, cx),
+            zoom,
+            bold,
             lines: painted.lines,
             hover,
             lab_marks,
@@ -279,6 +293,9 @@ impl Element for EditorElement {
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        for glyph in &prepaint.bold {
+            glyph.paint(window);
         }
         for zoomed in &prepaint.zoom.lines {
             zoomed.paint(window);

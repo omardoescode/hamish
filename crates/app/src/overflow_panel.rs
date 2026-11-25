@@ -26,6 +26,8 @@ pub struct OverflowPanel {
     painted: Option<PaintedText>,
     autoscroll: bool,
     column: Option<Column>,
+    /// The font family of the text as last painted.
+    text_font: SharedString,
     _editor_changes: Subscription,
 }
 
@@ -40,8 +42,15 @@ impl OverflowPanel {
             painted: None,
             autoscroll: false,
             column: None,
+            text_font: SharedString::default(),
             _editor_changes: editor_changes,
         }
+    }
+
+    /// The font family of the Overflow text as last painted.
+    #[must_use]
+    pub fn text_font(&self) -> &SharedString {
+        &self.text_font
     }
 
     /// Byte range of the selection in the Overflow text; empty at the caret.
@@ -213,6 +222,7 @@ impl Render for OverflowPanel {
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
                     .cursor(CursorStyle::IBeam)
+                    .font_family(theme.text_font.clone())
                     .text_size(theme.font_size_overflow)
                     .line_height(theme.line_height_overflow)
                     .text_color(theme.text)
@@ -250,6 +260,7 @@ impl Render for DraggedBlock {
             .py(px(4.))
             .bg(theme.elevated_background)
             .rounded(theme.elevated_radius)
+            .font_family(theme.text_font.clone())
             .text_size(theme.font_size_overflow)
             .line_height(theme.line_height_overflow)
             .text_color(theme.text_muted)
@@ -364,7 +375,11 @@ impl Element for OverflowText {
             caret::scroll_to_caret(&panel.scroll_handle, caret.as_ref(), cx);
             window.request_animation_frame();
         }
-        self.panel.update(cx, |panel, _| panel.autoscroll = false);
+        let text_font = window.text_style().font_family;
+        self.panel.update(cx, |panel, _| {
+            panel.autoscroll = false;
+            panel.text_font = text_font;
+        });
         OverflowPrepaint {
             painted,
             selection,

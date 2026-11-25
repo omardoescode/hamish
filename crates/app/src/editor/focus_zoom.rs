@@ -13,8 +13,9 @@ use ka_teb_core::{paragraph_index, paragraph_range};
 
 use super::Editor;
 use super::element::{EditorElement, EditorPrepaint};
-use super::painted_text::{PaintedLine, PaintedText};
+use super::painted_text::{PaintedLine, PaintedText, run_at};
 use super::pen::PenStroke;
+use super::synthetic_bold;
 use crate::settings;
 
 /// One paragraph painted at `scale` about `centre`. `top` and `bottom` bound its rows
@@ -90,6 +91,8 @@ struct Glyph {
     id: GlyphId,
     emoji: bool,
     color: Hsla,
+    /// Paints a second time for synthetic bold.
+    bold: bool,
 }
 
 /// A line of the text that paints zoomed in place of its normal paint.
@@ -105,63 +108,42 @@ pub(super) struct ZoomedLine {
 
 impl ZoomedLine {
     /// The glyphs of `painted` (its top left at `origin`) with the colors of `runs`, which
-    /// cover the whole text from offset 0.
+    /// cover the whole text from offset 0. A glyph in `bold` paints synthetic bold.
     fn new(
         line: usize,
         painted: &PaintedLine,
         origin: Point<Pixels>,
         line_height: Pixels,
-        runs: &[TextRun],
+        (runs, bold): (&[TextRun], &[Range<usize>]),
         zoom: Zoom,
     ) -> Self {
-        let layout = &painted.line.unwrapped_layout;
-        let baseline = (line_height - layout.ascent - layout.descent) / 2. + layout.ascent;
-        let positioned: Vec<_> = layout
-            .runs
-            .iter()
-            .enumerate()
-            .flat_map(|(run_ix, run)| {
-                run.glyphs
-                    .iter()
-                    .enumerate()
-                    .map(move |(glyph_ix, glyph)| (run_ix, glyph_ix, run.font_id, glyph))
-            })
-            .collect();
-        let mut row = 0_u16;
-        let mut row_start = px(0.);
-        let mut glyphs = Vec::with_capacity(positioned.len());
+        let mut glyphs = Vec::new();
         let mut backgrounds = Vec::new();
-        for (index, &(run_ix, glyph_ix, font_id, glyph)) in positioned.iter().enumerate() {
-            let wraps = &painted.line.wrap_boundaries;
-            if wraps
-                .iter()
-                .any(|wrap| wrap.run_ix == run_ix && wrap.glyph_ix == glyph_ix)
-            {
-                row += 1;
-                row_start = glyph.position.x;
-            }
-            let run = run_at(runs, painted.start + glyph.index);
-            let top = origin + point(glyph.position.x - row_start, line_height * f32::from(row));
+        for glyph in painted.glyphs(origin, line_height) {
+            let run = run_at(runs, glyph.offset);
             glyphs.push(Glyph {
-                origin: top + point(px(0.), baseline),
-                font_id,
+                origin: glyph.baseline,
+                font_id: glyph.font_id,
                 id: glyph.id,
-                emoji: glyph.is_emoji,
+                emoji: glyph.emoji,
                 color: run.map_or_else(Hsla::default, |run| run.color),
+                bold: !glyph.emoji && bold.iter().any(|range| range.contains(&glyph.offset)),
             });
             let Some(background) = run.and_then(|run| run.background_color) else {
                 continue;
             };
-            let next_x = positioned
-                .get(index + 1)
-                .map_or(layout.width, |next| next.3.position.x);
-            let width = next_x - glyph.position.x;
-            backgrounds.push(zoom_quad_of(&zoom, top, width, line_height, background));
+            backgrounds.push(zoom_quad_of(
+                &zoom,
+                glyph.top_left,
+                glyph.width,
+                line_height,
+                background,
+            ));
         }
         Self {
             line,
             zoom,
-            font_size: layout.font_size * zoom.scale,
+            font_size: painted.line.unwrapped_layout.font_size * zoom.scale,
             glyphs,
             backgrounds,
         }
@@ -180,6 +162,12 @@ impl ZoomedLine {
                 window.paint_glyph(origin, glyph.font_id, glyph.id, self.font_size, glyph.color)
             };
             painted.ok();
+            if glyph.bold {
+                let origin = origin + synthetic_bold::spread(self.font_size);
+                window
+                    .paint_glyph(origin, glyph.font_id, glyph.id, self.font_size, glyph.color)
+                    .ok();
+            }
         }
     }
 }
@@ -195,15 +183,6 @@ fn zoom_quad_of(
         zoom.bounds(Bounds::new(top, gpui::size(width, height))),
         color,
     )
-}
-
-/// The run that covers byte `offset`.
-fn run_at(runs: &[TextRun], offset: usize) -> Option<&TextRun> {
-    let mut end = 0;
-    runs.iter().find(|run| {
-        end += run.len;
-        offset < end
-    })
 }
 
 impl Editor {
@@ -249,7 +228,7 @@ impl EditorElement {
     pub(super) fn focus_zoom(
         &self,
         painted: &PaintedText,
-        runs: &[TextRun],
+        runs: (&[TextRun], &[Range<usize>]),
         window: &mut Window,
         cx: &mut App,
     ) -> Frame {
