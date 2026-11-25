@@ -1,9 +1,10 @@
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    Modifiers, Render, Subscription, Window, div, prelude::*, px,
+    Modifiers, Render, Subscription, Task, Window, div, prelude::*, px,
 };
 use ka_teb_core::{
     AiError, AiRequest, AiTrigger, Level, Provenance, SlotId, paragraph_around, sentence_around,
@@ -19,6 +20,23 @@ use crate::{context_menu, loading};
 
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
+
+/// The empty-row text that starts a quick fill (FR-69).
+const QUICK_FILL: &str = "??";
+
+/// Quick fill results show this many at a time (FR-72: 2, then 4, then 5 in the demo).
+const QUICK_FILL_BATCH: usize = 2;
+
+/// Time between two quick fill batches.
+const QUICK_FILL_BATCH_GAP: Duration = Duration::from_millis(150);
+
+/// A quick fill in progress (FR-69 to FR-73). Dropping it cancels its work.
+struct QuickFill {
+    /// The AI request, then the batch reveal.
+    _work: Task<()>,
+    /// Added AI Variants at the end of the list not shown yet.
+    hidden: usize,
+}
 
 /// One Variant row of the Alternatives panel (FR-22, FR-23).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +78,9 @@ pub struct AlternativesPanel {
     /// The text of the selected Variant while the writer edits it (FR-26).
     editing: Option<String>,
     ai: AiStatus,
+    quick_fill: Option<QuickFill>,
+    /// The last row is hidden after a quick fill, until the writer goes to it (FR-73).
+    new_row_hidden: bool,
     _editor_changes: Subscription,
 }
 
@@ -74,6 +95,8 @@ impl AlternativesPanel {
             draft: String::new(),
             editing: None,
             ai: AiStatus::Idle,
+            quick_fill: None,
+            new_row_hidden: false,
             _editor_changes: editor_changes,
         };
         let target = panel.target_at_editor(cx);
@@ -127,7 +150,7 @@ impl AlternativesPanel {
             Target::Text { range, .. } => Some(range.clone()),
             Target::Nothing => None,
         };
-        let range = range.filter(|_| !self.draft.is_empty());
+        let range = range.filter(|_| !self.draft.is_empty() && self.draft != QUICK_FILL);
         let draft = self.draft.clone();
         self.editor.update(cx, |editor, cx| {
             editor.set_preview(range.map(|range| (range, draft.as_str())), cx);
@@ -159,9 +182,17 @@ impl AlternativesPanel {
         }
     }
 
-    /// The Variants in order, the Original first (FR-22).
+    /// The Variants in order, the Original first (FR-22). Quick fill results not shown yet
+    /// are left out (FR-72).
     #[must_use]
     pub fn rows(&self, cx: &App) -> Vec<VariantRow> {
+        let mut rows = self.all_rows(cx);
+        let hidden = self.quick_fill.as_ref().map_or(0, |fill| fill.hidden);
+        rows.truncate(rows.len().saturating_sub(hidden));
+        rows
+    }
+
+    fn all_rows(&self, cx: &App) -> Vec<VariantRow> {
         let document = self.editor.read(cx).document();
         match &self.target {
             Target::Slot(id) => document.slot(*id).map_or_default(|slot| {
@@ -256,6 +287,122 @@ impl AlternativesPanel {
         cx.notify();
     }
 
+    /// FR-69, FR-70: "??" in the last row asks the AI for Variants of the panel target.
+    /// The row dances (FR-71); the preview stops and "??" never becomes a Variant.
+    fn start_quick_fill(&mut self, cx: &mut Context<Self>) {
+        if self.ai == AiStatus::Loading {
+            return;
+        }
+        self.sync_preview(cx);
+        let request = self.ai_request(AiTrigger::QuickFill, cx);
+        let ai = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0));
+        let (request, ai) = match (request, ai) {
+            (Ok(request), Some(ai)) => (request, ai),
+            (Err(message), _) => return self.quick_fill_failed(message, cx),
+            (Ok(_), None) => {
+                return self.quick_fill_failed("no AI backend is set".to_owned(), cx);
+            }
+        };
+        self.ai = AiStatus::Loading;
+        cx.notify();
+        let asking = cx.background_spawn(async move {
+            let answer = ai.variants(&request);
+            (request, answer)
+        });
+        let work = cx.spawn(async move |this, cx| {
+            let (request, answer) = asking.await;
+            this.update(cx, |panel, cx| {
+                panel.quick_fill_answered(&request, answer, cx);
+            })
+            .ok();
+        });
+        self.quick_fill = Some(QuickFill {
+            _work: work,
+            hidden: 0,
+        });
+    }
+
+    /// FR-72: adds the results as AI Variants in one undo step, then shows them in batches
+    /// under the Variants. The Active variant stays (FR-36).
+    fn quick_fill_answered(
+        &mut self,
+        request: &AiRequest,
+        answer: Result<Vec<String>, AiError>,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self.all_rows(cx).len();
+        let added = answer.map_err(|error| error.to_string()).and_then(|texts| {
+            self.editor
+                .update(cx, |editor, cx| {
+                    editor.change_document(|document| document.apply_ai_result(request, &texts), cx)
+                })
+                .map_err(|error| error.to_string())
+        });
+        let id = match added {
+            Ok(id) => id,
+            Err(message) => return self.quick_fill_failed(message, cx),
+        };
+        if matches!(self.target, Target::Text { .. }) {
+            self.set_target(Target::Slot(id), cx);
+        }
+        let hidden = self.all_rows(cx).len().saturating_sub(before.max(1));
+        let reveal = cx.spawn(async move |this, cx| {
+            loop {
+                let more = this.update(cx, AlternativesPanel::reveal_batch);
+                if !matches!(more, Ok(true)) {
+                    return;
+                }
+                cx.background_executor().timer(QUICK_FILL_BATCH_GAP).await;
+            }
+        });
+        self.quick_fill = Some(QuickFill {
+            _work: reveal,
+            hidden,
+        });
+        cx.notify();
+    }
+
+    /// Shows the next batch of quick fill results. `false` when none are left: the quick
+    /// fill is done.
+    fn reveal_batch(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(fill) = self.quick_fill.as_mut() else {
+            return false;
+        };
+        fill.hidden = fill.hidden.saturating_sub(QUICK_FILL_BATCH);
+        cx.notify();
+        if fill.hidden > 0 {
+            return true;
+        }
+        self.end_quick_fill(cx);
+        false
+    }
+
+    /// FR-73: the "??" row goes; the active Variant row is selected and the last row hides.
+    fn end_quick_fill(&mut self, cx: &mut Context<Self>) {
+        self.quick_fill = None;
+        self.ai = AiStatus::Idle;
+        self.draft.clear();
+        self.new_row_hidden = true;
+        let active = self.rows(cx).iter().position(|row| row.active);
+        self.row = active.unwrap_or_else(|| self.rows(cx).len());
+        cx.notify();
+    }
+
+    /// FR-82: the dance stops, the row is empty again, and the panel says why.
+    fn quick_fill_failed(&mut self, message: String, cx: &mut Context<Self>) {
+        self.quick_fill = None;
+        self.draft.clear();
+        self.ai_failed(message, cx);
+    }
+
+    /// FR-82: Esc while the row dances stops the quick fill. Results already added stay.
+    fn cancel_quick_fill(&mut self, cx: &mut Context<Self>) {
+        self.quick_fill = None;
+        self.ai = AiStatus::Idle;
+        self.draft.clear();
+        cx.notify();
+    }
+
     /// FR-33, FR-36: adds the AI texts as AI Variants in one undo step; the Active variant
     /// stays. The panel then shows the Slot that got them.
     fn ai_answered(
@@ -296,6 +443,9 @@ impl AlternativesPanel {
     /// FR-24, FR-26: Return saves the edit in progress, starts an edit on a Variant row,
     /// or adds the draft of the last row as a Variant.
     fn confirm(&mut self, _: &ConfirmVariant, _: &mut Window, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            return;
+        }
         if let Some(text) = self.editing.take() {
             self.save_edit(&text, cx);
             return;
@@ -328,7 +478,7 @@ impl AlternativesPanel {
     /// FR-24: adds the draft as a Variant and makes it the Active variant, as one undo
     /// step. With no Slot yet, it makes one over the target text, the Original first.
     fn add(&mut self, cx: &mut Context<Self>) {
-        if self.draft.is_empty() {
+        if self.draft.is_empty() || self.draft == QUICK_FILL {
             return;
         }
         let draft = self.draft.clone();
@@ -391,7 +541,11 @@ impl AlternativesPanel {
     /// FR-25: selects row `row`. A Variant row shows that Variant in the Document at once,
     /// as one undo step; the last row changes nothing.
     fn select(&mut self, row: usize, cx: &mut Context<Self>) {
-        let row = row.min(self.rows(cx).len());
+        let last = self.rows(cx).len();
+        let row = row.min(last);
+        if row == last {
+            self.new_row_hidden = false;
+        }
         self.row = row;
         self.editing = None;
         cx.notify();
@@ -417,6 +571,10 @@ impl AlternativesPanel {
     /// FR-24: Esc closes the panel.
     /// Esc while editing drops the edit.
     fn close(&mut self, _: &ClosePanel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            self.cancel_quick_fill(cx);
+            return;
+        }
         if self.editing.take().is_some() {
             cx.notify();
             return;
@@ -425,6 +583,9 @@ impl AlternativesPanel {
     }
 
     fn delete_backward(&mut self, _: &DeleteBackward, _: &mut Window, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            return;
+        }
         if let Some(text) = self.editing.as_mut() {
             text.pop();
         } else {
@@ -494,6 +655,9 @@ impl AlternativesPanel {
 
     /// Typed text goes into the edit in progress, else into the last row, which it selects.
     fn type_text(&mut self, typed: &str, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            return;
+        }
         let typed = typed.replace('\n', " ");
         cx.notify();
         if let Some(text) = self.editing.as_mut() {
@@ -501,7 +665,12 @@ impl AlternativesPanel {
             return;
         }
         self.row = self.rows(cx).len();
+        self.new_row_hidden = false;
         self.draft.push_str(&typed);
+        if self.draft == QUICK_FILL {
+            self.start_quick_fill(cx);
+            return;
+        }
         self.sync_preview(cx);
     }
 }
@@ -637,6 +806,7 @@ impl AlternativesPanel {
         };
         let new_row = row_box(theme, self.row == last)
             .id(("alternatives-row", last))
+            .debug_selector(move || format!("alternatives-row-{last}"))
             .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))
             .child(provenance_marker(Provenance::Writer, draft_marker))
             .child(
@@ -650,7 +820,22 @@ impl AlternativesPanel {
             .flex_col()
             .children(variant_rows)
             .children(self.render_ai_status(theme))
-            .when(has_target, |list| list.child(new_row))
+            .when(self.quick_fill.is_some(), |list| {
+                list.child(
+                    row_box(theme, true)
+                        .id("alternatives-quick-fill")
+                        .debug_selector(|| "alternatives-quick-fill".to_owned())
+                        .child(provenance_marker(Provenance::Writer, theme.accent))
+                        .child(loading::quick_fill_dance(
+                            "alternatives-quick-fill-dance",
+                            theme.accent,
+                        )),
+                )
+            })
+            .when(
+                has_target && self.quick_fill.is_none() && !self.new_row_hidden,
+                |list| list.child(new_row),
+            )
             .when(!has_target, |list| {
                 list.child(
                     div()
@@ -667,6 +852,9 @@ impl AlternativesPanel {
         let row = row_box(theme, false)
             .id("alternatives-ai-status")
             .debug_selector(|| "alternatives-ai-status".to_owned());
+        if self.quick_fill.is_some() {
+            return None;
+        }
         match &self.ai {
             AiStatus::Idle => None,
             AiStatus::Loading => Some(
