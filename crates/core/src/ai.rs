@@ -6,7 +6,9 @@ use std::time::Duration;
 
 pub use claude::ClaudeBackend;
 
-use crate::{Document, Level, Provenance, RangeError, SlotError, SlotId, Variant};
+use crate::{
+    Document, LabFinding, LabRequest, Level, Provenance, RangeError, SlotError, SlotId, Variant,
+};
 
 /// What the AI gets: the selected text and the text around it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +43,7 @@ impl AiRequest {
     }
 }
 
-/// The one way to ask an AI for Variants. Implementations block, so the app calls them
+/// The one way to ask an AI for Variants and Lab checks. Implementations block, so the app calls them
 /// on a background thread.
 pub trait AiAdapter: Send + Sync {
     /// Variant texts for the selection of `request`.
@@ -49,16 +51,23 @@ pub trait AiAdapter: Send + Sync {
     /// # Errors
     /// [`AiError`] when the AI gives no usable answer.
     fn variants(&self, request: &AiRequest) -> Result<Vec<String>, AiError>;
+
+    /// The ranges of the request text that match the Lab check of `request`.
+    /// It never changes text.
+    ///
+    /// # Errors
+    /// [`AiError`] when the AI gives no usable answer.
+    fn lab_check(&self, request: &LabRequest) -> Result<Vec<LabFinding>, AiError>;
 }
 
-/// Why an AI call gave no Variants.
+/// Why an AI call gave no answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiError {
     /// The AI program did not start or could not be watched.
     Start(String),
     /// The AI program ended with a failure.
     Exit { code: Option<i32>, message: String },
-    /// The AI answered without Variants, for example it declined.
+    /// The AI gave no structured answer, for example it declined.
     Declined(String),
     /// The output was not the expected shape.
     BadOutput(String),
@@ -78,7 +87,7 @@ impl fmt::Display for AiError {
                 code: None,
                 message,
             } => write!(f, "the AI was stopped: {message}"),
-            Self::Declined(message) => write!(f, "the AI gave no Variants: {message}"),
+            Self::Declined(message) => write!(f, "the AI declined: {message}"),
             Self::BadOutput(detail) => write!(f, "the AI gave bad output: {detail}"),
             Self::Timeout(limit) => write!(f, "the AI gave no answer in {} s", limit.as_secs()),
         }

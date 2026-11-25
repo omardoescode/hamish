@@ -4,10 +4,12 @@ use std::sync::Once;
 use std::time::{Duration, Instant};
 use std::{env, fs};
 
-use ka_teb_core::{AiAdapter, AiError, AiRequest, ClaudeBackend, Document, Level, RangeError};
+use ka_teb_core::{
+    AiAdapter, AiError, AiRequest, ClaudeBackend, Document, LabCheck, LabFinding, Level, RangeError,
+};
 
 /// A `claude` stand-in. The selection picks its behavior; by default it answers with the
-/// args it got, the API key it saw, and the prompt, as three Variant texts.
+/// args it got, the API key and auth token it saw, and the prompt, as three Variant texts.
 const STUB: &str = r#"#!/bin/sh
 prompt=$(cat)
 case "$prompt" in
@@ -16,19 +18,26 @@ case "$prompt" in
   *STUB_DECLINED*) echo '{"type":"result","is_error":false,"result":"I will not."}'; exit 0 ;;
   *STUB_SLOW*) exec sleep 10 ;;
   *STUB_PADDED*) echo '{"is_error":false,"structured_output":{"variants":["  dog\n","fox"]}}'; exit 0 ;;
+  *STUB_LAB_MARKS*) echo '{"is_error":false,"structured_output":{"marks":[{"quote":"cat","note":" weak ","fix":"cats"},{"quote":"missing"},{"quote":""},{"quote":"cat","note":""}]}}'; exit 0 ;;
 esac
 esc() { printf '%s' "$1" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 args=""
 for arg in "$@"; do args="$args \"$(esc "$arg")\""; done
 args=$(printf '%s' "$args" | sed 's/^ //; s/" "/", "/g')
-key="${ANTHROPIC_API_KEY-unset}"
+key="${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_AUTH_TOKEN-unset}"
+case "$prompt" in
+  *STUB_LAB_ECHO*)
+    printf '{"is_error":false,"structured_output":{"marks":[{"quote":"STUB_LAB_ECHO","note":"%s"},{"quote":"STUB_LAB_ECHO","note":"%s"},{"quote":"STUB_LAB_ECHO","note":"%s"}]}}' \
+      "$(esc "$args")" "$(esc "$key")" "$(esc "$prompt")"
+    exit 0 ;;
+esac
 printf '{"type":"result","is_error":false,"result":"","structured_output":{"variants":["%s","%s","%s"]}}' \
   "$(esc "$args")" "$(esc "$key")" "$(esc "$prompt")"
 "#;
 
 static STUB_WRITTEN: Once = Once::new();
 
-/// A backend whose environment has the stub first on PATH and an API key set.
+/// A backend whose environment has the stub first on PATH and an API key and auth token set.
 fn backend() -> std::io::Result<ClaudeBackend> {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("claude-stub");
     let mut written = Ok(());
@@ -40,6 +49,10 @@ fn backend() -> std::io::Result<ClaudeBackend> {
         (
             "ANTHROPIC_API_KEY".into(),
             "sk-must-not-reach-claude".into(),
+        ),
+        (
+            "ANTHROPIC_AUTH_TOKEN".into(),
+            "token-must-not-reach-claude".into(),
         ),
     ];
     Ok(ClaudeBackend::new(environment).with_timeout(Duration::from_secs(5)))
@@ -58,7 +71,7 @@ fn request(text: &str) -> Result<AiRequest, RangeError> {
 }
 
 #[test]
-fn backend_runs_claude_print_without_the_api_key_and_sends_the_request() {
+fn backend_runs_claude_print_without_api_credentials_and_sends_the_request() {
     let request = Document::new("The cat sat.")
         .ai_request(4..7, Level::Word)
         .unwrap();
@@ -70,7 +83,7 @@ fn backend_runs_claude_print_without_the_api_key_and_sends_the_request() {
         answer[0],
         r#""-p", "--output-format", "json", "--json-schema", "{\"type\":\"object\",\"properties\":{\"variants\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"minItems\":1}},\"required\":[\"variants\"]}", "--tools", "", "--no-session-persistence""#
     );
-    assert_eq!(answer[1], "unset");
+    assert_eq!(answer[1], "unset unset");
     assert!(answer[2].contains("cat"), "prompt: {}", answer[2]);
     assert!(answer[2].contains("The cat sat."), "prompt: {}", answer[2]);
 }
@@ -137,4 +150,69 @@ fn backend_reports_a_missing_claude_program() {
         backend.variants(&request("The cat sat.").unwrap()),
         Err(AiError::Start(_))
     ));
+}
+
+#[test]
+fn lab_check_runs_claude_print_without_api_credentials_and_sends_the_document() {
+    let request = Document::new("STUB_LAB_ECHO\nSTUB_LAB_ECHO\nSTUB_LAB_ECHO")
+        .lab_request(LabCheck::HedgesFiller);
+
+    let findings = backend().unwrap().lab_check(&request).unwrap();
+
+    let ranges: Vec<_> = findings
+        .iter()
+        .map(|finding| finding.range.clone())
+        .collect();
+    assert_eq!(ranges, [0..13, 14..27, 28..41]);
+    let notes: Vec<&str> = findings
+        .iter()
+        .map(|finding| finding.note.as_deref().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        notes[0],
+        r#""-p", "--output-format", "json", "--json-schema", "{\"type\":\"object\",\"properties\":{\"marks\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"quote\":{\"type\":\"string\"},\"note\":{\"type\":\"string\"},\"fix\":{\"type\":\"string\"}},\"required\":[\"quote\"]}}},\"required\":[\"marks\"]}", "--tools", "", "--no-session-persistence""#
+    );
+    assert_eq!(notes[1], "unset unset");
+    assert!(
+        notes[2].contains("hedges and filler"),
+        "prompt: {}",
+        notes[2]
+    );
+    assert!(
+        notes[2].contains("STUB_LAB_ECHO STUB_LAB_ECHO STUB_LAB_ECHO"),
+        "prompt: {}",
+        notes[2]
+    );
+}
+
+#[test]
+fn lab_check_maps_each_quote_to_its_next_place_in_the_document_and_drops_the_rest() {
+    let request = Document::new("STUB_LAB_MARKS: the cat and the cat.")
+        .lab_request(LabCheck::PunctuationTypos);
+
+    assert_eq!(
+        backend().unwrap().lab_check(&request),
+        Ok(vec![
+            LabFinding {
+                range: 20..23,
+                note: Some("weak".to_owned()),
+                fix: Some("cats".to_owned()),
+            },
+            LabFinding {
+                range: 32..35,
+                note: None,
+                fix: None,
+            },
+        ])
+    );
+}
+
+#[test]
+fn lab_check_reports_an_answer_without_marks_as_declined() {
+    let request = Document::new("STUB_DECLINED").lab_request(LabCheck::LongSentences);
+
+    assert_eq!(
+        backend().unwrap().lab_check(&request),
+        Err(AiError::Declined("I will not.".to_owned()))
+    );
 }

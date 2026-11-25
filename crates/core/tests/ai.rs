@@ -1,4 +1,7 @@
-use ka_teb_core::{AiAdapter, AiError, AiRequest, ApplyError, Document, Level, Provenance, SlotId};
+use ka_teb_core::{
+    AiAdapter, AiError, AiRequest, ApplyError, Document, LabFinding, LabRequest, Level, Provenance,
+    SlotId,
+};
 
 /// Returns fixed Variant texts, as an AI backend would.
 struct FakeAdapter(Vec<&'static str>);
@@ -6,6 +9,10 @@ struct FakeAdapter(Vec<&'static str>);
 impl AiAdapter for FakeAdapter {
     fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
         Ok(self.0.iter().map(|text| (*text).to_owned()).collect())
+    }
+
+    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+        Ok(Vec::new())
     }
 }
 

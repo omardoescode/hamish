@@ -91,6 +91,9 @@ The AI editing popover with Lab checks and Trim levels.
 **Lab check**:
 An AI action that marks text that matches a rule. It does not change text.
 
+**Lab mark**:
+A range a Lab check marks, with an optional note. A "Fix punctuation and typos" mark can carry a proposed fix. Accept puts the fix in place; dismiss removes the mark. A mark moves with text edits and ends when its text is deleted.
+
 **Trim**:
 An AI action that marks words to cut for a target length. It does not rewrite.
 
