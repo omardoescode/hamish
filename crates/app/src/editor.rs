@@ -10,7 +10,9 @@ use gpui::{
     ScrollHandle, SharedString, Size, Style, TextRun, UTF16Selection, Window, WrappedLine, div,
     fill, point, prelude::*, px, relative, size,
 };
-use ka_teb_core::{Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotId};
+use ka_teb_core::{
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotId, paragraph_around,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
@@ -1689,19 +1691,6 @@ impl Element for EditorElement {
             });
         });
     }
-}
-
-/// The lines that hold `range` of `text`, without the newlines around them.
-pub(crate) fn paragraph_around(text: &str, range: &Range<usize>) -> Range<usize> {
-    let start = text
-        .get(..range.start)
-        .and_then(|before| before.rfind('\n'))
-        .map_or(0, |newline| newline + 1);
-    let end = text
-        .get(range.end..)
-        .and_then(|after| after.find('\n'))
-        .map_or(text.len(), |newline| range.end + newline);
-    start..end
 }
 
 /// A stretch of the text with one style.

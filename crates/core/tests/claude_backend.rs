@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, ClaudeBackend, Document, LabCheck, LabFinding, Level,
-    RangeError, TrimLevel,
+    AiAdapter, AiError, AiRequest, AiTrigger, ClaudeBackend, Document, LabCheck, LabFinding, Level,
+    Provenance, RangeError, TrimLevel,
 };
 
 /// A `claude` stand-in. The selection picks its behavior; by default it answers with the
@@ -73,13 +73,13 @@ fn write_stub(dir: &Path) -> std::io::Result<()> {
 
 /// A request whose selection is all of `text`.
 fn request(text: &str) -> Result<AiRequest, RangeError> {
-    Document::new(text).ai_request(0..text.len(), Level::Sentence)
+    Document::new(text).ai_request(0..text.len(), Level::Sentence, AiTrigger::ContextMenu)
 }
 
 #[test]
 fn backend_runs_claude_print_without_api_credentials_and_sends_the_request() {
-    let request = Document::new("The cat sat.")
-        .ai_request(4..7, Level::Word)
+    let request = Document::new("The cat sat. It slept.")
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
         .unwrap();
 
     let answer = backend().unwrap().variants(&request).unwrap();
@@ -90,8 +90,41 @@ fn backend_runs_claude_print_without_api_credentials_and_sends_the_request() {
         r#""-p", "--output-format", "json", "--json-schema", "{\"type\":\"object\",\"properties\":{\"variants\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"minItems\":1}},\"required\":[\"variants\"]}", "--tools", "", "--no-session-persistence""#
     );
     assert_eq!(answer[1], "unset unset");
-    assert!(answer[2].contains("cat"), "prompt: {}", answer[2]);
+    assert!(
+        answer[2].contains("Write 3 alternatives"),
+        "prompt: {}",
+        answer[2]
+    );
     assert!(answer[2].contains("The cat sat."), "prompt: {}", answer[2]);
+    assert!(
+        answer[2].contains("The cat sat. It slept."),
+        "prompt: {}",
+        answer[2]
+    );
+}
+
+#[test]
+fn a_quick_fill_asks_for_five_alternatives_that_repeat_no_existing_variant() {
+    let mut document = Document::new("Title\nThe cat sat. It slept.");
+    document
+        .create_slot(10..13, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    let request = document
+        .ai_request(10..13, Level::Word, AiTrigger::QuickFill)
+        .unwrap();
+
+    let prompt = backend().unwrap().variants(&request).unwrap().remove(2);
+
+    assert!(prompt.contains("Write 5 alternatives"), "prompt: {prompt}");
+    assert!(
+        prompt.contains("<variant>dog</variant>"),
+        "prompt: {prompt}"
+    );
+    assert!(
+        prompt.contains("<variant>cat</variant>"),
+        "prompt: {prompt}"
+    );
+    assert!(!prompt.contains("Title"), "prompt: {prompt}");
 }
 
 #[test]

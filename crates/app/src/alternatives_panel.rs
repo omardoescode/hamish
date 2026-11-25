@@ -5,13 +5,15 @@ use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
     Modifiers, Render, Subscription, Window, div, prelude::*, px,
 };
-use ka_teb_core::{AiError, AiRequest, Level, Provenance, SlotId};
+use ka_teb_core::{
+    AiError, AiRequest, AiTrigger, Level, Provenance, SlotId, paragraph_around, sentence_around,
+};
 
 use crate::actions::{
     ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
     SelectPreviousVariant,
 };
-use crate::editor::{Spotlight, paragraph_around};
+use crate::editor::Spotlight;
 use crate::{Ai, Editor, Theme};
 use crate::{context_menu, loading};
 
@@ -179,7 +181,7 @@ impl AlternativesPanel {
         if self.ai == AiStatus::Loading {
             return;
         }
-        let request = self.ai_request(cx);
+        let request = self.ai_request(AiTrigger::ContextMenu, cx);
         let ai = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0));
         let (request, ai) = match (request, ai) {
             (Ok(request), Some(ai)) => (request, ai),
@@ -215,7 +217,7 @@ impl AlternativesPanel {
     }
 
     /// The request for the Slot or text the panel shows.
-    fn ai_request(&self, cx: &App) -> Result<AiRequest, String> {
+    fn ai_request(&self, trigger: AiTrigger, cx: &App) -> Result<AiRequest, String> {
         let document = self.editor.read(cx).document();
         let place = match &self.target {
             Target::Slot(id) => document.slot(*id).map(|slot| (slot.range, slot.level)),
@@ -224,7 +226,7 @@ impl AlternativesPanel {
         };
         let (range, level) = place.ok_or_else(|| "select text first".to_owned())?;
         document
-            .ai_request(range, level)
+            .ai_request(range, level, trigger)
             .map_err(|error| error.to_string())
     }
 
@@ -679,32 +681,6 @@ fn provenance_marker(provenance: Provenance, color: gpui::Hsla) -> gpui::Div {
     }
 }
 
-/// The sentence of `text` that holds `range`: from after the sentence end before it to the
-/// next sentence end, inside its paragraph.
-fn sentence_around(text: &str, range: &Range<usize>) -> Range<usize> {
-    let paragraph = paragraph_around(text, range);
-    let is_end = |c: char| matches!(c, '.' | '!' | '?');
-    let before = text.get(paragraph.start..range.start).unwrap_or_default();
-    let start = before
-        .rfind(is_end)
-        .map_or(paragraph.start, |end| paragraph.start + end + 1);
-    let start = start
-        + text
-            .get(start..range.start)
-            .map_or(0, |gap| gap.len() - gap.trim_start().len());
-    let ends_sentence = text
-        .get(..range.end)
-        .is_some_and(|head| head.ends_with(is_end));
-    if ends_sentence {
-        return start..range.end;
-    }
-    let after = text.get(range.end..paragraph.end).unwrap_or_default();
-    let end = after
-        .find(is_end)
-        .map_or(paragraph.end, |end| range.end + end + 1);
-    start..end
-}
-
 impl Render for AlternativesPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
@@ -750,7 +726,7 @@ impl Render for AlternativesPanel {
 mod tests {
     use ka_teb_core::Level;
 
-    use super::{ended_slot_text, level_for, sentence_around};
+    use super::{ended_slot_text, level_for};
 
     const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
 
@@ -760,14 +736,6 @@ mod tests {
         assert_eq!(ended_slot_text(text, 14, "eraser"), Some(15..21));
         assert_eq!(ended_slot_text(text, 15, "eraser"), Some(15..21));
         assert_eq!(ended_slot_text(text, 14, "thumbtack"), None);
-    }
-
-    #[test]
-    fn the_sentence_around_a_word_runs_from_the_last_sentence_end_to_the_next() {
-        assert_eq!(sentence_around(TEXT, &(10..18)), 6..25);
-        assert_eq!(sentence_around(TEXT, &(30..36)), 26..37);
-        assert_eq!(sentence_around(TEXT, &(6..25)), 6..25);
-        assert_eq!(sentence_around("Title\nno end here", &(9..12)), 6..17);
     }
 
     #[test]
