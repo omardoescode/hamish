@@ -4,13 +4,15 @@ use gpui::{
 };
 use ka_teb_core::Document;
 
-use crate::actions::ToggleChrome;
+use crate::actions::{ToggleChrome, ToggleOverflow};
+use crate::overflow_panel;
 use crate::{Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
 pub struct Workspace {
     editor: Entity<Editor>,
     chrome_visible: bool,
+    overflow_open: bool,
     _editor_changes: Subscription,
 }
 
@@ -22,6 +24,7 @@ impl Workspace {
         Self {
             editor,
             chrome_visible: false,
+            overflow_open: false,
             _editor_changes: editor_changes,
         }
     }
@@ -35,6 +38,17 @@ impl Workspace {
     #[must_use]
     pub fn chrome_visible(&self) -> bool {
         self.chrome_visible
+    }
+
+    /// FR-43: the Overflow panel is open.
+    #[must_use]
+    pub fn overflow_open(&self) -> bool {
+        self.overflow_open
+    }
+
+    fn toggle_overflow(&mut self, _: &ToggleOverflow, _: &mut Window, cx: &mut Context<Self>) {
+        self.overflow_open = !self.overflow_open;
+        cx.notify();
     }
 
     fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
@@ -59,7 +73,9 @@ impl Render for Workspace {
             .relative()
             .bg(theme.background)
             .font_family(theme.font_family)
+            .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
+            .on_action(cx.listener(Self::toggle_overflow))
             .child(self.editor.clone())
             .child(
                 div()
@@ -101,7 +117,8 @@ impl Render for Workspace {
                         .right(px(24.))
                         .h(px(16.))
                         .flex()
-                        .justify_between(),
+                        .justify_between()
+                        .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
                 )
             })
     }
