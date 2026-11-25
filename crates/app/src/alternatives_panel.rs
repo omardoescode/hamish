@@ -11,7 +11,7 @@ use gpui::{
     Modifiers, Render, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
 use ka_teb_core::{
-    AiRequest, AiTrigger, ApplyError, Effect, Level, Provenance, RangeError, SlotId,
+    AiRequest, AiTrigger, ApplyError, Effect, Level, Provenance, RangeError, SlotId, Switch,
     paragraph_around, sentence_around,
 };
 
@@ -136,18 +136,13 @@ impl AlternativesPanel {
         let editor = self.editor.read(cx);
         let range = editor.target();
         let document = editor.document();
-        let slot = document
-            .slots()
-            .into_iter()
-            .rev()
-            .find(|slot| slot.range.start <= range.start && range.end <= slot.range.end);
-        if let Some(slot) = slot {
-            return Target::Slot(slot.id);
+        if let Some(id) = document.slot_over(&range) {
+            return Target::Slot(id);
         }
         if range.is_empty() {
             return Target::Nothing;
         }
-        let level = level_for(document.text(), &range);
+        let level = document.level_for(&range);
         Target::Text { range, level }
     }
 
@@ -461,13 +456,7 @@ impl AlternativesPanel {
                 .editor
                 .update(cx, |editor, cx| {
                     editor.change_document(
-                        |document| {
-                            document.add_variant(id, &draft, Provenance::Writer)?;
-                            let last = document
-                                .slot(id)
-                                .map_or(0, |slot| slot.variants.len().saturating_sub(1));
-                            document.set_active(id, last)
-                        },
+                        |document| document.add_active_variant(id, &draft, Provenance::Writer),
                         cx,
                     )
                 })
@@ -476,17 +465,15 @@ impl AlternativesPanel {
                 let created = self.editor.update(cx, |editor, cx| {
                     editor.change_document(
                         |document| {
-                            let id =
-                                document.create_slot(range, level, &draft, Provenance::Writer)?;
-                            document.set_active(id, 1).map(|switch| (id, switch))
+                            document.create_active_slot(range, level, &draft, Provenance::Writer)
                         },
                         cx,
                     )
                 });
                 created
-                    .map(|(id, switch)| {
+                    .map(|id| {
                         self.set_target(Target::Slot(id), cx);
-                        switch
+                        Switch::ToVariant
                     })
                     .ok()
             }
@@ -587,26 +574,16 @@ impl AlternativesPanel {
         }
         let level = slot.level;
         let range = slot.range.clone();
-        let start = slot.range.start;
-        let kept = (slot.variants.len() == 2).then(|| {
-            let other = usize::from(row == 0);
-            slot.variants
-                .get(other)
-                .map_or_default(|variant| variant.text().to_owned())
-        });
         let deleted = self
             .editor
             .update(cx, |editor, cx| editor.delete_variant(id, row, cx));
-        if deleted.is_err() {
+        let Ok(kept) = deleted else {
             return;
-        }
+        };
         self.explosion_row = row;
         self.explosions.play(Effect::Explosion, range, cx);
-        if let Some(kept) = kept {
-            let text = self.editor.read(cx).document().text();
-            let target = ended_slot_text(text, start, &kept)
-                .map_or(Target::Nothing, |range| Target::Text { range, level });
-            self.set_target(target, cx);
+        if let Some(range) = kept {
+            self.set_target(Target::Text { range, level }, cx);
         }
         self.editing = None;
         self.row = self.rows(cx).len();
@@ -677,32 +654,6 @@ impl AlternativesPanel {
         }
         self.sync_preview(cx);
     }
-}
-
-/// Where the text `kept` of a Slot that ended at `start` lies now. An "a"/"an" before it
-/// may have changed (Article agreement), which moves it by one byte.
-fn ended_slot_text(text: &str, start: usize, kept: &str) -> Option<Range<usize>> {
-    [start, start + 1, start.saturating_sub(1)]
-        .into_iter()
-        .map(|start| start..start + kept.len())
-        .find(|range| text.get(range.clone()) == Some(kept))
-}
-
-/// The Level a new Slot over `range` of `text` gets: Paragraph for a whole paragraph or
-/// more, Sentence for text with sentence-end punctuation, else Word (a word or short phrase).
-fn level_for(text: &str, range: &Range<usize>) -> Level {
-    let selected = text.get(range.clone()).unwrap_or_default();
-    let paragraph = text
-        .get(paragraph_around(text, range))
-        .unwrap_or_default()
-        .trim();
-    if selected.contains('\n') || (!paragraph.is_empty() && selected.trim() == paragraph) {
-        return Level::Paragraph;
-    }
-    if selected.contains(['.', '!', '?']) {
-        return Level::Sentence;
-    }
-    Level::Word
 }
 
 impl EventEmitter<PanelEvent> for AlternativesPanel {}
@@ -981,39 +932,5 @@ impl Render for AlternativesPanel {
                     .text_color(theme.text_muted)
                     .child("return adds \u{b7} esc closes"),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use ka_teb_core::Level;
-
-    use super::{ended_slot_text, level_for};
-
-    const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
-
-    #[test]
-    fn the_text_of_an_ended_slot_is_found_past_a_changed_article() {
-        let text = "Title\nIt is an eraser here.";
-        assert_eq!(ended_slot_text(text, 14, "eraser"), Some(15..21));
-        assert_eq!(ended_slot_text(text, 15, "eraser"), Some(15..21));
-        assert_eq!(ended_slot_text(text, 14, "thumbtack"), None);
-    }
-
-    #[test]
-    fn a_word_or_short_phrase_is_word_level() {
-        assert_eq!(level_for(TEXT, &(10..18)), Level::Word);
-        assert_eq!(level_for(TEXT, &(6..18)), Level::Word);
-    }
-
-    #[test]
-    fn text_with_sentence_end_punctuation_is_sentence_level() {
-        assert_eq!(level_for(TEXT, &(6..25)), Level::Sentence);
-    }
-
-    #[test]
-    fn a_whole_paragraph_or_text_across_lines_is_paragraph_level() {
-        assert_eq!(level_for(TEXT, &(6..37)), Level::Paragraph);
-        assert_eq!(level_for(TEXT, &(26..42)), Level::Paragraph);
     }
 }
