@@ -18,3 +18,8 @@ cast_possible_truncation = "deny"
 cast_possible_wrap = "deny"
 cast_precision_loss = "deny"
 cast_sign_loss = "deny"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

@@ -14,5 +14,8 @@ path = "src/main.rs"
 gpui.workspace = true
 ka-teb-core = { path = "../core" }
 
+[package.metadata.dist]
+dist = true
+
 [lints]
 workspace = true
