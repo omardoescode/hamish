@@ -157,28 +157,23 @@ impl SettingsModal {
                 ThemeName::Dark => ("settings-theme-dark", "Dark"),
                 ThemeName::Light => ("settings-theme-light", "Light"),
             };
-            let chosen = settings.theme == name;
-            div()
-                .id(id)
-                .debug_selector(|| id.to_owned())
-                .px(px(8.))
-                .border_1()
-                .rounded(theme.elevated_radius)
-                .border_color(if chosen {
-                    theme.accent_outline
-                } else {
-                    theme.panel_border
-                })
-                .text_color(if chosen {
-                    theme.accent
-                } else {
-                    theme.text_muted
-                })
-                .cursor_pointer()
-                .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
+            choice_button(id, label, settings.theme == name, theme).on_click(cx.listener(
+                move |modal, _: &ClickEvent, _, cx| {
                     modal.change(cx, |settings| settings.theme = name);
-                }))
-                .child(label)
+                },
+            ))
+        };
+        let motion = |reduced: bool| {
+            let (id, label) = if reduced {
+                ("settings-reduced-motion-on", "On")
+            } else {
+                ("settings-reduced-motion-off", "Off")
+            };
+            choice_button(id, label, settings.reduced_motion == reduced, theme).on_click(
+                cx.listener(move |modal, _: &ClickEvent, _, cx| {
+                    modal.change(cx, |settings| settings.reduced_motion = reduced);
+                }),
+            )
         };
         div()
             .flex()
@@ -194,6 +189,15 @@ impl SettingsModal {
                     .child(choice(ThemeName::Light)),
             ))
             .child(Self::stepper(Setting::UiScale, settings, theme, cx))
+            .child(field(
+                "Reduced motion",
+                theme,
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(motion(false))
+                    .child(motion(true)),
+            ))
     }
 
     fn editor(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
@@ -288,6 +292,33 @@ impl SettingsModal {
                 .child(button(true)),
         )
     }
+}
+
+/// One choice of a field; `chosen` shows in the accent color.
+fn choice_button(
+    id: &'static str,
+    label: &'static str,
+    chosen: bool,
+    theme: &Theme,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(|| id.to_owned())
+        .px(px(8.))
+        .border_1()
+        .rounded(theme.elevated_radius)
+        .border_color(if chosen {
+            theme.accent_outline
+        } else {
+            theme.panel_border
+        })
+        .text_color(if chosen {
+            theme.accent
+        } else {
+            theme.text_muted
+        })
+        .cursor_pointer()
+        .child(label)
 }
 
 /// A field row: its label above its control.
