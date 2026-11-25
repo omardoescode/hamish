@@ -629,3 +629,30 @@ fn each_paragraph_variant_keeps_its_own_inner_slots_and_choices() {
     assert_eq!(document.slot(barked).unwrap().range, 11..33);
     assert_eq!(document.slot(barked).unwrap().active, 1);
 }
+
+#[test]
+fn nested_slot_with_an_empty_variant_at_the_paragraph_edge_stays_inside_it() {
+    let mut document = Document::new("Intro.\nVery old cats sit\nEnd.");
+    let paragraph = document
+        .create_slot(7..24, Level::Paragraph, "Dogs run", Provenance::Writer)
+        .unwrap();
+    let first = document
+        .create_slot(7..12, Level::Word, "", Provenance::Writer)
+        .unwrap();
+    let last = document
+        .create_slot(21..24, Level::Word, "", Provenance::Writer)
+        .unwrap();
+    document.set_active(first, 1).unwrap();
+    document.set_active(last, 1).unwrap();
+    assert_eq!(document.text(), "Intro.\nold cats \nEnd.");
+    document.set_active(first, 0).unwrap();
+    document.set_active(last, 0).unwrap();
+    assert_eq!(document.text(), "Intro.\nVery old cats sit\nEnd.");
+    assert_eq!(document.slot(paragraph).unwrap().range, 7..24);
+    assert_eq!(
+        variant_texts(&document, paragraph),
+        ["Very old cats sit", "Dogs run"]
+    );
+    document.set_active(paragraph, 1).unwrap();
+    assert_eq!(document.text(), "Intro.\nDogs run\nEnd.");
+}

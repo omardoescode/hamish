@@ -198,7 +198,12 @@ impl SlotNode {
         except: Option<SlotId>,
     ) {
         let removed = edit.len();
-        match relation(&self.range, edit) {
+        let relation = if except.is_some_and(|id| self.holds(id)) {
+            Relation::Within
+        } else {
+            relation(&self.range, edit)
+        };
+        match relation {
             Relation::Before => {
                 self.range =
                     self.range.start + inserted - removed..self.range.end + inserted - removed;
@@ -251,6 +256,13 @@ impl SlotNode {
         if writer_edit {
             variant.mark_edited();
         }
+    }
+
+    /// Slot `id` is nested in this Slot's active text, at any depth.
+    fn holds(&self, id: SlotId) -> bool {
+        self.children()
+            .iter()
+            .any(|child| child.id == id || child.holds(id))
     }
 
     fn children(&self) -> &[SlotNode] {
