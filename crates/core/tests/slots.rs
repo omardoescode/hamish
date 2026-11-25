@@ -444,3 +444,95 @@ fn typing_in_a_nested_slot_changes_both_active_variants() {
     );
     assert_eq!(document.slot(paragraph).unwrap().range, 0..13);
 }
+
+/// Active variant index and Variant texts of one visible Slot.
+type SlotState<'a> = (usize, &'a [&'a str]);
+
+fn state(document: &Document) -> (String, Vec<(usize, Vec<String>)>) {
+    let slots = document
+        .slots()
+        .iter()
+        .map(|slot| {
+            let texts = slot.variants.iter().map(|v| v.text().to_owned()).collect();
+            (slot.active, texts)
+        })
+        .collect();
+    (document.text().to_owned(), slots)
+}
+
+fn expect_state(document: &Document, text: &str, slots: &[SlotState<'_>]) {
+    let expected = slots
+        .iter()
+        .map(|(active, texts)| (*active, texts.iter().map(|t| (*t).to_owned()).collect()))
+        .collect();
+    assert_eq!(state(document), (text.to_owned(), expected));
+}
+
+#[test]
+fn each_slot_operation_is_one_undoable_step() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Ai).unwrap();
+    document.set_active(id, 2).unwrap();
+    document.edit_variant(id, 2, "foxes").unwrap();
+    document.delete_variant(id, 0).unwrap();
+    document.delete_variant(id, 0).unwrap();
+    expect_state(&document, "The foxes sat.", &[]);
+
+    let history: [(&str, &[SlotState<'_>]); 6] = [
+        ("The foxes sat.", &[(1, &["dog", "foxes"])]),
+        ("The foxes sat.", &[(2, &["cat", "dog", "foxes"])]),
+        ("The fox sat.", &[(2, &["cat", "dog", "fox"])]),
+        ("The cat sat.", &[(0, &["cat", "dog", "fox"])]),
+        ("The cat sat.", &[(0, &["cat", "dog"])]),
+        ("The cat sat.", &[]),
+    ];
+    for (text, slots) in history {
+        assert!(document.undo());
+        expect_state(&document, text, slots);
+    }
+    assert!(!document.undo());
+
+    for _ in 0..6 {
+        assert!(document.redo());
+    }
+    expect_state(&document, "The foxes sat.", &[]);
+    assert_eq!(
+        document.add_variant(id, "x", Provenance::Writer),
+        Err(SlotError::NoSlot(id))
+    );
+}
+
+#[test]
+fn undo_of_a_text_edit_brings_back_the_slot_it_ended() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.set_active(id, 1).unwrap();
+    document.delete(0..12).unwrap();
+    assert!(document.undo());
+    expect_state(&document, "The dog sat.", &[(1, &["cat", "dog"])]);
+    assert_eq!(document.slot(id).unwrap().range, 4..7);
+}
+
+#[test]
+fn refused_or_empty_operations_add_no_undo_step() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    assert!(
+        document
+            .create_slot(5..9, Level::Word, "x", Provenance::Writer)
+            .is_err()
+    );
+    assert!(document.set_active(id, 5).is_err());
+    document.set_active(id, 0).unwrap();
+    document.edit_variant(id, 1, "dog").unwrap();
+    assert!(document.undo());
+    expect_state(&document, "The cat sat.", &[]);
+    assert!(!document.undo());
+}
