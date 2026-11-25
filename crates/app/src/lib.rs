@@ -32,7 +32,7 @@ pub use actions::{
     UseOverflowBlock,
 };
 pub use ai::Ai;
-pub use alternatives_panel::{AlternativesPanel, VariantRow};
+pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
