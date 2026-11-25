@@ -113,6 +113,13 @@ impl Workspace {
         }
     }
 
+    /// The Vim mode of the Editor as the Chrome bar shows it; `None` when the Vim mode
+    /// setting is off.
+    #[must_use]
+    pub fn vim_status(&self, cx: &App) -> Option<String> {
+        self.editor.read(cx).vim_status(cx)
+    }
+
     /// The open Alternatives panel; `None` when it is closed.
     #[must_use]
     pub fn alternatives_panel(&self) -> Option<&Entity<AlternativesPanel>> {
@@ -267,7 +274,8 @@ fn to_lab<A: 'static>(
 }
 
 impl Workspace {
-    /// The Chrome bar: New, Save, and Open left, LAB center, Settings and Overflow right.
+    /// The Chrome bar: New, Save, and Open left, LAB center, the Vim mode, Settings and
+    /// Overflow right.
     fn chrome_bar(&self, theme: &Theme, height: Pixels, cx: &Context<Self>) -> impl IntoElement {
         div()
             .id("chrome")
@@ -291,7 +299,16 @@ impl Workspace {
             .child(
                 div()
                     .flex()
+                    .items_center()
                     .gap(px(16.))
+                    .children(self.vim_status(cx).map(|status| {
+                        div()
+                            .id("vim-mode")
+                            .debug_selector(|| "vim-mode".to_owned())
+                            .text_size(theme.font_size_hint)
+                            .text_color(theme.text_muted)
+                            .child(status)
+                    }))
                     .child(settings_modal::settings_button(theme))
                     .child(overflow_panel::overflow_button(self.overflow_open, theme)),
             )

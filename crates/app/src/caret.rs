@@ -57,6 +57,12 @@ pub(crate) trait CaretView: Sized + 'static {
         bounds
     }
 
+    /// The text input may change the text now. `false` keeps the text as it is, for
+    /// example in Vim Normal mode.
+    fn takes_text(&self, _cx: &App) -> bool {
+        true
+    }
+
     /// Up or Down with no selection key. `true` when the view used the key for something
     /// else, so the caret stays.
     fn take_vertical_key(&mut self, _cycle: Cycle, _cx: &mut Context<Self>) -> bool {
@@ -293,6 +299,9 @@ pub(crate) fn replace_text_in_range<V: CaretView>(
     new: &str,
     cx: &mut Context<V>,
 ) {
+    if !view.takes_text(cx) {
+        return;
+    }
     let edit = view.read_text(cx, |text, caret| caret.input(text, range_utf16, new));
     view.edit(&edit, cx);
 }
@@ -304,6 +313,9 @@ pub(crate) fn replace_and_mark_text_in_range<V: CaretView>(
     selected_utf16: Option<Range<usize>>,
     cx: &mut Context<V>,
 ) {
+    if !view.takes_text(cx) {
+        return;
+    }
     let edit = view.read_text(cx, |text, caret| {
         caret.compose(text, range_utf16, new, selected_utf16)
     });

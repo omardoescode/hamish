@@ -300,7 +300,7 @@ fn words_from(text: &str, start: usize) -> impl Iterator<Item = Range<usize>> + 
 }
 
 /// Start of the line that holds byte `offset`: just after the newline before it, else 0.
-fn line_start(text: &str, offset: usize) -> usize {
+pub(crate) fn line_start(text: &str, offset: usize) -> usize {
     text.get(..offset)
         .and_then(|before| before.rfind('\n'))
         .map_or(0, |newline| newline + 1)
@@ -339,7 +339,7 @@ fn floor_boundary(text: &str, offset: usize) -> usize {
 }
 
 /// The last grapheme start before `offset` (a char boundary); 0 when there is none.
-fn previous_boundary(text: &str, offset: usize) -> usize {
+pub(crate) fn previous_boundary(text: &str, offset: usize) -> usize {
     GraphemeCursor::new(offset, text.len(), true)
         .prev_boundary(text, 0)
         .ok()
@@ -348,7 +348,7 @@ fn previous_boundary(text: &str, offset: usize) -> usize {
 }
 
 /// The first grapheme start after `offset` (a char boundary); the text end when there is none.
-fn next_boundary(text: &str, offset: usize) -> usize {
+pub(crate) fn next_boundary(text: &str, offset: usize) -> usize {
     GraphemeCursor::new(offset, text.len(), true)
         .next_boundary(text, 0)
         .ok()

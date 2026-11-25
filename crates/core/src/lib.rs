@@ -26,6 +26,7 @@ mod title;
 mod tree;
 mod trim;
 mod undo;
+mod vim;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
 pub use alternatives_list::{
@@ -54,3 +55,4 @@ pub use storage::{Dropped, Opened, StorageError};
 pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
+pub use vim::{Vim, VimCommand, VimKey, VimMode};

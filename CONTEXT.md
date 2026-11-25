@@ -130,6 +130,17 @@ _Avoid_: Format, rich text
 The insertion point in the Document text or in Overflow, with the selection around it and the text an input method composes. One rule for both texts: a caret clamps to its text before it acts.
 _Avoid_: cursor
 
+**Vim mode**:
+A setting, off by default. When on, the Editor has a Normal mode and an Insert mode, with Vim keys (ADR 0008).
+_Avoid_: Vim emulation, modal editing
+
+**Normal mode**:
+The Vim mode state where keys move the Caret and start commands. No key types text.
+_Avoid_: Command mode
+
+**Insert mode**:
+The Vim mode state where keys type text, as with Vim mode off. Escape goes back to Normal mode.
+
 ### Storage
 
 **Hamish comment**:
