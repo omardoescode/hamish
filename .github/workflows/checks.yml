@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -14,6 +15,7 @@ env:
 
 jobs:
   fmt:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +24,7 @@ jobs:
       - run: cargo fmt --check
 
   clippy:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +42,7 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
 
   test:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +66,7 @@ jobs:
         run: cargo test --workspace --doc
 
   guards:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
