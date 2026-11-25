@@ -9,7 +9,6 @@ use std::path::Path;
 
 use ka_teb_core::{
     Document, Dropped, LabCheck, LabFinding, Level, Provenance, StorageError, TrimLevel,
-    sidecar_path,
 };
 
 /// "The rapidly fox runs.\n\nAnother paragraph." with a Word Slot (Mixed Variant active),
@@ -44,15 +43,117 @@ fn draft() -> Result<Document, Box<dyn Error>> {
     Ok(document)
 }
 
+/// Puts `text` in place of the Document text of the saved file `path`, as another tool
+/// does, and keeps the ka-teb comment.
+fn edit_outside(path: &Path, text: &str) -> Result<(), Box<dyn Error>> {
+    let saved = fs::read_to_string(path)?;
+    let comment = saved.rfind("<!-- ka-teb").ok_or("no ka-teb comment")?;
+    let kept = saved.get(comment..).unwrap_or_default();
+    fs::write(path, format!("{text}\n\n{kept}"))?;
+    Ok(())
+}
+
 #[test]
-fn save_writes_only_the_active_text_to_the_md_file() {
+fn save_writes_the_active_text_then_the_ka_teb_comment_as_the_last_thing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
     draft().unwrap().save(&path).unwrap();
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(saved.starts_with("The rapidly fox runs.\n\nAnother paragraph.\n\n<!-- ka-teb\n{"));
+    assert!(saved.ends_with("}\n-->\n"));
+    assert!(saved.contains("swift"));
+}
+
+#[test]
+fn save_writes_one_file_only() {
+    let dir = tempfile::tempdir().unwrap();
+    draft().unwrap().save(&dir.path().join("draft.md")).unwrap();
+    let names: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["draft.md"]);
+}
+
+#[test]
+fn a_variant_with_comment_ends_survives_and_the_comment_ends_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("draft.md");
+    let mut saved = Document::new("Go on.");
+    saved
+        .create_slot(
+            0..2,
+            Level::Word,
+            "a --> b -- c --!> d <!-- e",
+            Provenance::Writer,
+        )
+        .unwrap();
+    saved.save(&path).unwrap();
+
+    let file = fs::read_to_string(&path).unwrap();
+    assert_eq!(file.matches("-->").count(), 1);
+    assert_eq!(file.matches("--").count(), 2);
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(opened.dropped, []);
+    assert_eq!(opened.document.slots(), saved.slots());
     assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        "The rapidly fox runs.\n\nAnother paragraph."
+        opened.document.slots()[0].variants[1].text(),
+        "a --> b -- c --!> d <!-- e"
     );
+}
+
+#[test]
+fn other_comments_stay_document_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("draft.md");
+    let text = "<!-- a note -->\nText.\n\n<!-- ka-teb\nnot data -->\nEnd.\n";
+    let mut saved = Document::new(text);
+    saved
+        .create_slot(16..20, Level::Word, "Words", Provenance::Writer)
+        .unwrap();
+    saved.save(&path).unwrap();
+
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(opened.dropped, []);
+    assert_eq!(opened.document.text(), text);
+    assert_eq!(opened.document.slots(), saved.slots());
+}
+
+#[test]
+fn a_last_comment_with_no_ka_teb_tag_is_document_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plain.md");
+    let text = "Text.\n\n<!-- ka-tebx\n{}\n-->\n\n<!-- just a note\n{}\n-->\n";
+    fs::write(&path, text).unwrap();
+
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(opened.dropped, []);
+    assert_eq!(opened.document.text(), text);
+    assert_eq!(opened.document.slots(), []);
+}
+
+#[test]
+fn a_ka_teb_comment_with_text_after_it_is_document_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("plain.md");
+    let text = "Text.\n\n<!-- ka-teb\n{ not json\n-->\nMore text.\n";
+    fs::write(&path, text).unwrap();
+
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(opened.document.text(), text);
+}
+
+#[test]
+fn an_old_json_file_next_to_the_md_file_is_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("draft.md");
+    fs::write(&path, "Plain text.").unwrap();
+    fs::write(dir.path().join("draft.md.ka-teb.json"), "{ not json").unwrap();
+
+    let opened = Document::open(&path).unwrap();
+    assert_eq!(opened.document.text(), "Plain text.");
+    assert_eq!(opened.document.slots(), []);
+    assert!(dir.path().join("draft.md.ka-teb.json").exists());
 }
 
 #[test]
@@ -61,7 +162,8 @@ fn save_keeps_markdown_marks_as_typed() {
     let path = dir.path().join("styled.md");
     let text = "# Title\n\n> **bold** and *soft* `code`\n\n- item\n";
     Document::new(text).save(&path).unwrap();
-    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    assert!(fs::read_to_string(&path).unwrap().starts_with(text));
+    assert_eq!(Document::open(&path).unwrap().document.text(), text);
 }
 
 #[test]
@@ -108,7 +210,7 @@ fn nested_slots_and_ghost_ranges_of_an_inactive_variant_survive_the_round_trip()
 }
 
 #[test]
-fn open_of_an_md_file_with_no_sidecar_gives_a_plain_document() {
+fn open_of_an_md_file_with_no_ka_teb_comment_gives_a_plain_document() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("plain.md");
     fs::write(&path, "Written in another tool.").unwrap();
@@ -131,7 +233,7 @@ fn open_after_an_outside_edit_finds_items_by_text_and_reports_the_rest() {
         .unwrap();
     document.ghost(14..18).unwrap();
     document.save(&path).unwrap();
-    fs::write(&path, "New start. Mind the gap. Mind the step.").unwrap();
+    edit_outside(&path, "New start. Mind the gap. Mind the step.").unwrap();
 
     let opened = Document::open(&path).unwrap();
     assert_eq!(
@@ -172,7 +274,7 @@ fn an_item_whose_text_shows_more_than_once_goes_to_the_place_nearest_its_old_one
         )
         .unwrap();
     document.save(&path).unwrap();
-    fs::write(&path, "so the cat and the dog and the end.").unwrap();
+    edit_outside(&path, "so the cat and the dog and the end.").unwrap();
 
     let opened = Document::open(&path).unwrap();
     assert_eq!(opened.dropped, []);
@@ -209,7 +311,7 @@ fn an_item_whose_only_place_is_taken_or_whose_text_is_gone_is_dropped() {
         )
         .unwrap();
     document.save(&path).unwrap();
-    fs::write(&path, "go now").unwrap();
+    edit_outside(&path, "go now").unwrap();
 
     let opened = Document::open(&path).unwrap();
     assert_eq!(
@@ -244,7 +346,7 @@ fn a_slot_found_again_keeps_the_slots_nested_in_its_active_variant() {
         .create_slot(4..8, Level::Word, "thought", Provenance::Writer)
         .unwrap();
     document.save(&path).unwrap();
-    fs::write(&path, "Intro.\n\nOne idea here.").unwrap();
+    edit_outside(&path, "Intro.\n\nOne idea here.").unwrap();
 
     let opened = Document::open(&path).unwrap();
     assert_eq!(opened.dropped, []);
@@ -270,14 +372,6 @@ fn an_opened_document_has_no_edit_history_and_gives_new_slots_new_ids() {
         .create_slot(0..3, Level::Word, "A", Provenance::Writer)
         .unwrap();
     assert!(!old.contains(&new));
-}
-
-#[test]
-fn the_sidecar_sits_next_to_the_md_file() {
-    assert_eq!(
-        sidecar_path(Path::new("/notes/draft.md")),
-        Path::new("/notes/draft.md.ka-teb.json")
-    );
 }
 
 #[test]
@@ -308,25 +402,23 @@ fn open_of_an_md_file_that_is_not_utf8_is_refused() {
 }
 
 #[test]
-fn open_with_a_sidecar_that_is_not_sidecar_json_is_refused() {
+fn open_with_a_ka_teb_comment_that_is_not_its_json_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
-    Document::new("text").save(&path).unwrap();
-    fs::write(sidecar_path(&path), "{ not json").unwrap();
+    fs::write(&path, "text\n\n<!-- ka-teb\n{ not json\n-->\n").unwrap();
     assert!(matches!(
         Document::open(&path),
-        Err(StorageError::BadSidecar { .. })
+        Err(StorageError::BadKaTebComment { .. })
     ));
 }
 
 #[test]
-fn open_with_a_sidecar_of_a_newer_schema_version_is_refused() {
+fn open_with_a_ka_teb_comment_of_a_newer_schema_version_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
-    fs::write(&path, "text").unwrap();
     fs::write(
-        sidecar_path(&path),
-        r#"{"version": 2, "slots": "new shape"}"#,
+        &path,
+        "text\n\n<!-- ka-teb\n{\"version\": 2, \"slots\": \"new shape\"}\n-->\n",
     )
     .unwrap();
     assert!(matches!(
@@ -336,7 +428,7 @@ fn open_with_a_sidecar_of_a_newer_schema_version_is_refused() {
 }
 
 #[test]
-fn a_slot_the_sidecar_gives_no_active_variant_is_dropped_not_a_panic() {
+fn a_slot_the_ka_teb_comment_gives_no_active_variant_is_dropped_not_a_panic() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("draft.md");
     let mut document = Document::new("Pick one word.");
@@ -344,12 +436,8 @@ fn a_slot_the_sidecar_gives_no_active_variant_is_dropped_not_a_panic() {
         .create_slot(5..8, Level::Word, "two", Provenance::Writer)
         .unwrap();
     document.save(&path).unwrap();
-    let sidecar = fs::read_to_string(sidecar_path(&path)).unwrap();
-    fs::write(
-        sidecar_path(&path),
-        sidecar.replace("\"active\": 0", "\"active\": 7"),
-    )
-    .unwrap();
+    let saved = fs::read_to_string(&path).unwrap();
+    fs::write(&path, saved.replace("\"active\": 0", "\"active\": 7")).unwrap();
 
     let opened = Document::open(&path).unwrap();
     assert_eq!(

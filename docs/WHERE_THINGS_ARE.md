@@ -5,7 +5,7 @@
 | Path | What |
 |---|---|
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
-| `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
+| `crates/core/src/storage.rs` | Save/open: one `<name>.md` file: the active text, then all other state as JSON in the ka-teb comment at the end (schema `version`, text SHA-256, re-anchor by text; ADR 0007). |
 | `crates/core/src/title.rs` | `document_title`: the title at the top center and on the window (file name, else first line, else "Untitled"). |
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save. |
 | `crates/core/src/theme.rs` | `ThemeName` (named themes, their order, labels, settings file names; `dark`/`light` load as Ka-teb/Ka-teb Light) and each `Palette` (`0xRRGGBB` per color role). |
