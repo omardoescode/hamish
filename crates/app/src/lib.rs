@@ -5,6 +5,7 @@
     reason = "gpui's Action derive builds actions from key binding JSON"
 )]
 mod actions;
+mod context_menu;
 mod edit_history;
 mod editor;
 mod theme;
@@ -15,10 +16,12 @@ use std::borrow::Cow;
 use gpui::{App, KeyBinding};
 
 pub use actions::{
-    Backspace, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart,
-    MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
-    SelectToLineStart, SelectUp, ToggleChrome, Undo,
+    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
+    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
+    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
+    ToggleChrome, ToggleGhost, Undo,
 };
+pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use theme::Theme;
 pub use workspace::Workspace;
@@ -56,6 +59,11 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-v", Paste, editor),
         KeyBinding::new("ctrl-z", Undo, editor),
         KeyBinding::new("ctrl-shift-z", Redo, editor),
+        KeyBinding::new("ctrl-shift-a", OpenAlternatives, editor),
+        KeyBinding::new("ctrl-shift-g", AiAlternatives, editor),
+        KeyBinding::new("ctrl-/", ToggleGhost, editor),
+        KeyBinding::new("ctrl-shift-x", Stash, editor),
+        KeyBinding::new("escape", CloseMenu, editor),
     ]);
     Ok(())
 }

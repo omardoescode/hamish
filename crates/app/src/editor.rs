@@ -13,10 +13,12 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
 use crate::actions::{
-    Backspace, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart,
-    MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
-    SelectToLineStart, SelectUp, Undo,
+    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
+    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
+    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
+    ToggleGhost, Undo,
 };
+use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
 
 /// How a Slot shows that it has Variants (FR-12).
@@ -64,6 +66,7 @@ pub struct Editor {
     autoscroll: bool,
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
+    context_menu: Option<ContextMenu>,
 }
 
 /// The text as last painted, for mouse and vertical cursor moves.
@@ -94,6 +97,7 @@ impl Editor {
             autoscroll: false,
             hovered: None,
             markers: Vec::new(),
+            context_menu: None,
         }
     }
 
@@ -118,6 +122,12 @@ impl Editor {
     #[must_use]
     pub fn hovered_slot(&self) -> Option<SlotId> {
         self.hovered
+    }
+
+    /// The rows of the open context menu; `None` when it is closed.
+    #[must_use]
+    pub fn context_menu_items(&self) -> Option<Vec<ContextMenuItem>> {
+        self.context_menu.as_ref().map(ContextMenu::items)
     }
 
     /// Counter text: the Document, or the selection with "selected" (FR-3, FR-4).
@@ -170,6 +180,7 @@ impl Editor {
         if self.document.replace(range.clone(), text).is_err() {
             return;
         }
+        self.context_menu = None;
         let before = self.selection.clone();
         let cursor = range.start + text.len();
         self.selection = cursor..cursor;
@@ -440,6 +451,100 @@ impl Editor {
             .rev()
             .find(|slot| painted.covers(&slot.range, slot.level, local))
             .map(|slot| slot.id)
+    }
+
+    /// What the menu actions act on: the selection, else the word at the cursor (FR-29),
+    /// else the cursor.
+    fn target(&self) -> Range<usize> {
+        if !self.selection.is_empty() {
+            return self.selection.clone();
+        }
+        let cursor = self.cursor();
+        context_menu::word_at(self.document.text(), cursor).unwrap_or(cursor..cursor)
+    }
+
+    /// FR-28: a right-click opens the context menu. Outside the selection it moves the
+    /// cursor there first, so the menu acts on the word under the pointer.
+    fn on_right_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus_handle);
+        let offset = self.offset_for_mouse(event.position);
+        let in_selection = self.selection.start <= offset && offset <= self.selection.end;
+        if self.selection.is_empty() || !in_selection {
+            self.move_to(offset, cx);
+        }
+        let target = self.target();
+        let in_ghost = context_menu::touches_ghost(&self.document.ghost_ranges(), &target);
+        if target.is_empty() && !in_ghost {
+            self.context_menu = None;
+            return;
+        }
+        let word = self
+            .selection
+            .is_empty()
+            .then(|| self.document.text().get(target))
+            .flatten()
+            .filter(|word| !word.is_empty())
+            .map(str::to_owned);
+        self.context_menu = Some(ContextMenu {
+            position: event.position,
+            word,
+            in_ghost,
+        });
+        cx.notify();
+    }
+
+    fn close_menu(&mut self, _: &CloseMenu, _: &mut Window, cx: &mut Context<Self>) {
+        if self.context_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// FR-37, FR-39: Ghost the target, or Revive it when it touches a Ghost range, as one
+    /// undo step.
+    fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
+        self.context_menu = None;
+        let target = self.target();
+        let result = if context_menu::touches_ghost(&self.document.ghost_ranges(), &target) {
+            self.document.revive(target)
+        } else {
+            self.document.ghost(target)
+        };
+        cx.notify();
+        if result.is_err() {
+            return;
+        }
+        self.history.close();
+        self.history.record(
+            EditKind::Other,
+            self.selection.clone(),
+            self.selection.clone(),
+        );
+        self.history.close();
+    }
+
+    /// Menu actions that later tickets build (Alternatives panel, AI alternatives,
+    /// Overflow): close the menu and let a view up the tree handle the action.
+    fn pass_on(&mut self, cx: &mut Context<Self>) {
+        self.context_menu = None;
+        cx.notify();
+        cx.propagate();
+    }
+
+    fn open_alternatives(&mut self, _: &OpenAlternatives, _: &mut Window, cx: &mut Context<Self>) {
+        self.pass_on(cx);
+    }
+
+    fn ai_alternatives(&mut self, _: &AiAlternatives, _: &mut Window, cx: &mut Context<Self>) {
+        self.pass_on(cx);
+    }
+
+    fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
+        self.pass_on(cx);
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -797,7 +902,13 @@ impl Render for Editor {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
+            .on_action(cx.listener(Self::toggle_ghost))
+            .on_action(cx.listener(Self::open_alternatives))
+            .on_action(cx.listener(Self::ai_alternatives))
+            .on_action(cx.listener(Self::stash))
+            .on_action(cx.listener(Self::close_menu))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -818,6 +929,13 @@ impl Render for Editor {
                         editor: cx.entity(),
                     }),
             )
+            .when_some(self.context_menu.as_ref(), |editor, menu| {
+                let dismiss = cx.listener(|editor: &mut Self, _: &MouseDownEvent, _, cx| {
+                    editor.context_menu = None;
+                    cx.notify();
+                });
+                editor.child(menu.render(&theme, dismiss))
+            })
     }
 }
 
@@ -835,13 +953,11 @@ struct EditorPrepaint {
 
 impl EditorElement {
     /// Text runs: the title line bold in the title color (FR-5), the rest in body style.
-    /// Word and Sentence Slots are underlined (FR-12).
+    /// Word and Sentence Slots are underlined (FR-12). Ghost text is dimmed (FR-37).
     fn runs(&self, window: &Window, cx: &App) -> Vec<TextRun> {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
         let style = window.text_style();
-        let text = editor.document.text();
-        let title_end = editor.document.title().map_or(0, str::len);
         let underlined: Vec<Range<usize>> = editor
             .document
             .slots()
@@ -849,37 +965,39 @@ impl EditorElement {
             .filter(|slot| slot.level != Level::Paragraph)
             .map(|slot| slot.range)
             .collect();
-        let mut edges = vec![0, title_end, text.len()];
-        edges.extend(underlined.iter().flat_map(|range| [range.start, range.end]));
-        edges.sort_unstable();
-        edges.dedup();
-        let underline = UnderlineStyle {
-            thickness: px(1.),
-            color: Some(theme.slot_underline),
-            wavy: false,
-        };
-        let runs: Vec<TextRun> = edges
-            .iter()
-            .zip(edges.iter().skip(1))
-            .map(|(&start, &end)| {
-                let mut font = style.font();
-                let title = end <= title_end;
-                if title {
-                    font.weight = FontWeight::BOLD;
-                }
-                let in_slot = underlined
-                    .iter()
-                    .any(|range| range.start <= start && end <= range.end);
-                TextRun {
-                    len: end - start,
-                    font,
-                    color: if title { theme.text_title } else { theme.text },
-                    background_color: None,
-                    underline: in_slot.then_some(underline),
-                    strikethrough: None,
-                }
-            })
-            .collect();
+        let runs: Vec<TextRun> = spans(
+            editor.document.text().len(),
+            editor.document.title().map_or(0, str::len),
+            &underlined,
+            &editor.document.ghost_ranges(),
+        )
+        .into_iter()
+        .map(|span| {
+            let mut font = style.font();
+            if span.title {
+                font.weight = FontWeight::BOLD;
+            }
+            let opacity = if span.ghost { theme.ghost_opacity } else { 1. };
+            let color = if span.title {
+                theme.text_title
+            } else {
+                theme.text
+            };
+            let underline = UnderlineStyle {
+                thickness: px(1.),
+                color: Some(theme.slot_underline.opacity(opacity)),
+                wavy: false,
+            };
+            TextRun {
+                len: span.range.len(),
+                font,
+                color: color.opacity(opacity),
+                background_color: None,
+                underline: span.underlined.then_some(underline),
+                strikethrough: None,
+            }
+        })
+        .collect();
         if runs.is_empty() {
             return vec![TextRun {
                 len: 0,
@@ -1105,6 +1223,48 @@ impl Element for EditorElement {
     }
 }
 
+/// A stretch of the text with one style.
+#[derive(Debug, PartialEq, Eq)]
+struct Span {
+    range: Range<usize>,
+    title: bool,
+    underlined: bool,
+    ghost: bool,
+}
+
+/// Splits text of `len` bytes at the title end and at each underlined and Ghost range edge.
+fn spans(
+    len: usize,
+    title_end: usize,
+    underlined: &[Range<usize>],
+    ghosts: &[Range<usize>],
+) -> Vec<Span> {
+    let mut edges = vec![0, title_end, len];
+    edges.extend(
+        underlined
+            .iter()
+            .chain(ghosts)
+            .flat_map(|range| [range.start, range.end]),
+    );
+    edges.sort_unstable();
+    edges.dedup();
+    let within = |ranges: &[Range<usize>], start: usize, end: usize| {
+        ranges
+            .iter()
+            .any(|range| range.start <= start && end <= range.end)
+    };
+    edges
+        .iter()
+        .zip(edges.iter().skip(1))
+        .map(|(&start, &end)| Span {
+            range: start..end,
+            title: end <= title_end,
+            underlined: within(underlined, start, end),
+            ghost: within(ghosts, start, end),
+        })
+        .collect()
+}
+
 /// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
 fn as_factor(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
@@ -1159,7 +1319,33 @@ fn scroll_into_view(scroll_handle: &ScrollHandle, cursor: Option<&PaintQuad>, ma
 
 #[cfg(test)]
 mod tests {
-    use super::follow_change;
+    use super::{Span, follow_change, spans};
+
+    #[test]
+    fn ghost_and_slot_ranges_split_the_text_into_styled_spans() {
+        let span = |range, title, underlined, ghost| Span {
+            range,
+            title,
+            underlined,
+            ghost,
+        };
+        assert_eq!(
+            spans(
+                27,
+                5,
+                std::slice::from_ref(&(14..21)),
+                std::slice::from_ref(&(6..13))
+            ),
+            vec![
+                span(0..5, true, false, false),
+                span(5..6, false, false, false),
+                span(6..13, false, false, true),
+                span(13..14, false, false, false),
+                span(14..21, false, true, false),
+                span(21..27, false, false, false),
+            ]
+        );
+    }
 
     #[test]
     fn an_offset_after_a_changed_span_moves_by_its_change_in_length() {
