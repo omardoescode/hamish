@@ -1,7 +1,10 @@
 use std::ops::Range;
 
 use app::Workspace;
-use gpui::{Bounds, Entity, EntityInputHandler, Pixels, TestAppContext, VisualTestContext, px};
+use gpui::{
+    Bounds, Entity, EntityInputHandler, Modifiers, Pixels, TestAppContext, VisualTestContext,
+    point, px,
+};
 use hamish_core::{Document, LoadedSettings, Settings};
 
 fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
@@ -151,7 +154,11 @@ fn turning_vim_mode_off_gives_back_the_usual_keys(cx: &mut TestAppContext) {
 }
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
-fn caret_x(workspace: &Entity<Workspace>, offset: usize, cx: &mut VisualTestContext) -> Pixels {
+fn bounds_at(
+    workspace: &Entity<Workspace>,
+    offset: usize,
+    cx: &mut VisualTestContext,
+) -> Bounds<Pixels> {
     let editor = cx.read(|cx| workspace.read(cx).editor().clone());
     cx.update(|window, cx| {
         editor.update(cx, |editor, cx| {
@@ -159,8 +166,6 @@ fn caret_x(workspace: &Entity<Workspace>, offset: usize, cx: &mut VisualTestCont
         })
     })
     .unwrap()
-    .origin
-    .x
 }
 
 fn caret_width(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Pixels> {
@@ -182,7 +187,7 @@ fn normal_mode_shows_a_block_caret_as_wide_as_the_char(cx: &mut TestAppContext) 
     let on_empty_line = caret_width(&workspace, cx).unwrap_or_default();
 
     assert!(on_i > px(3.), "block on i: {on_i:?}");
-    let m = caret_x(&workspace, 1, cx) - caret_x(&workspace, 0, cx);
+    let m = bounds_at(&workspace, 1, cx).origin.x - bounds_at(&workspace, 0, cx).origin.x;
     assert!(
         (on_m - m).abs() < px(0.5),
         "block on m {on_m:?}, m is {m:?} wide"
@@ -210,4 +215,26 @@ fn insert_mode_and_vim_mode_off_show_the_thin_bar(cx: &mut TestAppContext) {
         px(1.9) < off && off < px(2.5),
         "bar with Vim mode off: {off:?}"
     );
+}
+
+fn click_past_the_end_of_the_first_line(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) {
+    let end = bounds_at(workspace, 2, cx);
+    cx.simulate_click(
+        point(end.origin.x + px(40.), end.center().y),
+        Modifiers::none(),
+    );
+}
+
+#[gpui::test]
+fn in_normal_mode_a_click_past_the_line_end_puts_the_caret_on_the_last_char(
+    cx: &mut TestAppContext,
+) {
+    let (workspace, cx) = open(cx, "ab\n\ncd", true);
+
+    click_past_the_end_of_the_first_line(&workspace, cx);
+    assert_eq!(selection(&workspace, cx), 1..1);
+
+    cx.simulate_keystrokes("i");
+    click_past_the_end_of_the_first_line(&workspace, cx);
+    assert_eq!(selection(&workspace, cx), 2..2);
 }
