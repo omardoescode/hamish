@@ -12,7 +12,6 @@
 | `deny.toml` | cargo-deny: banned crates, licenses, advisories, sources. |
 | `.pedant.toml` | pedant style checks (nesting, `dead_code` suppression). |
 | `.cargo-husky/hooks/` | Git hooks: pre-commit, commit-msg, pre-push. |
-| `scripts/test-hooks.sh` | Tests for the git and Claude hook scripts (local only, not CI). |
 | `crates/*/tests/` | Integration tests (public API, at the seams). |
 | `.claude/settings.json` | Claude Code project settings: attribution off, permissions, worktree hooks. |
 | `.claude/hooks/` | WorktreeCreate / WorktreeRemove scripts; PostToolUse pedant check. |
@@ -28,7 +27,6 @@
 - Integration tests: `cargo test --workspace --test '*'`
 - Doc tests: `cargo test --workspace --doc`
 - One test: `cargo test -p ka-teb-core <test_name>` (substring match; add `-- --exact` for an exact name)
-- Hook script tests: `scripts/test-hooks.sh`
 - Guards: `cargo deny check`, `cargo shear`, `pedant check crates` (owner table: CODING_STANDARDS.md)
 - Release: push a tag `vX.Y.Z`. Regenerate CI after a dist config change: `dist generate`.
 
