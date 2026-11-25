@@ -9,6 +9,8 @@
 - AI never changes text without a writer action (spec NFR).
 - Names come from the glossary (CONTEXT.md).
 - Unit tests: `#[cfg(test)] mod tests` in the same file; they test private logic of one module. Run: `cargo test --workspace --lib --bins`.
-- Integration tests: `crates/<crate>/tests/*.rs`; public API only, at the agreed seams (Document API, persistence round trip, AI adapter, GPUI action dispatch) plus architecture rules (`crates/core/tests/architecture.rs`: core has no gpui). Run: `cargo test --workspace --test '*'`.
+- Integration tests: `crates/<crate>/tests/*.rs`; public API only, at the agreed seams (Document API, persistence round trip, AI adapter, GPUI action dispatch). Run: `cargo test --workspace --test '*'`.
+- Doc tests: examples in doc comments. Run: `cargo test --workspace --doc`.
+- Architecture: crate boundaries only (`core` does not list gpui in Cargo.toml; `pub(crate)` inside a crate). No architecture tests or tools.
 - Tests: no tautological tests. Expected values come from the spec or hardcoded worked examples. Test at agreed seams only.
 - Commits: no Co-Authored-By.

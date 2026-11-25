@@ -59,3 +59,5 @@ jobs:
         run: cargo test --workspace --lib --bins
       - name: integration tests
         run: cargo test --workspace --test '*'
+      - name: doc tests
+        run: cargo test --workspace --doc
