@@ -14,6 +14,7 @@ use crate::actions::{
 };
 use crate::editor::{Spotlight, paragraph_around};
 use crate::effects::{self, Effect, EffectKind, Playing};
+use crate::sounds;
 use crate::{Ai, Editor, Theme};
 use crate::{context_menu, loading};
 
@@ -383,11 +384,12 @@ impl AlternativesPanel {
         if active.is_none_or(|active| active == row) {
             return;
         }
-        self.editor
-            .update(cx, |editor, cx| {
-                editor.change_document(|document| document.set_active(id, row), cx)
-            })
-            .ok();
+        let switched = self.editor.update(cx, |editor, cx| {
+            editor.change_document(|document| document.set_active(id, row), cx)
+        });
+        if let Ok(switch) = switched {
+            sounds::play(switch.sound(), cx);
+        }
     }
 
     /// FR-24: Esc closes the panel.

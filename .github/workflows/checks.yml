@@ -31,7 +31,7 @@ jobs:
       - name: Install GPUI build libraries (cached)
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev
+          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev libasound2-dev
           version: 1
       - name: Install Rust from rust-toolchain.toml
         run: rustup toolchain install
@@ -49,7 +49,7 @@ jobs:
       - name: Install GPUI build libraries (cached)
         uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev
+          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev libasound2-dev
           version: 1
       - name: Install Rust from rust-toolchain.toml
         run: rustup toolchain install
