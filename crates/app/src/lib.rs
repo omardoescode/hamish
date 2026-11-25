@@ -8,6 +8,7 @@ mod actions;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod save_open;
 mod theme;
 mod workspace;
 
@@ -17,12 +18,13 @@ use gpui::{App, KeyBinding};
 
 pub use actions::{
     AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
-    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
-    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
-    ToggleChrome, ToggleGhost, Undo,
+    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, Open, OpenAlternatives, Paste, Redo, Save,
+    SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart,
+    SelectUp, Stash, ToggleChrome, ToggleGhost, Undo,
 };
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use save_open::Notice;
 pub use theme::Theme;
 pub use workspace::Workspace;
 
@@ -64,6 +66,9 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-/", ToggleGhost, editor),
         KeyBinding::new("ctrl-shift-x", Stash, editor),
         KeyBinding::new("escape", CloseMenu, editor),
+        KeyBinding::new("ctrl-s", Save, None),
+        KeyBinding::new("ctrl-shift-s", SaveAs, None),
+        KeyBinding::new("ctrl-o", Open, None),
     ]);
     Ok(())
 }

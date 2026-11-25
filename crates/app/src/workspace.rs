@@ -5,11 +5,13 @@ use gpui::{
 use ka_teb_core::Document;
 
 use crate::actions::ToggleChrome;
+use crate::save_open::SaveOpen;
 use crate::{Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
 pub struct Workspace {
-    editor: Entity<Editor>,
+    pub(crate) editor: Entity<Editor>,
+    pub(crate) save_open: SaveOpen,
     chrome_visible: bool,
     _editor_changes: Subscription,
 }
@@ -21,6 +23,7 @@ impl Workspace {
         let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
         Self {
             editor,
+            save_open: SaveOpen::default(),
             chrome_visible: false,
             _editor_changes: editor_changes,
         }
@@ -60,6 +63,9 @@ impl Render for Workspace {
             .bg(theme.background)
             .font_family(theme.font_family)
             .on_action(cx.listener(Self::toggle_chrome))
+            .on_action(cx.listener(Self::save))
+            .on_action(cx.listener(Self::save_as))
+            .on_action(cx.listener(Self::open))
             .child(self.editor.clone())
             .child(
                 div()
@@ -101,8 +107,10 @@ impl Render for Workspace {
                         .right(px(24.))
                         .h(px(16.))
                         .flex()
-                        .justify_between(),
+                        .justify_between()
+                        .child(self.save_open_icons(&theme, cx)),
                 )
             })
+            .children(self.notice_view(&theme, cx))
     }
 }

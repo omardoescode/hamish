@@ -32,4 +32,4 @@ gpui::actions!(
     ]
 );
 
-gpui::actions!(workspace, [ToggleChrome]);
+gpui::actions!(workspace, [ToggleChrome, Save, SaveAs, Open]);
