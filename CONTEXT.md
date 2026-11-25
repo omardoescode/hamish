@@ -57,6 +57,10 @@ List marker of a Writer Variant.
 **Bot point**:
 List marker (robot icon) of an AI Variant.
 
+**Quick fill**:
+An AI Variants request the writer starts by typing "??" in the empty row of the Alternatives panel. The row dances while the AI works.
+_Avoid_: Auto-fill, suggest
+
 ### Ghost and Overflow
 
 **Ghost**:
