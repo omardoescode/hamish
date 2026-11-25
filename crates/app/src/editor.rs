@@ -13,7 +13,7 @@ use gpui::{
 };
 use ka_teb_core::{
     Cycle, Document, FocusZoom, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError,
-    SlotId, Sound, TrimError,
+    SlotId, Sound, TrimError, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -92,6 +92,9 @@ pub struct Editor {
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
+    /// The Document with the draft of the Alternatives panel in place (FR-68); it is painted,
+    /// never saved.
+    preview: Option<Document>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
     /// The Slot whose Active variant last changed, and when (FR-81).
@@ -155,6 +158,7 @@ impl Editor {
             underlines: Vec::new(),
             context_menu: None,
             spotlight: None,
+            preview: None,
             saved: None,
             fade_in: None,
             effects: Vec::new(),
@@ -292,18 +296,18 @@ impl Editor {
     /// The text cut at Slot, Ghost, Trim cut and bright paragraph edges: what a Slot
     /// underline needs.
     fn underline_spans(&self) -> Vec<Span> {
-        let underlined: Vec<Range<usize>> = self
-            .document
+        let shown = self.shown_document();
+        let underlined: Vec<Range<usize>> = shown
             .slots()
             .into_iter()
             .filter(|slot| slot.level != Level::Paragraph)
             .map(|slot| slot.range)
             .collect();
         spans(
-            self.document.text().len(),
+            shown.text().len(),
             0,
             &underlined,
-            &self.document.ghost_ranges(),
+            &shown.ghost_ranges(),
             &self.trim_fades(),
             &[],
             self.bright_paragraph().as_ref(),
@@ -314,11 +318,39 @@ impl Editor {
     /// rest of the text dims. `None` when nothing dims.
     #[must_use]
     pub fn bright_paragraph(&self) -> Option<Range<usize>> {
+        let shown = self.shown_document();
         let range = match self.spotlight.as_ref()? {
-            Spotlight::Slot(id) => self.document.slot(*id)?.range,
-            Spotlight::Text(range) => range.clone(),
+            Spotlight::Slot(id) => shown.slot(*id)?.range,
+            Spotlight::Text(range) => self.to_shown(range),
         };
-        Some(paragraph_around(self.document.text(), &range))
+        Some(paragraph_around(shown.text(), &range))
+    }
+
+    /// The Document as painted: with the draft of the Alternatives panel in place of the
+    /// text it is for, while there is one (FR-68). Else the Document.
+    #[must_use]
+    pub fn shown_document(&self) -> &Document {
+        self.preview.as_ref().unwrap_or(&self.document)
+    }
+
+    /// Shows `text` in place of `range` until the next call; `None` shows the Document.
+    /// The Document does not change.
+    pub(crate) fn set_preview(
+        &mut self,
+        preview: Option<(Range<usize>, &str)>,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview = preview.and_then(|(range, text)| {
+            let mut shown = self.document.clone();
+            shown.replace(range, text).ok().map(|()| shown)
+        });
+        cx.notify();
+    }
+
+    /// Where `range` of the Document lies in the shown Document.
+    fn to_shown(&self, range: &Range<usize>) -> Range<usize> {
+        let (old, new) = (self.document.text(), self.shown_document().text());
+        follow_change(range.start, old, new)..follow_change(range.end, old, new)
     }
 
     pub(crate) fn set_spotlight(&mut self, spotlight: Option<Spotlight>, cx: &mut Context<Self>) {
@@ -549,6 +581,16 @@ impl Editor {
         change: impl FnOnce(&mut Document) -> Result<T, E>,
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
+        self.change_document_in_steps(1, change, cx)
+    }
+
+    /// Like [`Self::change_document`], for a change of `steps` core undo steps.
+    pub(crate) fn change_document_in_steps<T, E>(
+        &mut self,
+        steps: usize,
+        change: impl FnOnce(&mut Document) -> Result<T, E>,
+        cx: &mut Context<Self>,
+    ) -> Result<T, E> {
         let old_text = self.document.text().to_owned();
         let shown = self.shown_variants();
         let done = change(&mut self.document)?;
@@ -557,10 +599,8 @@ impl Editor {
         let before = self.selection.clone();
         self.selection = follow_change(before.start, &old_text, new_text)
             ..follow_change(before.end, &old_text, new_text);
-        self.history.close();
         self.history
-            .record(EditKind::Other, before, self.selection.clone());
-        self.history.close();
+            .record_steps(steps, before, self.selection.clone());
         cx.notify();
         Ok(done)
     }
@@ -1579,8 +1619,9 @@ impl EditorElement {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
         let style = window.text_style();
-        let text = editor.document.text();
-        let markdown = editor.document.markdown_styles();
+        let shown = editor.shown_document();
+        let text = shown.text();
+        let markdown = shown.markdown_styles();
         let headings = heading_lines(text, &markdown);
         let [large, medium, small] = theme.font_size_heading;
         let sized_lines = headings
@@ -1603,10 +1644,9 @@ impl EditorElement {
         let title_end = if title_is_heading {
             0
         } else {
-            editor.document.title().map_or(0, str::len)
+            shown.title().map_or(0, str::len)
         };
-        let underlined: Vec<Range<usize>> = editor
-            .document
+        let underlined: Vec<Range<usize>> = shown
             .slots()
             .into_iter()
             .filter(|slot| slot.level != Level::Paragraph)
@@ -1616,7 +1656,7 @@ impl EditorElement {
             text.len(),
             title_end,
             &underlined,
-            &editor.document.ghost_ranges(),
+            &shown.ghost_ranges(),
             &editor.trim_fades(),
             &markdown,
             editor.bright_paragraph().as_ref(),
@@ -1827,7 +1867,13 @@ impl Element for EditorElement {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        let text: SharedString = self.editor.read(cx).document.text().to_owned().into();
+        let text: SharedString = self
+            .editor
+            .read(cx)
+            .shown_document()
+            .text()
+            .to_owned()
+            .into();
         let (runs, sized_lines) = self.runs(window, cx);
         let line_height = window.line_height();
         let layout_id =
@@ -1858,7 +1904,13 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let text: SharedString = self.editor.read(cx).document.text().to_owned().into();
+        let text: SharedString = self
+            .editor
+            .read(cx)
+            .shown_document()
+            .text()
+            .to_owned()
+            .into();
         let (runs, sized_lines) = self.runs(window, cx);
         let line_height = window.line_height();
         let lines = shape_sized(
@@ -1876,21 +1928,11 @@ impl Element for EditorElement {
         };
         let theme = cx.global::<Theme>().clone();
         let editor = self.editor.read(cx);
-        let selection = painted.selection_quads(&editor.selection, theme.selection);
-        let walked = editor.document.trim_proposal().and_then(|proposal| {
-            proposal
-                .current()
-                .and_then(|current| proposal.cuts().get(current))
-        });
-        let lab_marks = editor
-            .document
-            .lab_marks()
-            .iter()
-            .map(|mark| &mark.range)
-            .chain(walked.map(|cut| &cut.range))
-            .flat_map(|range| painted.selection_quads(range, theme.lab_mark))
-            .collect();
-        let slots = editor.document.slots();
+        let shown = editor.shown_document();
+        let selection =
+            painted.selection_quads(&editor.to_shown(&editor.selection), theme.selection);
+        let lab_marks = lab_mark_quads(&painted, editor, &theme);
+        let slots = shown.slots();
         let hover = editor
             .hovered
             .and_then(|id| slots.iter().find(|slot| slot.id == id))
@@ -1925,7 +1967,9 @@ impl Element for EditorElement {
         let cursor = editor
             .selection
             .is_empty()
-            .then(|| painted.position_for(editor.cursor()))
+            .then(|| {
+                painted.position_for(editor.to_shown(&(editor.cursor()..editor.cursor())).start)
+            })
             .flatten()
             .map(|position| {
                 fill(
@@ -2029,19 +2073,6 @@ impl Element for EditorElement {
             });
         });
     }
-}
-
-/// The lines that hold `range` of `text`, without the newlines around them.
-pub(crate) fn paragraph_around(text: &str, range: &Range<usize>) -> Range<usize> {
-    let start = text
-        .get(..range.start)
-        .and_then(|before| before.rfind('\n'))
-        .map_or(0, |newline| newline + 1);
-    let end = text
-        .get(range.end..)
-        .and_then(|after| after.find('\n'))
-        .map_or(text.len(), |newline| range.end + newline);
-    start..end
 }
 
 /// A stretch of the text with one style.
@@ -2167,6 +2198,23 @@ struct PenRow {
     right: Pixels,
 }
 
+/// The Lab marks and the Trim cut being walked through, as highlight quads.
+fn lab_mark_quads(painted: &PaintedText, editor: &Editor, theme: &Theme) -> Vec<PaintQuad> {
+    let walked = editor.document.trim_proposal().and_then(|proposal| {
+        proposal
+            .current()
+            .and_then(|current| proposal.cuts().get(current))
+    });
+    editor
+        .document
+        .lab_marks()
+        .iter()
+        .map(|mark| &mark.range)
+        .chain(walked.map(|cut| &cut.range))
+        .flat_map(|range| painted.selection_quads(range, theme.lab_mark))
+        .collect()
+}
+
 /// The pen strokes under the Word and Sentence Slots: one per row and opacity. Each span
 /// belongs to the innermost Slot over it, which gives its stroke its seed.
 fn pen_strokes(
@@ -2175,7 +2223,7 @@ fn pen_strokes(
     slots: &[Slot],
     theme: &Theme,
 ) -> Vec<PenStroke> {
-    let text = editor.document.text();
+    let text = editor.shown_document().text();
     editor
         .underline_spans()
         .into_iter()

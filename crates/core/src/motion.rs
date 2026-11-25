@@ -14,6 +14,9 @@ pub enum Effect {
     UndoBurst,
     /// The paragraph with the caret zooms in, the one it left zooms out (FR-83).
     FocusZoom,
+    /// One round of the "??" dance of a quick fill (FR-71; spec: 2 to 4 pose changes per
+    /// second). It repeats while the AI works; with reduced motion the "??" stays still.
+    QuickFillDance,
 }
 
 impl Effect {
@@ -24,6 +27,7 @@ impl Effect {
             Self::Explosion => Duration::from_millis(650),
             Self::UndoBurst => Duration::from_millis(450),
             Self::VariantFadeIn | Self::FocusZoom => Duration::from_millis(150),
+            Self::QuickFillDance => Duration::from_millis(1300),
         }
     }
 

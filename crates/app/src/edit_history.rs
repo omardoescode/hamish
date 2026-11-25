@@ -53,6 +53,16 @@ impl EditHistory {
         self.open = true;
     }
 
+    /// Records `steps` core undo steps as one editor undo step that joins no other.
+    pub(crate) fn record_steps(&mut self, steps: usize, before: Range<usize>, after: Range<usize>) {
+        self.close();
+        self.record(EditKind::Other, before, after);
+        if let Some(group) = self.undo.last_mut() {
+            group.steps = steps;
+        }
+        self.close();
+    }
+
     /// The id of the last undo step; `None` when there is none. Equal ids: the same
     /// Document state, so a save can mark it.
     pub(crate) fn top(&self) -> Option<u64> {

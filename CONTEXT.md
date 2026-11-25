@@ -57,6 +57,10 @@ List marker of a Writer Variant.
 **Bot point**:
 List marker (robot icon) of an AI Variant.
 
+**Quick fill**:
+An AI Variants request the writer starts by typing "??" in the empty row of the Alternatives panel. The row dances while the AI works.
+_Avoid_: Auto-fill, suggest
+
 **Cycle sound**:
 A short tone when the Active variant changes: high for a Variant that is not the Original, low for a return to the Original. The "Cycle sounds" setting turns it, and the Variant delete sound, on or off.
 _Avoid_: Beep, click
