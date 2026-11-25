@@ -1,6 +1,6 @@
 # Hamish
 
-Hamish ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
+Hamish ("margin" in Arabic) is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
 
 ## Language
 
