@@ -96,14 +96,22 @@ impl Document {
     /// The visible Ghost ranges in document order, as byte ranges of the active text.
     #[must_use]
     pub fn ghost_ranges(&self) -> Vec<Range<usize>> {
-        self.ghosts.clone()
+        let mut nested = Vec::new();
+        slot::collect_ghosts(&self.slots, 0, &mut nested);
+        let mut out = self.ghosts.clone();
+        for range in nested {
+            ghost::join(&mut out, range);
+        }
+        out
     }
 
     /// Ghosts `range` (FR-37): the text stays in the Document, dimmed. Ghost ranges
-    /// that overlap or touch it join it.
+    /// that overlap or touch it join it. A range inside a Slot is Ghost only in that Slot's
+    /// Active variant (ADR 0006); a range that holds a Slot stays Ghost whichever Variant shows.
     ///
     /// # Errors
-    /// [`GhostError::Range`] for an invalid range, [`GhostError::EmptyRange`] for an empty one.
+    /// [`GhostError::Range`] for an invalid range, [`GhostError::EmptyRange`] for an empty one,
+    /// [`GhostError::PartialOverlap`] when `range` partly overlaps a Slot.
     pub fn ghost(&mut self, range: Range<usize>) -> Result<(), GhostError> {
         self.text.get(range.clone()).ok_or(RangeError {
             range: range.clone(),
@@ -111,9 +119,9 @@ impl Document {
         if range.is_empty() {
             return Err(GhostError::EmptyRange);
         }
+        let mut slots = self.slots.clone();
         let mut ghosts = self.ghosts.clone();
-        ghost::join(&mut ghosts, range.clone());
-        let slots = self.slots.clone();
+        slot::place_ghost(&mut slots, &mut ghosts, range.clone())?;
         self.commit(range.start..range.start, "", Tree { slots, ghosts })?;
         Ok(())
     }
@@ -124,11 +132,11 @@ impl Document {
     /// # Errors
     /// [`GhostError::NoGhost`] when `range` touches no Ghost range.
     pub fn revive(&mut self, range: Range<usize>) -> Result<(), GhostError> {
+        let mut slots = self.slots.clone();
         let mut ghosts = self.ghosts.clone();
-        if ghost::revive(&mut ghosts, &range) == 0 {
+        if slot::revive(&mut slots, &mut ghosts, &range) == 0 {
             return Err(GhostError::NoGhost(range));
         }
-        let slots = self.slots.clone();
         self.commit(range.start..range.start, "", Tree { slots, ghosts })?;
         Ok(())
     }
@@ -219,8 +227,8 @@ impl Document {
             active: 0,
         };
         let mut slots = self.slots.clone();
-        slot::place(&mut slots, node)?;
-        let ghosts = self.ghosts.clone();
+        let mut ghosts = self.ghosts.clone();
+        slot::place(&mut slots, &mut ghosts, node)?;
         self.commit(range.start..range.start, "", Tree { slots, ghosts })?;
         self.next_slot = id.next();
         Ok(id)
@@ -305,25 +313,38 @@ impl Document {
         let writer_edit = kind == SlotChange::WriterText && shown_changed;
         let agrees = node.level == Level::Word && shown_changed;
         let ends = node.variants.len() < 2;
-        slot::shift(&mut slots, &old, shown.len(), writer_edit, Some(id));
+        let mut ghosts = self.ghosts.clone();
+        slot::shift(
+            &mut slots,
+            &mut ghosts,
+            &old,
+            shown.len(),
+            writer_edit,
+            Some(id),
+        );
         if ends {
-            slot::dissolve(&mut slots, id);
+            slot::dissolve(&mut slots, &mut ghosts, id);
         }
         let Some((article_range, article)) = agrees
             .then(|| self.article_agreement(id, &old, &shown))
             .flatten()
         else {
-            let ghosts = self.ghosts.clone();
             self.commit(old, &shown, Tree { slots, ghosts })?;
             return Ok(());
         };
-        slot::shift(&mut slots, &article_range, article.len(), false, None);
+        slot::shift(
+            &mut slots,
+            &mut ghosts,
+            &article_range,
+            article.len(),
+            false,
+            None,
+        );
         let gap = self
             .text
             .get(article_range.end..old.start)
             .unwrap_or_default();
         let inserted = format!("{article}{gap}{shown}");
-        let ghosts = self.ghosts.clone();
         self.commit(
             article_range.start..old.end,
             &inserted,
@@ -389,9 +410,15 @@ impl Document {
         }
         let writer_edit = removed != text;
         let mut slots = self.slots.clone();
-        slot::shift(&mut slots, &range, text.len(), writer_edit, None);
         let mut ghosts = self.ghosts.clone();
-        slot::shift_ghosts(&mut ghosts, &range, text.len());
+        slot::shift(
+            &mut slots,
+            &mut ghosts,
+            &range,
+            text.len(),
+            writer_edit,
+            None,
+        );
         self.commit(range, text, Tree { slots, ghosts })
     }
 
