@@ -173,6 +173,21 @@ impl Document {
         })
     }
 
+    /// Adds `texts` as Variants at the end of Slot `id`, as one undoable step.
+    pub(crate) fn add_variants(
+        &mut self,
+        id: SlotId,
+        texts: &[&str],
+        provenance: Provenance,
+    ) -> Result<(), SlotError> {
+        self.change_slot(id, |node| {
+            for text in texts {
+                node.push_variant(text, provenance);
+            }
+            Ok(())
+        })
+    }
+
     /// Makes Variant `index` of Slot `id` the Active variant (FR-15, FR-16).
     ///
     /// # Errors

@@ -106,7 +106,8 @@ impl Document {
         })
     }
 
-    /// Adds `texts` as AI Variants to the Slot of `request`, as one undoable step.
+    /// Adds `texts` as AI Variants to the Slot over the range of `request`, or to a new Slot
+    /// there, as one undoable step. Of Slots with the same range, the innermost gets them.
     /// The Active variant stays (FR-32, FR-36).
     ///
     /// # Errors
@@ -117,6 +118,21 @@ impl Document {
         texts: &[String],
     ) -> Result<SlotId, ApplyError> {
         let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
-        Ok(self.create_slot_with(request.range(), request.level, &texts, Provenance::Ai)?)
+        let existing = self
+            .slots()
+            .iter()
+            .rev()
+            .find(|slot| slot.range == request.range)
+            .map(|slot| slot.id);
+        let Some(id) = existing else {
+            return Ok(self.create_slot_with(
+                request.range(),
+                request.level,
+                &texts,
+                Provenance::Ai,
+            )?);
+        };
+        self.add_variants(id, &texts, Provenance::Ai)?;
+        Ok(id)
     }
 }
