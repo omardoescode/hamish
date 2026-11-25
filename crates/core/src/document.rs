@@ -6,10 +6,10 @@ use crate::ghost;
 use crate::slot::{self, SlotNode};
 use crate::{
     Counter, Cycle, GhostError, LabMark, LabMarkId, Level, Provenance, Slot, SlotError, SlotId,
-    Variant,
+    TrimProposal, Variant,
 };
 
-/// One piece of writing: its text, Slots, Ghost ranges, Lab marks, and edit history.
+/// One piece of writing: its text, Slots, Ghost ranges, Lab marks, Trim proposal, and edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
@@ -18,6 +18,7 @@ pub struct Document {
     next_slot: SlotId,
     lab_marks: Vec<LabMark>,
     next_lab_mark: LabMarkId,
+    pub(crate) trim: Option<TrimProposal>,
     undo_steps: Vec<Step>,
     redo_steps: Vec<Step>,
 }
@@ -99,7 +100,7 @@ impl Document {
     /// Counter of the Document. Ghost text is not counted; a Ghost range splits words.
     #[must_use]
     pub fn counter(&self) -> Counter {
-        self.count(0..self.text.len())
+        self.count_outside(0..self.text.len(), &[])
     }
 
     /// The visible Ghost ranges in document order, as byte ranges of the active text.
@@ -150,11 +151,14 @@ impl Document {
         Ok(())
     }
 
-    /// Counter of the text in `range` outside Ghost ranges, each piece on its own.
-    fn count(&self, range: Range<usize>) -> Counter {
+    /// Counter of the text in `range` outside Ghost ranges and `excluded`, each piece on its own.
+    pub(crate) fn count_outside(&self, range: Range<usize>, excluded: &[Range<usize>]) -> Counter {
+        let mut skipped = self.ghost_ranges();
+        skipped.extend_from_slice(excluded);
+        skipped.sort_by_key(|skip| skip.start);
         let mut pieces = Vec::new();
         let mut from = range.start;
-        for ghost in self.ghost_ranges() {
+        for ghost in skipped {
             let to = ghost.start.clamp(from, range.end);
             pieces.push(from..to);
             from = ghost.end.clamp(from, range.end);
@@ -187,7 +191,7 @@ impl Document {
         if self.text.get(selection.clone()).is_none() {
             return Err(RangeError { range: selection });
         }
-        Ok(self.count(selection))
+        Ok(self.count_outside(selection, &[]))
     }
 
     /// The visible Slots in document order, each parent before the Slots nested in it.

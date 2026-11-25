@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
+use std::ops::Range;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -9,7 +10,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::{AiAdapter, AiError, AiRequest};
-use crate::{LabCheck, LabFinding, LabRequest, Level};
+use crate::{Counter, LabCheck, LabFinding, LabRequest, Level, TrimRequest};
 
 /// Asks for an object with a non-empty list of Variant texts.
 const VARIANTS_SCHEMA: &str = r#"{"type":"object","properties":{"variants":{"type":"array","items":{"type":"string"},"minItems":1}},"required":["variants"]}"#;
@@ -17,6 +18,9 @@ const VARIANTS_SCHEMA: &str = r#"{"type":"object","properties":{"variants":{"typ
 /// Asks for an object with a list of marks, each an exact quote of the document.
 /// Models are not reliable with offsets, so the backend finds each quote in the text.
 const LAB_SCHEMA: &str = r#"{"type":"object","properties":{"marks":{"type":"array","items":{"type":"object","properties":{"quote":{"type":"string"},"note":{"type":"string"},"fix":{"type":"string"}},"required":["quote"]}}},"required":["marks"]}"#;
+
+/// Asks for an object with a list of cuts, each an exact quote of the document.
+const TRIM_SCHEMA: &str = r#"{"type":"object","properties":{"cuts":{"type":"array","items":{"type":"string"}}},"required":["cuts"]}"#;
 
 /// With one of these set, `claude` bills the API, not the user subscription (ADR 0004).
 const API_CREDENTIALS: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
@@ -148,6 +152,11 @@ impl AiAdapter for ClaudeBackend {
         let answer: Marks = self.ask(lab_prompt(request), LAB_SCHEMA)?;
         Ok(findings(request.text(), answer.marks))
     }
+
+    fn trim(&self, request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+        let answer: Cuts = self.ask(trim_prompt(request), TRIM_SCHEMA)?;
+        Ok(cut_ranges(request.text(), answer.cuts))
+    }
 }
 
 /// The `--output-format json` result of `claude -p`.
@@ -168,6 +177,11 @@ struct Variants {
 #[derive(Deserialize)]
 struct Marks {
     marks: Vec<QuotedMark>,
+}
+
+#[derive(Deserialize)]
+struct Cuts {
+    cuts: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -210,6 +224,56 @@ fn findings(text: &str, quotes: Vec<QuotedMark>) -> Vec<LabFinding> {
         out.push(LabFinding { range, note, fix });
     }
     out
+}
+
+/// Finds each quote in `text` at its next place that starts and ends on a word edge, so a
+/// cut never takes part of a word. A quote that is empty or not found is dropped.
+fn cut_ranges(text: &str, quotes: Vec<String>) -> Vec<Range<usize>> {
+    let mut next_search: HashMap<String, usize> = HashMap::new();
+    let mut out = Vec::new();
+    for quote in quotes {
+        let from = next_search.get(&quote).copied().unwrap_or(0);
+        let Some(range) = find_on_word_edges(text, &quote, from) else {
+            continue;
+        };
+        next_search.insert(quote, range.end);
+        out.push(range);
+    }
+    out
+}
+
+fn find_on_word_edges(text: &str, quote: &str, from: usize) -> Option<Range<usize>> {
+    if quote.is_empty() {
+        return None;
+    }
+    text.get(from..)?
+        .match_indices(quote)
+        .map(|(at, _)| from + at..from + at + quote.len())
+        .find(|range| {
+            let before = text
+                .get(..range.start)
+                .and_then(|head| head.chars().next_back());
+            let after = text.get(range.end..).and_then(|tail| tail.chars().next());
+            word_edge(before, quote.chars().next()) && word_edge(quote.chars().next_back(), after)
+        })
+}
+
+/// Whether a cut may fall between `left` and `right`: not inside a word.
+fn word_edge(left: Option<char>, right: Option<char>) -> bool {
+    !matches!((left, right), (Some(left), Some(right)) if left.is_alphanumeric() && right.is_alphanumeric())
+}
+
+fn trim_prompt(request: &TrimRequest) -> String {
+    let percent = request.level().target_percent();
+    let words = Counter::of(request.text()).words * usize::from(percent) / 100;
+    format!(
+        "You help a writer revise a draft. Mark words to cut so the document is about \
+         {percent}% shorter: about {words} words. You only cut; you never rewrite, reorder, \
+         or add text. Cut whole words, phrases, or sentences, so the text that stays still \
+         reads well. Copy each cut exactly from the document, in document order.\n\n\
+         <document>\n{}\n</document>\n",
+        request.text()
+    )
 }
 
 fn lab_prompt(request: &LabRequest) -> String {
