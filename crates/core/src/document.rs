@@ -3,14 +3,18 @@ use std::ops::Range;
 
 use crate::article;
 use crate::slot::{self, SlotNode};
-use crate::{Counter, Cycle, Level, Provenance, Slot, SlotError, SlotId, Variant};
+use crate::{
+    Counter, Cycle, LabMark, LabMarkId, Level, Provenance, Slot, SlotError, SlotId, Variant,
+};
 
-/// One piece of writing: its text, Slots, and edit history.
+/// One piece of writing: its text, Slots, Lab marks, and edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
     slots: Vec<SlotNode>,
     next_slot: SlotId,
+    lab_marks: Vec<LabMark>,
+    next_lab_mark: LabMarkId,
     undo_steps: Vec<Step>,
     redo_steps: Vec<Step>,
 }
@@ -24,7 +28,7 @@ enum SlotChange {
 }
 
 /// One undoable change: `removed` at `at` was swapped for `inserted`,
-/// and the Slots went from `slots_before` to `slots_after`.
+/// the Slots went from `slots_before` to `slots_after`, the Lab marks likewise.
 #[derive(Debug, Clone)]
 struct Step {
     at: usize,
@@ -32,6 +36,8 @@ struct Step {
     inserted: String,
     slots_before: Vec<SlotNode>,
     slots_after: Vec<SlotNode>,
+    marks_before: Vec<LabMark>,
+    marks_after: Vec<LabMark>,
 }
 
 impl Step {
@@ -42,6 +48,8 @@ impl Step {
             inserted: self.removed,
             slots_before: self.slots_after,
             slots_after: self.slots_before,
+            marks_before: self.marks_after,
+            marks_after: self.marks_before,
         }
     }
 }
@@ -343,12 +351,42 @@ impl Document {
         self.commit(range, text, slots)
     }
 
+    /// The open Lab marks in document order.
+    #[must_use]
+    pub fn lab_marks(&self) -> &[LabMark] {
+        &self.lab_marks
+    }
+
+    pub(crate) fn new_lab_mark_id(&mut self) -> LabMarkId {
+        let id = self.next_lab_mark;
+        self.next_lab_mark = id.next();
+        id
+    }
+
+    /// Sets the Lab marks to `marks` as one undoable step. The text stays.
+    pub(crate) fn commit_lab_marks(&mut self, marks: Vec<LabMark>) -> Result<(), RangeError> {
+        let slots = self.slots.clone();
+        self.record(0..0, "", slots, marks)
+    }
+
     /// Replaces `range` with `inserted` and sets the Slots to `slots`, as one undoable step.
     fn commit(
         &mut self,
         range: Range<usize>,
         inserted: &str,
+        slots: Vec<SlotNode>,
+    ) -> Result<(), RangeError> {
+        let marks = self.lab_marks.clone();
+        self.record(range, inserted, slots, marks)
+    }
+
+    /// Replaces `range` with `inserted` and sets the Slots and Lab marks, as one undoable step.
+    fn record(
+        &mut self,
+        range: Range<usize>,
+        inserted: &str,
         mut slots: Vec<SlotNode>,
+        marks: Vec<LabMark>,
     ) -> Result<(), RangeError> {
         let removed = self
             .text
@@ -360,17 +398,20 @@ impl Document {
         let mut text = self.text.clone();
         text.replace_range(range.clone(), inserted);
         slot::sync(&mut slots, &text, 0);
-        if text == self.text && slots == self.slots {
+        if text == self.text && slots == self.slots && marks == self.lab_marks {
             return Ok(());
         }
         self.text = text;
         let slots_before = std::mem::replace(&mut self.slots, slots);
+        let marks_before = std::mem::replace(&mut self.lab_marks, marks);
         self.undo_steps.push(Step {
             at: range.start,
             removed,
             inserted: inserted.to_owned(),
             slots_before,
             slots_after: self.slots.clone(),
+            marks_before,
+            marks_after: self.lab_marks.clone(),
         });
         self.redo_steps.clear();
         Ok(())
@@ -401,6 +442,7 @@ impl Document {
         let end = step.at + step.inserted.len();
         self.text.replace_range(step.at..end, &step.removed);
         self.slots.clone_from(&step.slots_before);
+        self.lab_marks.clone_from(&step.marks_before);
         step.inverse()
     }
 }
