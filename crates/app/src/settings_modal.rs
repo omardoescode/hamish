@@ -187,6 +187,18 @@ impl SettingsModal {
                 }),
             )
         };
+        let zoom = |on: bool| {
+            let (id, label) = if on {
+                ("settings-focus-zoom-on", "On")
+            } else {
+                ("settings-focus-zoom-off", "Off")
+            };
+            choice_button(id, label, settings.focus_zoom == on, theme).on_click(cx.listener(
+                move |modal, _: &ClickEvent, _, cx| {
+                    modal.change(cx, |settings| settings.focus_zoom = on);
+                },
+            ))
+        };
         div()
             .flex()
             .flex_col()
@@ -209,6 +221,15 @@ impl SettingsModal {
                     .gap(px(6.))
                     .child(motion(false))
                     .child(motion(true)),
+            ))
+            .child(field(
+                "Focus zoom",
+                theme,
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(zoom(false))
+                    .child(zoom(true)),
             ))
     }
 
