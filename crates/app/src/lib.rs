@@ -16,6 +16,7 @@ mod overflow_panel;
 mod save_open;
 mod settings_modal;
 mod theme;
+mod trim;
 mod workspace;
 
 use std::borrow::Cow;
@@ -42,6 +43,7 @@ pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings_modal::{SettingsModal, use_settings};
 pub use theme::Theme;
+pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
 pub use workspace::Workspace;
 
 /// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the default settings
