@@ -8,6 +8,8 @@ pub struct Theme {
     pub panel_border: Hsla,
     pub elevated_background: Hsla,
     pub elevated_row_hover: Hsla,
+    /// Corner radius of popovers and the context menu.
+    pub elevated_radius: Pixels,
     pub text: Hsla,
     pub text_title: Hsla,
     pub text_muted: Hsla,
@@ -41,6 +43,7 @@ impl Default for Theme {
             panel_border: rgb(0x001a_1d30).into(),
             elevated_background: rgb(0x0012_1424).into(),
             elevated_row_hover: rgb(0x0027_2531).into(),
+            elevated_radius: px(6.),
             text: rgb(0x00e6_d2c6).into(),
             text_title: rgb(0x00fb_e5df).into(),
             text_muted: rgb(0x005a_5a6a).into(),

@@ -24,6 +24,11 @@ gpui::actions!(
         Paste,
         Undo,
         Redo,
+        OpenAlternatives,
+        AiAlternatives,
+        ToggleGhost,
+        Stash,
+        CloseMenu,
     ]
 );
 

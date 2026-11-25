@@ -13,10 +13,12 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
 use crate::actions::{
-    Backspace, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart,
-    MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
-    SelectToLineStart, SelectUp, Undo,
+    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
+    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
+    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
+    ToggleGhost, Undo,
 };
+use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
 
 /// How a Slot shows that it has Variants (FR-12).
@@ -64,6 +66,7 @@ pub struct Editor {
     autoscroll: bool,
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
+    context_menu: Option<ContextMenu>,
 }
 
 /// The text as last painted, for mouse and vertical cursor moves.
@@ -94,6 +97,7 @@ impl Editor {
             autoscroll: false,
             hovered: None,
             markers: Vec::new(),
+            context_menu: None,
         }
     }
 
@@ -118,6 +122,12 @@ impl Editor {
     #[must_use]
     pub fn hovered_slot(&self) -> Option<SlotId> {
         self.hovered
+    }
+
+    /// The rows of the open context menu; `None` when it is closed.
+    #[must_use]
+    pub fn context_menu_items(&self) -> Option<Vec<ContextMenuItem>> {
+        self.context_menu.as_ref().map(ContextMenu::items)
     }
 
     /// Counter text: the Document, or the selection with "selected" (FR-3, FR-4).
@@ -170,6 +180,7 @@ impl Editor {
         if self.document.replace(range.clone(), text).is_err() {
             return;
         }
+        self.context_menu = None;
         let before = self.selection.clone();
         let cursor = range.start + text.len();
         self.selection = cursor..cursor;
@@ -440,6 +451,100 @@ impl Editor {
             .rev()
             .find(|slot| painted.covers(&slot.range, slot.level, local))
             .map(|slot| slot.id)
+    }
+
+    /// What the menu actions act on: the selection, else the word at the cursor (FR-29),
+    /// else the cursor.
+    fn target(&self) -> Range<usize> {
+        if !self.selection.is_empty() {
+            return self.selection.clone();
+        }
+        let cursor = self.cursor();
+        context_menu::word_at(self.document.text(), cursor).unwrap_or(cursor..cursor)
+    }
+
+    /// FR-28: a right-click opens the context menu. Outside the selection it moves the
+    /// cursor there first, so the menu acts on the word under the pointer.
+    fn on_right_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus_handle);
+        let offset = self.offset_for_mouse(event.position);
+        let in_selection = self.selection.start <= offset && offset <= self.selection.end;
+        if self.selection.is_empty() || !in_selection {
+            self.move_to(offset, cx);
+        }
+        let target = self.target();
+        let in_ghost = context_menu::touches_ghost(&self.document.ghost_ranges(), &target);
+        if target.is_empty() && !in_ghost {
+            self.context_menu = None;
+            return;
+        }
+        let word = self
+            .selection
+            .is_empty()
+            .then(|| self.document.text().get(target))
+            .flatten()
+            .filter(|word| !word.is_empty())
+            .map(str::to_owned);
+        self.context_menu = Some(ContextMenu {
+            position: event.position,
+            word,
+            in_ghost,
+        });
+        cx.notify();
+    }
+
+    fn close_menu(&mut self, _: &CloseMenu, _: &mut Window, cx: &mut Context<Self>) {
+        if self.context_menu.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// FR-37, FR-39: Ghost the target, or Revive it when it touches a Ghost range, as one
+    /// undo step.
+    fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
+        self.context_menu = None;
+        let target = self.target();
+        let result = if context_menu::touches_ghost(&self.document.ghost_ranges(), &target) {
+            self.document.revive(target)
+        } else {
+            self.document.ghost(target)
+        };
+        cx.notify();
+        if result.is_err() {
+            return;
+        }
+        self.history.close();
+        self.history.record(
+            EditKind::Other,
+            self.selection.clone(),
+            self.selection.clone(),
+        );
+        self.history.close();
+    }
+
+    /// Menu actions that later tickets build (Alternatives panel, AI alternatives,
+    /// Overflow): close the menu and let a view up the tree handle the action.
+    fn pass_on(&mut self, cx: &mut Context<Self>) {
+        self.context_menu = None;
+        cx.notify();
+        cx.propagate();
+    }
+
+    fn open_alternatives(&mut self, _: &OpenAlternatives, _: &mut Window, cx: &mut Context<Self>) {
+        self.pass_on(cx);
+    }
+
+    fn ai_alternatives(&mut self, _: &AiAlternatives, _: &mut Window, cx: &mut Context<Self>) {
+        self.pass_on(cx);
+    }
+
+    fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
+        self.pass_on(cx);
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -797,7 +902,13 @@ impl Render for Editor {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
+            .on_action(cx.listener(Self::toggle_ghost))
+            .on_action(cx.listener(Self::open_alternatives))
+            .on_action(cx.listener(Self::ai_alternatives))
+            .on_action(cx.listener(Self::stash))
+            .on_action(cx.listener(Self::close_menu))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -818,6 +929,13 @@ impl Render for Editor {
                         editor: cx.entity(),
                     }),
             )
+            .when_some(self.context_menu.as_ref(), |editor, menu| {
+                let dismiss = cx.listener(|editor: &mut Self, _: &MouseDownEvent, _, cx| {
+                    editor.context_menu = None;
+                    cx.notify();
+                });
+                editor.child(menu.render(&theme, dismiss))
+            })
     }
 }
 
