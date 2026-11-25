@@ -234,8 +234,8 @@ fn the_quick_fill_row_dances_while_the_ai_works(cx: &mut TestAppContext) {
     press(cx, "?");
     cx.update(|window, _| window.refresh());
 
-    assert!(cx.debug_bounds("alternatives-quick-fill").is_some());
-    assert!(cx.debug_bounds("alternatives-quick-fill-still").is_none());
+    assert!(cx.debug_bounds("alternatives-loading").is_some());
+    assert!(cx.debug_bounds("alternatives-loading-still").is_none());
 }
 
 #[gpui::test]
@@ -252,7 +252,7 @@ fn with_reduced_motion_the_quick_fill_row_shows_a_still_question_mark_pair(
     press(cx, "?");
     cx.update(|window, _| window.refresh());
 
-    assert!(cx.debug_bounds("alternatives-quick-fill-still").is_some());
+    assert!(cx.debug_bounds("alternatives-loading-still").is_some());
 }
 
 #[gpui::test]

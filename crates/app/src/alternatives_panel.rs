@@ -705,7 +705,7 @@ impl AlternativesPanel {
 
     /// Typed text goes into the edit in progress, else into the last row, which it selects.
     fn type_text(&mut self, typed: &str, cx: &mut Context<Self>) {
-        if self.quick_fill.is_some() {
+        if self.ai == AiStatus::Loading {
             return;
         }
         let typed = typed.replace('\n', " ");
@@ -897,22 +897,22 @@ impl AlternativesPanel {
             .flex_col()
             .children(variant_rows)
             .children(self.render_ai_status(theme))
-            .when(self.quick_fill.is_some(), |list| {
+            .when(self.ai == AiStatus::Loading, |list| {
                 let reduced_motion = settings_modal::is_on(cx, |settings| settings.reduced_motion);
                 list.child(
                     row_box(theme, true)
-                        .id("alternatives-quick-fill")
-                        .debug_selector(|| "alternatives-quick-fill".to_owned())
+                        .id("alternatives-loading")
+                        .debug_selector(|| "alternatives-loading".to_owned())
                         .child(provenance_marker(Provenance::Writer, theme.accent))
-                        .child(loading::quick_fill_dance(
-                            "alternatives-quick-fill-dance",
+                        .child(loading::dance(
+                            "alternatives-loading-dance",
                             theme.accent,
                             reduced_motion,
                         )),
                 )
             })
             .when(
-                has_target && self.quick_fill.is_none() && !self.new_row_hidden,
+                has_target && self.ai != AiStatus::Loading && !self.new_row_hidden,
                 |list| list.child(new_row),
             )
             .when(!has_target, |list| {
@@ -926,24 +926,14 @@ impl AlternativesPanel {
 }
 
 impl AlternativesPanel {
-    /// FR-34: a Bot point row while the AI works; the reason when it failed.
+    /// A Bot point row with the reason the last AI request failed. While the AI works, the
+    /// empty row dances instead.
     fn render_ai_status(&self, theme: &Theme) -> Option<gpui::Stateful<gpui::Div>> {
         let row = row_box(theme, false)
             .id("alternatives-ai-status")
             .debug_selector(|| "alternatives-ai-status".to_owned());
-        if self.quick_fill.is_some() {
-            return None;
-        }
         match &self.ai {
-            AiStatus::Idle => None,
-            AiStatus::Loading => Some(
-                row.child(provenance_marker(Provenance::Ai, theme.text_muted))
-                    .child(
-                        div()
-                            .mt(px(3.))
-                            .child(loading::dance("alternatives-ai-dance", theme.accent)),
-                    ),
-            ),
+            AiStatus::Idle | AiStatus::Loading => None,
             AiStatus::Failed(reason) => Some(
                 row.child(provenance_marker(Provenance::Ai, theme.accent))
                     .child(
