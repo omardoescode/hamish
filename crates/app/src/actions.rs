@@ -52,7 +52,6 @@ gpui::actions!(
 gpui::actions!(
     workspace,
     [
-        ToggleChrome,
         ToggleOverflow,
         Save,
         SaveAs,
