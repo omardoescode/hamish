@@ -29,9 +29,12 @@ pub enum Motion {
 /// One edit a caret action asks for: replace `range` with `text`, then show `caret`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaretEdit {
+    /// Byte range of the text to replace.
     pub range: Range<usize>,
     pub text: String,
+    /// How the edit joins an undo step.
     pub kind: EditKind,
+    /// The caret after the edit.
     pub caret: Caret,
 }
 

@@ -8,7 +8,9 @@ use std::ops::Range;
 pub enum EditKind {
     Typing,
     Deleting,
+    /// Typing in Overflow. `EditSession::edit_overflow` makes it from `Typing`.
     OverflowTyping,
+    /// Deleting in Overflow. `EditSession::edit_overflow` makes it from `Deleting`.
     OverflowDeleting,
     /// An edit that joins no other.
     Other,
