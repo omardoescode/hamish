@@ -145,6 +145,34 @@ fn an_initialism_takes_the_article_of_its_first_letter_name() {
         ("a", "MP3", "an MP3"),
         ("an", "UFO", "a UFO"),
         ("an", "BBC", "a BBC"),
+        ("a", "HTML", "an HTML"),
+        ("a", "MSDN", "an MSDN"),
+        ("a", "SQL", "an SQL"),
+        ("a", "LED", "an LED"),
+        ("a", "FAQ", "an FAQ"),
+        ("a", "NSFW", "an NSFW"),
+        ("an", "URL", "a URL"),
+    ];
+    for (article, variant, expected) in examples {
+        let text = format!("{article} word");
+        let start = article.len() + 1;
+        let mut document = Document::new(&text);
+        let id = document
+            .create_slot(start..text.len(), Level::Word, variant, Provenance::Writer)
+            .unwrap();
+        document.set_active(id, 1).unwrap();
+        assert_eq!(document.text(), expected, "{variant}");
+    }
+}
+
+#[test]
+fn an_acronym_read_as_a_word_takes_the_article_of_its_first_sound() {
+    let examples = [
+        ("an", "NASA", "a NASA"),
+        ("an", "NATO", "a NATO"),
+        ("an", "FIFA", "a FIFA"),
+        ("an", "UNESCO", "a UNESCO"),
+        ("an", "UNICEF", "a UNICEF"),
     ];
     for (article, variant, expected) in examples {
         let text = format!("{article} word");

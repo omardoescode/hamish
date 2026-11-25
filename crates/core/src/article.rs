@@ -19,7 +19,7 @@ pub(crate) fn agreeing(article: &str, word: &str) -> Option<&'static str> {
 const VOWEL_SOUND: [&str; 7] = ["hour", "honest", "honor", "honour", "heir", "unin", "unim"];
 
 /// Words that start with a vowel letter and a consonant sound, by prefix.
-const CONSONANT_SOUND: [&str; 7] = ["uni", "use", "usu", "uti", "eu", "ewe", "once"];
+const CONSONANT_SOUND: [&str; 8] = ["uni", "unesco", "use", "usu", "uti", "eu", "ewe", "once"];
 
 /// Words that start with a vowel letter and a consonant sound, whole.
 const CONSONANT_SOUND_WORDS: [&str; 1] = ["one"];
@@ -28,7 +28,8 @@ const CONSONANT_SOUND_WORDS: [&str; 1] = ["one"];
 const VOWEL_SOUND_LETTERS: &str = "AEFHILMNORSX";
 
 /// An all-capital word of two or more letters reads as letter names ("an FBI"), unless the
-/// article is all capitals too: then the text is in capitals.
+/// article is all capitals too: then the text is in capitals. An acronym that reads as a word
+/// ("a NASA") takes the article of a word.
 fn takes_an(article: &str, word: &str) -> Option<bool> {
     let first = word.chars().next().filter(|c| c.is_alphabetic())?;
     let letters = word
@@ -38,8 +39,10 @@ fn takes_an(article: &str, word: &str) -> Option<bool> {
                 .unwrap_or(word.len()),
         )
         .unwrap_or_default();
-    let initialism =
-        article != "AN" && letters.chars().count() >= 2 && letters.chars().all(char::is_uppercase);
+    let initialism = article != "AN"
+        && letters.chars().count() >= 2
+        && letters.chars().all(char::is_uppercase)
+        && !reads_as_word(letters);
     if initialism {
         return Some(VOWEL_SOUND_LETTERS.contains(first));
     }
@@ -56,4 +59,16 @@ fn takes_an(article: &str, word: &str) -> Option<bool> {
         .any(|prefix| lower.starts_with(prefix))
         || CONSONANT_SOUND_WORDS.contains(&first_word);
     Some(!consonant_sound && "aeiouAEIOU".contains(first))
+}
+
+/// An all-capital acronym reads as a word when it has four or more letters, a vowel after
+/// its first letter, and no run of three or more consonants ("NASA", not "HTML" or "NSFW").
+fn reads_as_word(letters: &str) -> bool {
+    let vowel = |c: char| "AEIOU".contains(c);
+    let longest_consonant_run = letters
+        .split(vowel)
+        .map(|run| run.chars().count())
+        .max()
+        .unwrap_or_default();
+    letters.chars().count() >= 4 && letters.chars().skip(1).any(vowel) && longest_consonant_run < 3
 }
