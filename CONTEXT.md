@@ -152,11 +152,18 @@ _Avoid_: Sidecar, metadata
 **Chrome**:
 The UI tools around the text: icons, buttons, counter.
 
+**Chrome bar**:
+The row of Chrome at the window top, with no fill. The text scrolls under it.
+
 **Counter**:
 Live word and character count of the Document, or of the selection.
 
+**Shortcuts sheet**:
+The sheet that lists the key bindings in groups (Editor, Slots, Overflow, Lab, and Vim mode when it is on). The Shortcuts icon of the Chrome bar opens it; Esc closes it.
+_Avoid_: Cheat sheet, keymap help
+
 **Settings**:
-The writer's choices for theme, UI scale, UI font, Text font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
+The writer's choices for theme, UI scale, UI font, Text font, font size, line height, column width, Reduced motion, Markers, and Markdown styles. They apply at once and save to a JSON file in the XDG config dir.
 _Avoid_: Preferences, config
 
 **UI font**:

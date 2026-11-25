@@ -57,6 +57,8 @@ fn saved_settings_open_again_the_same() {
         cycle_sounds: false,
         focus_zoom: false,
         vim_mode: true,
+        markers: false,
+        markdown: false,
     };
 
     settings.save(&path).unwrap();
@@ -255,6 +257,8 @@ fn each_toggle_has_a_label_and_a_slug() {
         Toggle::FocusZoom,
         Toggle::CycleSounds,
         Toggle::VimMode,
+        Toggle::Markers,
+        Toggle::Markdown,
     ]
     .into_iter()
     .map(|toggle| (toggle.label(), toggle.slug()))
@@ -266,6 +270,8 @@ fn each_toggle_has_a_label_and_a_slug() {
             ("Focus zoom", "focus-zoom"),
             ("Cycle sounds", "cycle-sounds"),
             ("Vim mode", "vim-mode"),
+            ("Markers", "markers"),
+            ("Markdown styles", "markdown"),
         ]
     );
 }
@@ -290,6 +296,20 @@ fn a_flip_turns_a_toggle_on_or_off_and_shows_it() {
             ..Settings::default()
         }
     );
+}
+
+#[test]
+fn markers_and_markdown_styles_are_on_by_default_and_in_a_file_without_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
+
+    let loaded = Settings::load(&path).settings;
+
+    assert!(Settings::default().is_on(Toggle::Markers));
+    assert!(Settings::default().is_on(Toggle::Markdown));
+    assert!(loaded.is_on(Toggle::Markers));
+    assert!(loaded.is_on(Toggle::Markdown));
 }
 
 #[test]

@@ -7,7 +7,7 @@ use gpui::{App, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window};
 use hamish_core::{Level, MarkdownSpan, MarkdownStyle};
 
 use super::Editor;
-use crate::Theme;
+use crate::{Theme, settings};
 
 /// Text runs and the heading lines with their font size. The title line is bold in the
 /// title color unless it is a Markdown heading, which uses the heading style.
@@ -23,7 +23,11 @@ pub(super) fn text_runs(
     let style = window.text_style();
     let shown = editor.shown_document();
     let text = shown.text();
-    let markdown = shown.markdown_styles();
+    let markdown = if settings::is_on(cx, |settings| settings.markdown) {
+        shown.markdown_styles()
+    } else {
+        Vec::new()
+    };
     let headings = heading_lines(text, &markdown);
     let [large, medium, small] = theme.font_size_heading;
     let sized_lines = headings

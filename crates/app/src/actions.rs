@@ -58,7 +58,11 @@ gpui::actions!(
         Open,
         NewDocument,
         OpenSettings,
-        CloseSettings
+        CloseSettings,
+        ToggleMarkers,
+        ToggleMarkdown,
+        OpenShortcuts,
+        CloseShortcuts
     ]
 );
 

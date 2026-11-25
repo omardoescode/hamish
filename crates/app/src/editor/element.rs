@@ -16,9 +16,9 @@ use super::pen::{PenStroke, pen_strokes};
 use super::runs::text_runs;
 use super::synthetic_bold::{self, BoldGlyph};
 use super::{Editor, Marker, MarkerKind, Spotlight, focus_zoom};
-use crate::Theme;
 use crate::caret;
 use crate::effects::Particles;
+use crate::{Theme, settings};
 
 const DOT_SIZE: Pixels = px(4.);
 const DOT_GAP: Pixels = px(3.);
@@ -201,9 +201,10 @@ impl Element for EditorElement {
                 )
             })
             .collect();
+        let marked = marked_slots(&slots, cx);
         let (markers, marker_quads, marker_dots) =
-            slot_markers(&painted, shown.text(), &slots, &theme);
-        let underlines = pen_strokes(&painted, editor, &slots, &theme);
+            slot_markers(&painted, shown.text(), marked, &theme);
+        let underlines = pen_strokes(&painted, editor, marked, &theme);
         let caret = match editor.drop_target {
             Some(at) => caret::caret_quad(&painted, editor.to_shown(&(at..at)).start, theme.accent),
             None => editor
@@ -218,7 +219,8 @@ impl Element for EditorElement {
                 .flatten(),
         };
         if editor.autoscroll {
-            caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), cx);
+            let inset = crate::workspace::chrome_bar_height(cx);
+            caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), inset, cx);
             window.request_animation_frame();
         }
         let text_font = runs
@@ -402,6 +404,15 @@ fn hover_quads(
             fill(bounds, color).corner_radii(HOVER_RADIUS)
         })
         .collect()
+}
+
+/// The Slots that show a Marker: all of them, or none while the Markers setting is off.
+fn marked_slots<'a, 'b>(slots: &'a [Slot<'b>], cx: &App) -> &'a [Slot<'b>] {
+    if settings::is_on(cx, |settings| settings.markers) {
+        slots
+    } else {
+        &[]
+    }
 }
 
 /// The Marker of each Slot in `slots`, the quads that draw them and the bounds of each

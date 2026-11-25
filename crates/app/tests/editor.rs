@@ -111,7 +111,7 @@ fn mouse_drag_selects_text(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, "Hello world");
 
     cx.simulate_mouse_down(
-        point(px(600.), px(5.)),
+        point(px(600.), px(60.)),
         MouseButton::Left,
         Modifiers::none(),
     );
