@@ -34,6 +34,7 @@ deny = [
     { crate = "mockito", reason = "test at real seams with fakes or stubs, not mocks" },
     { crate = "faux", reason = "test at real seams with fakes or stubs, not mocks" },
     { crate = "mry", reason = "test at real seams with fakes or stubs, not mocks" },
+    { crate = "libc:>=0.2.190", reason = "libc 0.2.190 removes ENOATTR on Linux; xattr 0.2.3 (gpui 0.2.2 via zed-async-tar) uses it and does not compile" },
 ]
 
 [sources]

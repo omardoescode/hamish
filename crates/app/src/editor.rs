@@ -481,7 +481,7 @@ impl Editor {
         true
     }
 
-    /// Ends the current undo group, so the next edit starts a new step.
+    /// Ends the current Undo step, so the next edit starts a new one.
     pub(crate) fn close_history(&mut self) {
         self.session.close_undo_step();
     }

@@ -116,7 +116,7 @@ fn each_lab_check_marks_the_ranges_the_ai_gives_and_keeps_the_text() {
 }
 
 #[test]
-fn the_six_lab_checks_are_the_spec_checks() {
+fn there_are_six_lab_checks_in_this_order() {
     assert_eq!(
         LabCheck::ALL,
         [
