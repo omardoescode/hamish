@@ -79,6 +79,12 @@ _Avoid_: Item, chunk
 Move (not copy) a selection from the Document to the end of Overflow.
 _Avoid_: Cut, park
 
+### Markdown
+
+**Markdown style**:
+A style the editor draws over Markdown text (heading, bold, italic, inline code, block quote, list marker). The syntax marks stay in the text and stay visible.
+_Avoid_: Format, rich text
+
 ### Chrome
 
 **Chrome**:
@@ -86,6 +92,10 @@ The UI tools around the text: icons, buttons, counter.
 
 **Counter**:
 Live word and character count of the Document, or of the selection.
+
+**Settings**:
+The writer's choices for theme, UI scale, body font, font size, line height, and column width. They apply at once and save to a JSON file in the XDG config dir.
+_Avoid_: Preferences, config
 
 ### Lab
 

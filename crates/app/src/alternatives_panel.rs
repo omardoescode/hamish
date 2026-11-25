@@ -563,7 +563,7 @@ fn sentence_around(text: &str, range: &Range<usize>) -> Range<usize> {
 
 impl Render for AlternativesPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         div()
             .id("alternatives-panel")
             .key_context("AlternativesPanel")

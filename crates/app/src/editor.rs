@@ -1,14 +1,18 @@
+use std::f32::consts::TAU;
+use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, FontWeight, GlobalElementId,
-    Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PaintQuad, Pixels, Point, Render, ScrollHandle, SharedString, Size, Style,
-    TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point, prelude::*, px,
-    relative, size,
+    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight,
+    GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, Path, PathBuilder, Pixels, Point, Render,
+    ScrollHandle, SharedString, Size, Style, TextRun, UTF16Selection, Window, WrappedLine, div,
+    fill, point, prelude::*, px, relative, size,
 };
-use ka_teb_core::{Cycle, Document, LabError, Level, SlotId, TrimError};
+use ka_teb_core::{
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotId, TrimError,
+};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
@@ -49,6 +53,15 @@ const MARGIN_LINE_STEP: Pixels = px(10.);
 const HOVER_PAD: Pixels = px(2.);
 const HOVER_RADIUS: Pixels = px(3.);
 
+/// Word and Sentence underline: an editor's pen, a little wavy (issue #28). Height of the
+/// wobble, length of its main wave, base thickness and how much the thickness changes.
+const PEN_WOBBLE: f32 = 0.8;
+const PEN_WAVELENGTH: f32 = 60.;
+const PEN_THICKNESS: f32 = 1.;
+const PEN_THICKNESS_WOBBLE: f32 = 0.25;
+/// Distance between the points of the pen line.
+const PEN_STEP: Pixels = px(2.);
+
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
 
@@ -66,6 +79,7 @@ pub struct Editor {
     autoscroll: bool,
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
+    underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
@@ -116,6 +130,7 @@ impl Editor {
             autoscroll: false,
             hovered: None,
             markers: Vec::new(),
+            underlines: Vec::new(),
             context_menu: None,
             spotlight: None,
             saved: None,
@@ -167,6 +182,17 @@ impl Editor {
         &self.markers
     }
 
+    /// The centre line of the underline of `slot` as last painted (window coordinates), row
+    /// by row; empty when it has none.
+    #[must_use]
+    pub fn underline(&self, slot: SlotId) -> Vec<Point<Pixels>> {
+        self.underlines
+            .iter()
+            .filter(|stroke| stroke.slot == slot)
+            .flat_map(|stroke| stroke.centre.iter().copied())
+            .collect()
+    }
+
     /// The Slot under the pointer, innermost first.
     #[must_use]
     pub fn hovered_slot(&self) -> Option<SlotId> {
@@ -177,6 +203,27 @@ impl Editor {
     #[must_use]
     pub fn context_menu_items(&self) -> Option<Vec<ContextMenuItem>> {
         self.context_menu.as_ref().map(ContextMenu::items)
+    }
+
+    /// The text cut at Slot, Ghost, Trim cut and bright paragraph edges: what a Slot
+    /// underline needs.
+    fn underline_spans(&self) -> Vec<Span> {
+        let underlined: Vec<Range<usize>> = self
+            .document
+            .slots()
+            .into_iter()
+            .filter(|slot| slot.level != Level::Paragraph)
+            .map(|slot| slot.range)
+            .collect();
+        spans(
+            self.document.text().len(),
+            0,
+            &underlined,
+            &self.document.ghost_ranges(),
+            &self.trim_fades(),
+            &[],
+            self.bright_paragraph().as_ref(),
+        )
     }
 
     /// The paragraph that stays bright while the Alternatives panel is open (FR-27); the
@@ -1041,6 +1088,83 @@ impl PaintedText {
         line.into_iter().chain(dots).collect()
     }
 
+    /// The pen strokes under `range` of `text` (window coordinates), one per row. The wobble
+    /// depends only on the distance from the start of `slot`, so it stays the same on every
+    /// paint and when text before the Slot changes.
+    fn pen_strokes(
+        &self,
+        text: &str,
+        range: &Range<usize>,
+        slot: &Slot,
+        color: Hsla,
+    ) -> Vec<PenStroke> {
+        let Some(slot_start) = self.position_for(slot.range.start) else {
+            return Vec::new();
+        };
+        let seed = BuildHasherDefault::<DefaultHasher>::default().hash_one(slot.id);
+        let width = f32::from(self.bounds.size.width);
+        self.pen_rows(text, range)
+            .into_iter()
+            .filter(|row| row.left < row.right)
+            .map(|row| {
+                let along = f32::from(row.left - slot_start.x)
+                    + (row.top - slot_start.y) / self.line_height * width;
+                let mut stroke = PenStroke {
+                    slot: slot.id,
+                    centre: Vec::new(),
+                    thickness: Vec::new(),
+                    color,
+                };
+                let baseline = self.underline_y(row.top);
+                let mut x = row.left;
+                loop {
+                    let (offset, thickness) = pen(seed, along + f32::from(x - row.left));
+                    stroke
+                        .centre
+                        .push(self.bounds.origin + point(x, baseline + px(offset)));
+                    stroke.thickness.push(px(thickness));
+                    if x >= row.right {
+                        return stroke;
+                    }
+                    x = (x + PEN_STEP).min(row.right);
+                }
+            })
+            .collect()
+    }
+
+    /// The rows `range` of `text` covers, each from its first to its last char edge.
+    fn pen_rows(&self, text: &str, range: &Range<usize>) -> Vec<PenRow> {
+        let offsets = text
+            .get(range.clone())
+            .unwrap_or_default()
+            .char_indices()
+            .map(|(index, _)| range.start + index)
+            .chain([range.end]);
+        let mut rows: Vec<PenRow> = Vec::new();
+        for at in offsets.filter_map(|offset| self.position_for(offset)) {
+            if let Some(row) = rows.last_mut().filter(|row| row.top == at.y) {
+                row.right = at.x;
+                continue;
+            }
+            let left = if rows.is_empty() { at.x } else { px(0.) };
+            rows.push(PenRow {
+                top: at.y,
+                left,
+                right: at.x,
+            });
+        }
+        rows
+    }
+
+    /// Local y of the underline on the row at `top`: where gpui puts a text underline.
+    fn underline_y(&self, top: Pixels) -> Pixels {
+        let Some(painted) = self.lines.iter().rev().find(|line| line.top <= top) else {
+            return top + self.line_height;
+        };
+        let (ascent, descent) = (painted.line.ascent(), painted.line.descent());
+        top + (self.line_height - ascent - descent) / 2. + ascent + descent * 0.618
+    }
+
     /// Quads that cover `range` (window coordinates), one per visual row.
     pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
@@ -1171,7 +1295,7 @@ impl Focusable for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         div()
             .id("editor")
             .key_context("Editor")
@@ -1245,18 +1369,46 @@ struct EditorPrepaint {
     lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
     marker_quads: Vec<PaintQuad>,
+    underlines: Vec<PenStroke>,
     cursor: Option<PaintQuad>,
 }
 
 impl EditorElement {
-    /// Text runs: the title line bold in the title color (FR-5), the rest in body style.
-    /// Word and Sentence Slots are underlined (FR-12). Ghost text is dimmed (FR-37), Trim
-    /// cuts fade (FR-55), and so is text outside the bright paragraph while the
-    /// Alternatives panel is open (FR-27).
-    fn runs(&self, window: &Window, cx: &App) -> Vec<TextRun> {
+    /// Text runs and the heading lines with their font size. The title line is bold in the
+    /// title color (FR-5) unless it is a Markdown heading, which uses the heading style.
+    /// Ghost text dims (FR-37), Trim cuts fade (FR-55), and so does text outside the bright
+    /// paragraph while the Alternatives panel is open (FR-27). Slot underlines are pen
+    /// strokes, not text runs.
+    fn runs(&self, window: &Window, cx: &App) -> (Vec<TextRun>, Vec<(usize, Pixels)>) {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
         let style = window.text_style();
+        let text = editor.document.text();
+        let markdown = editor.document.markdown_styles();
+        let headings = heading_lines(text, &markdown);
+        let [large, medium, small] = theme.font_size_heading;
+        let sized_lines = headings
+            .iter()
+            .map(|&(start, level)| {
+                let size = match level {
+                    MarkdownStyle::Heading1 => large,
+                    MarkdownStyle::Heading2 => medium,
+                    MarkdownStyle::Heading3
+                    | MarkdownStyle::Bold
+                    | MarkdownStyle::Italic
+                    | MarkdownStyle::Code
+                    | MarkdownStyle::Quote
+                    | MarkdownStyle::ListMarker => small,
+                };
+                (start, size)
+            })
+            .collect();
+        let title_is_heading = headings.first().is_some_and(|&(start, _)| start == 0);
+        let title_end = if title_is_heading {
+            0
+        } else {
+            editor.document.title().map_or(0, str::len)
+        };
         let underlined: Vec<Range<usize>> = editor
             .document
             .slots()
@@ -1265,63 +1417,89 @@ impl EditorElement {
             .map(|slot| slot.range)
             .collect();
         let runs: Vec<TextRun> = spans(
-            editor.document.text().len(),
-            editor.document.title().map_or(0, str::len),
+            text.len(),
+            title_end,
             &underlined,
             &editor.document.ghost_ranges(),
             &editor.trim_fades(),
+            &markdown,
             editor.bright_paragraph().as_ref(),
         )
         .into_iter()
         .map(|span| {
             let mut font = style.font();
+            let mut color = theme.text;
             if span.title {
                 font.weight = FontWeight::BOLD;
+                color = theme.text_title;
             }
-            let ghost = if span.ghost { theme.ghost_opacity } else { 1. };
-            let dim = if span.dimmed {
-                theme.panel_open_dim_opacity
-            } else {
-                1.
-            };
-            let fade = if span.faded {
-                theme.trim_fade_opacity
-            } else {
-                1.
-            };
-            let opacity = ghost * dim * fade;
-            let color = if span.title {
-                theme.text_title
-            } else {
-                theme.text
-            };
-            let underline = UnderlineStyle {
-                thickness: px(1.),
-                color: Some(theme.slot_underline.opacity(opacity)),
-                wavy: false,
-            };
+            let (font, color, background) = markdown_look(&span.markdown, theme, font, color);
+            let opacity = span.opacity(theme);
             TextRun {
                 len: span.range.len(),
                 font,
                 color: color.opacity(opacity),
-                background_color: None,
-                underline: span.underlined.then_some(underline),
+                background_color: background.map(|background| background.opacity(opacity)),
+                underline: None,
                 strikethrough: None,
             }
         })
         .collect();
         if runs.is_empty() {
-            return vec![TextRun {
+            let empty = TextRun {
                 len: 0,
                 font: style.font(),
                 color: theme.text,
                 background_color: None,
                 underline: None,
                 strikethrough: None,
-            }];
+            };
+            return (vec![empty], sized_lines);
         }
-        runs
+        (runs, sized_lines)
     }
+}
+
+/// Font, color, and background of a run after the Markdown styles over it, outer first.
+fn markdown_look(
+    styles: &[MarkdownStyle],
+    theme: &Theme,
+    mut font: Font,
+    mut color: Hsla,
+) -> (Font, Hsla, Option<Hsla>) {
+    let mut background = None;
+    for style in styles {
+        match style {
+            MarkdownStyle::Heading1 | MarkdownStyle::Heading2 | MarkdownStyle::Heading3 => {
+                font.weight = FontWeight::BOLD;
+                color = theme.text_heading;
+            }
+            MarkdownStyle::Bold => font.weight = FontWeight::BOLD,
+            MarkdownStyle::Italic => font.style = FontStyle::Italic,
+            MarkdownStyle::Code => background = Some(theme.code_background),
+            MarkdownStyle::Quote => color = theme.text_quote,
+            MarkdownStyle::ListMarker => color = theme.list_marker,
+        }
+    }
+    (font, color, background)
+}
+
+/// The start of each line that holds a Markdown heading, with the heading style.
+fn heading_lines(text: &str, markdown: &[MarkdownSpan]) -> Vec<(usize, MarkdownStyle)> {
+    markdown
+        .iter()
+        .filter(|span| {
+            matches!(
+                span.style,
+                MarkdownStyle::Heading1 | MarkdownStyle::Heading2 | MarkdownStyle::Heading3
+            )
+        })
+        .map(|span| {
+            let before = text.get(..span.range.start).unwrap_or_default();
+            let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+            (line_start, span.style)
+        })
+        .collect()
 }
 
 /// Shapes `text` into wrapped lines, each with its start offset and top.
@@ -1332,25 +1510,59 @@ pub(crate) fn shape(
     line_height: Pixels,
     window: &Window,
 ) -> Vec<PaintedLine> {
-    let font_size = window.text_style().font_size.to_pixels(window.rem_size());
-    let Ok(shaped) =
-        window
-            .text_system()
-            .shape_text(text.clone(), font_size, runs, wrap_width, None)
-    else {
-        return Vec::new();
-    };
+    shape_sized(text, runs, &[], wrap_width, line_height, window)
+}
+
+/// Like [`shape`], but each line that starts at an offset in `sized_lines` takes that font
+/// size in place of the body size. All lines keep `line_height`.
+fn shape_sized(
+    text: &SharedString,
+    runs: &[TextRun],
+    sized_lines: &[(usize, Pixels)],
+    wrap_width: Option<Pixels>,
+    line_height: Pixels,
+    window: &Window,
+) -> Vec<PaintedLine> {
+    let body_size = window.text_style().font_size.to_pixels(window.rem_size());
     let mut start = 0;
     let mut top = px(0.);
     let mut lines = Vec::new();
-    for line in shaped {
-        let height = line.size(line_height).height;
-        let len = line.len();
-        lines.push(PaintedLine { start, top, line });
-        start += len + 1;
-        top += height;
+    for line_text in text.split('\n') {
+        let end = start + line_text.len();
+        let font_size = sized_lines
+            .iter()
+            .find(|(at, _)| *at == start)
+            .map_or(body_size, |&(_, size)| size);
+        let Ok(shaped) = window.text_system().shape_text(
+            SharedString::from(line_text.to_owned()),
+            font_size,
+            &runs_within(runs, &(start..end)),
+            wrap_width,
+            None,
+        ) else {
+            return Vec::new();
+        };
+        for line in shaped {
+            let height = line.size(line_height).height;
+            lines.push(PaintedLine { start, top, line });
+            top += height;
+        }
+        start = end + 1;
     }
     lines
+}
+
+/// The parts of `runs` (which cover the text from offset 0) inside byte `range`.
+fn runs_within(runs: &[TextRun], range: &Range<usize>) -> Vec<TextRun> {
+    let mut at = 0;
+    runs.iter()
+        .filter_map(|run| {
+            let run_start = at;
+            at += run.len;
+            let len = at.min(range.end).saturating_sub(run_start.max(range.start));
+            (len > 0).then(|| TextRun { len, ..run.clone() })
+        })
+        .collect()
 }
 
 impl IntoElement for EditorElement {
@@ -1383,7 +1595,7 @@ impl Element for EditorElement {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
         let text: SharedString = self.editor.read(cx).document.text().to_owned().into();
-        let runs = self.runs(window, cx);
+        let (runs, sized_lines) = self.runs(window, cx);
         let line_height = window.line_height();
         let layout_id =
             window.request_measured_layout(style, move |known, available, window, _| {
@@ -1391,7 +1603,8 @@ impl Element for EditorElement {
                     gpui::AvailableSpace::Definite(width) => Some(width),
                     gpui::AvailableSpace::MinContent | gpui::AvailableSpace::MaxContent => None,
                 });
-                let lines = shape(&text, &runs, wrap_width, line_height, window);
+                let lines =
+                    shape_sized(&text, &runs, &sized_lines, wrap_width, line_height, window);
                 let height = lines.last().map_or(line_height, |last| {
                     last.top + last.line.size(line_height).height
                 });
@@ -1413,15 +1626,22 @@ impl Element for EditorElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let text: SharedString = self.editor.read(cx).document.text().to_owned().into();
-        let runs = self.runs(window, cx);
+        let (runs, sized_lines) = self.runs(window, cx);
         let line_height = window.line_height();
-        let lines = shape(&text, &runs, Some(bounds.size.width), line_height, window);
+        let lines = shape_sized(
+            &text,
+            &runs,
+            &sized_lines,
+            Some(bounds.size.width),
+            line_height,
+            window,
+        );
         let painted = PaintedText {
             bounds,
             line_height,
             lines,
         };
-        let theme = *cx.global::<Theme>();
+        let theme = cx.global::<Theme>().clone();
         let editor = self.editor.read(cx);
         let selection = painted.selection_quads(&editor.selection, theme.selection);
         let walked = editor.document.trim_proposal().and_then(|proposal| {
@@ -1468,6 +1688,7 @@ impl Element for EditorElement {
             marker_quads.extend(painted.marker_quads(&slot.range, &marker, depth, &theme));
             markers.push(marker);
         }
+        let underlines = pen_strokes(&painted, editor, &slots, &theme);
         let cursor = editor
             .selection
             .is_empty()
@@ -1490,6 +1711,7 @@ impl Element for EditorElement {
         self.editor.update(cx, |editor, _| {
             editor.autoscroll = false;
             editor.markers = markers;
+            editor.underlines.clone_from(&underlines);
         });
         EditorPrepaint {
             lines: painted.lines,
@@ -1497,6 +1719,7 @@ impl Element for EditorElement {
             lab_marks,
             selection,
             marker_quads,
+            underlines,
             cursor,
         }
     }
@@ -1534,6 +1757,11 @@ impl Element for EditorElement {
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        for stroke in &prepaint.underlines {
+            if let Some(path) = stroke.path() {
+                window.paint_path(path, stroke.color);
+            }
         }
         if focus_handle.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
@@ -1575,13 +1803,15 @@ struct Span {
     title: bool,
     underlined: bool,
     ghost: bool,
+    /// The Markdown styles over it, outer first.
+    markdown: Vec<MarkdownStyle>,
     /// Outside the bright paragraph while the Alternatives panel is open (FR-27).
     dimmed: bool,
     /// In a cut of the Trim proposal (FR-55).
     faded: bool,
 }
 
-/// Splits text of `len` bytes at the title end, at each underlined, Ghost, and Trim cut
+/// Splits text of `len` bytes at the title end, at each underlined, Ghost, Trim cut, and Markdown
 /// range edge, and at the edges of the `bright` range, outside of which text is dimmed.
 fn spans(
     len: usize,
@@ -1589,6 +1819,7 @@ fn spans(
     underlined: &[Range<usize>],
     ghosts: &[Range<usize>],
     cuts: &[Range<usize>],
+    markdown: &[MarkdownSpan],
     bright: Option<&Range<usize>>,
 ) -> Vec<Span> {
     let mut edges = vec![0, title_end, len];
@@ -1598,6 +1829,7 @@ fn spans(
             .iter()
             .chain(ghosts)
             .chain(cuts)
+            .chain(markdown.iter().map(|span| &span.range))
             .flat_map(|range| [range.start, range.end]),
     );
     edges.sort_unstable();
@@ -1615,10 +1847,112 @@ fn spans(
             title: end <= title_end,
             underlined: within(underlined, start, end),
             ghost: within(ghosts, start, end),
+            markdown: markdown
+                .iter()
+                .filter(|span| span.range.start <= start && end <= span.range.end)
+                .map(|span| span.style)
+                .collect(),
             faded: within(cuts, start, end),
             dimmed: bright.is_some_and(|bright| !within(std::slice::from_ref(bright), start, end)),
         })
         .collect()
+}
+
+impl Span {
+    /// Ghost, dim, and Trim fade opacity of the text and its underline.
+    fn opacity(&self, theme: &Theme) -> f32 {
+        let ghost = if self.ghost { theme.ghost_opacity } else { 1. };
+        let dim = if self.dimmed {
+            theme.panel_open_dim_opacity
+        } else {
+            1.
+        };
+        let fade = if self.faded {
+            theme.trim_fade_opacity
+        } else {
+            1.
+        };
+        ghost * dim * fade
+    }
+}
+
+/// One row of a Slot underline in one opacity, drawn like an editor's pen (issue #28).
+#[derive(Debug, Clone)]
+struct PenStroke {
+    slot: SlotId,
+    /// Window coordinates.
+    centre: Vec<Point<Pixels>>,
+    thickness: Vec<Pixels>,
+    color: Hsla,
+}
+
+impl PenStroke {
+    /// The stroke outline as a filled path; `None` when it does not tessellate.
+    fn path(&self) -> Option<Path<Pixels>> {
+        let half = |thickness: &Pixels| point(px(0.), *thickness / 2.);
+        let top = self
+            .centre
+            .iter()
+            .zip(&self.thickness)
+            .map(|(at, thickness)| *at - half(thickness));
+        let bottom = self
+            .centre
+            .iter()
+            .zip(&self.thickness)
+            .rev()
+            .map(|(at, thickness)| *at + half(thickness));
+        let outline: Vec<Point<Pixels>> = top.chain(bottom).collect();
+        let mut builder = PathBuilder::fill();
+        builder.add_polygon(&outline, true);
+        builder.build().ok()
+    }
+}
+
+/// A row of text under a pen stroke (local coordinates).
+struct PenRow {
+    top: Pixels,
+    left: Pixels,
+    right: Pixels,
+}
+
+/// The pen strokes under the Word and Sentence Slots: one per row and opacity. Each span
+/// belongs to the innermost Slot over it, which gives its stroke its seed.
+fn pen_strokes(
+    painted: &PaintedText,
+    editor: &Editor,
+    slots: &[Slot],
+    theme: &Theme,
+) -> Vec<PenStroke> {
+    let text = editor.document.text();
+    editor
+        .underline_spans()
+        .into_iter()
+        .filter(|span| span.underlined)
+        .filter_map(|span| {
+            let owner = slots
+                .iter()
+                .filter(|slot| {
+                    slot.level != Level::Paragraph
+                        && slot.range.start <= span.range.start
+                        && span.range.end <= slot.range.end
+                })
+                .min_by_key(|slot| slot.range.len())?;
+            let color = theme.slot_underline.opacity(span.opacity(theme));
+            Some(painted.pen_strokes(text, &span.range, owner, color))
+        })
+        .flatten()
+        .collect()
+}
+
+/// Offset from a straight line and thickness of a pen stroke `along` px into its Slot. Two
+/// slow sines with phases from `seed`: a hand-drawn line, not a zigzag.
+fn pen(seed: u64, along: f32) -> (f32, f32) {
+    let phase = |shift: u32| f32::from(u16::try_from((seed >> shift) & 0x3ff).unwrap_or(0)) / 1024.;
+    let wave = |wavelength: f32, shift: u32| ((along / wavelength + phase(shift)) * TAU).sin();
+    let offset =
+        PEN_WOBBLE * (0.65 * wave(PEN_WAVELENGTH, 0) + 0.35 * wave(PEN_WAVELENGTH * 0.37, 10));
+    let thickness = PEN_THICKNESS + PEN_THICKNESS_WOBBLE * wave(PEN_WAVELENGTH * 0.61, 20);
+    (offset, thickness)
 }
 
 /// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
@@ -1679,7 +2013,38 @@ pub(crate) fn scroll_into_view(
 
 #[cfg(test)]
 mod tests {
-    use super::{Span, follow_change, spans};
+    use ka_teb_core::{MarkdownSpan, MarkdownStyle};
+
+    use super::{Span, follow_change, heading_lines, pen, spans};
+
+    fn samples(seed: u64) -> Vec<(f32, f32)> {
+        (0..400u16)
+            .map(|along| pen(seed, f32::from(along)))
+            .collect()
+    }
+
+    #[test]
+    fn the_pen_line_wobbles_about_half_to_one_pixel() {
+        let wobble = samples(7)
+            .iter()
+            .map(|(offset, _)| offset.abs())
+            .fold(0., f32::max);
+        assert!((0.5..=1.).contains(&wobble), "wobble {wobble}");
+    }
+
+    #[test]
+    fn the_pen_line_thickness_changes_a_little() {
+        let thickness: Vec<f32> = samples(7).iter().map(|(_, thickness)| *thickness).collect();
+        let thinnest = thickness.iter().copied().fold(f32::MAX, f32::min);
+        let thickest = thickness.iter().copied().fold(0., f32::max);
+        assert!(thinnest >= 0.7 && thickest <= 1.3, "{thinnest}..{thickest}");
+        assert!(thickest - thinnest > 0.2, "{thinnest}..{thickest}");
+    }
+
+    #[test]
+    fn slots_with_other_seeds_draw_other_lines() {
+        assert_ne!(samples(7), samples(0x5_0505_0505));
+    }
 
     #[test]
     fn ghost_and_slot_ranges_split_the_text_into_styled_spans() {
@@ -1688,6 +2053,7 @@ mod tests {
             title,
             underlined,
             ghost,
+            markdown: Vec::new(),
             dimmed: false,
             faded: false,
         };
@@ -1697,6 +2063,7 @@ mod tests {
                 5,
                 std::slice::from_ref(&(14..21)),
                 std::slice::from_ref(&(6..13)),
+                &[],
                 &[],
                 None
             ),
@@ -1712,9 +2079,56 @@ mod tests {
     }
 
     #[test]
+    fn markdown_styles_split_spans_and_nest() {
+        let markdown = |range, style| MarkdownSpan { range, style };
+        let span = |range, markdown| Span {
+            range,
+            title: false,
+            underlined: false,
+            ghost: false,
+            markdown,
+            dimmed: false,
+            faded: false,
+        };
+        assert_eq!(
+            spans(
+                12,
+                0,
+                &[],
+                &[],
+                &[],
+                &[
+                    markdown(0..12, MarkdownStyle::Bold),
+                    markdown(2..5, MarkdownStyle::Italic)
+                ],
+                None
+            ),
+            vec![
+                span(0..2, vec![MarkdownStyle::Bold]),
+                span(2..5, vec![MarkdownStyle::Bold, MarkdownStyle::Italic]),
+                span(5..12, vec![MarkdownStyle::Bold]),
+            ]
+        );
+    }
+
+    #[test]
+    fn heading_lines_start_at_the_line_of_each_heading() {
+        let text = "# Top\nbody\n> ## Quoted\n### Low";
+        let styles = ka_teb_core::Document::new(text).markdown_styles();
+        assert_eq!(
+            heading_lines(text, &styles),
+            vec![
+                (0, MarkdownStyle::Heading1),
+                (11, MarkdownStyle::Heading2),
+                (23, MarkdownStyle::Heading3)
+            ]
+        );
+    }
+
+    #[test]
     fn text_outside_the_bright_range_is_dimmed() {
         let dimmed: Vec<(std::ops::Range<usize>, bool)> =
-            spans(30, 5, &[], &[], &[], Some(&(6..18)))
+            spans(30, 5, &[], &[], &[], &[], Some(&(6..18)))
                 .into_iter()
                 .map(|span| (span.range, span.dimmed))
                 .collect();
@@ -1732,6 +2146,7 @@ mod tests {
             &[],
             std::slice::from_ref(&(8..12)),
             &[2..5, 10..15],
+            &[],
             None,
         )
         .into_iter()
