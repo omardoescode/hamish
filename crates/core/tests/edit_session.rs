@@ -3,6 +3,30 @@ use ka_teb_core::{
 };
 
 #[test]
+fn the_target_is_the_selection_else_the_word_at_the_caret_else_the_caret() {
+    let mut session = EditSession::new(Document::new("The cat  sat."));
+    session.select(Caret::over(0..7));
+    assert_eq!(session.target(), 0..7);
+
+    session.select(Caret::at(5));
+    assert_eq!(session.target(), 4..7);
+
+    session.select(Caret::at(8));
+    assert_eq!(session.target(), 8..8);
+}
+
+#[test]
+fn the_counter_label_counts_the_document_or_the_selection() {
+    let mut session = EditSession::new(Document::new("The cat sat."));
+    let document = session.document().counter().to_string();
+    assert_eq!(session.counter_label(), document);
+
+    session.select(Caret::over(4..7));
+    let selected = session.document().selection_counter(4..7).unwrap();
+    assert_eq!(session.counter_label(), format!("{selected} selected"));
+}
+
+#[test]
 fn typing_in_a_row_is_one_undo_step_and_undo_puts_the_selection_back() {
     let mut session = EditSession::new(Document::new("Hi"));
     session.select(Caret::at(2));

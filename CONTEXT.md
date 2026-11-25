@@ -57,6 +57,10 @@ List marker of a Writer Variant.
 **Bot point**:
 List marker (robot icon) of an AI Variant.
 
+**Alternatives list**:
+The rows of the Alternatives panel: the Variants of its target (a Slot, or text with no Slot yet), then an empty row where the writer types a new Variant.
+_Avoid_: Variant list
+
 **Quick fill**:
 An AI Variants request the writer starts by typing "??" in the empty row of the Alternatives panel. The row dances while the AI works.
 _Avoid_: Auto-fill, suggest

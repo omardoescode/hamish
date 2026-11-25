@@ -38,10 +38,11 @@ pub use actions::{
     ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};
-pub use alternatives_panel::{AiAlternativesError, AlternativesPanel, VariantRow};
+pub use alternatives_panel::AlternativesPanel;
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
+pub use ka_teb_core::{AiAlternativesError, VariantRow};
 pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
