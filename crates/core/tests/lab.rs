@@ -463,3 +463,21 @@ fn a_ghost_or_a_slot_inside_a_mark_with_a_fix_keeps_the_mark() {
         )]
     );
 }
+
+#[test]
+fn the_mark_at_an_offset_is_the_first_mark_that_holds_it_or_has_it_at_an_edge() {
+    let mut document = Document::new(TEXT);
+    run(
+        &mut document,
+        LabCheck::HedgesFiller,
+        vec![finding(2..7, None, None), finding(28..32, None, None)],
+    )
+    .unwrap();
+
+    let at = |offset| document.lab_mark_at(offset).map(|mark| mark.range.clone());
+    assert_eq!(at(2), Some(2..7));
+    assert_eq!(at(5), Some(2..7));
+    assert_eq!(at(7), Some(2..7));
+    assert_eq!(at(8), None);
+    assert_eq!(at(32), Some(28..32));
+}

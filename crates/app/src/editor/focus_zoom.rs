@@ -12,7 +12,7 @@ use gpui::{
 use ka_teb_core::{paragraph_index, paragraph_range};
 
 use super::{Editor, EditorElement, EditorPrepaint, PaintedLine, PaintedText, PenStroke};
-use crate::settings_modal;
+use crate::settings;
 
 /// One paragraph painted at `scale` about `centre`. `top` and `bottom` bound its rows
 /// before the zoom (window coordinates).
@@ -211,10 +211,7 @@ impl Editor {
         let now = cx.background_executor().now();
         let text = self.session.document().text();
         self.focus_zoom
-            .zoomed(
-                now,
-                settings_modal::is_on(cx, |settings| settings.reduced_motion),
-            )
+            .zoomed(now, settings::is_on(cx, |settings| settings.reduced_motion))
             .into_iter()
             .filter_map(|(index, scale)| Some((paragraph_range(text, index)?, scale)))
             .collect()
@@ -222,11 +219,11 @@ impl Editor {
 
     /// Zooms the paragraph with the caret; `true` while a zoom runs.
     fn focus_zoom_step(&mut self, cx: &App) -> bool {
-        let on = settings_modal::is_on(cx, |settings| settings.focus_zoom)
+        let on = settings::is_on(cx, |settings| settings.focus_zoom)
             && self.bright_paragraph().is_none();
         let paragraph = on.then(|| paragraph_index(self.session.document().text(), self.cursor()));
         let now = cx.background_executor().now();
-        let reduced_motion = settings_modal::is_on(cx, |settings| settings.reduced_motion);
+        let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
         self.focus_zoom.focus(paragraph, now, reduced_motion);
         self.focus_zoom.is_moving(now, reduced_motion)
     }

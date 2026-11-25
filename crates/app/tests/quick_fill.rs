@@ -2,7 +2,7 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use app::{Ai, AiStatus, AlternativesPanel, Workspace};
+use app::{Ai, AiAlternativesError, AiFailure, AiStatus, AlternativesPanel, Workspace};
 use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
 use ka_teb_core::{
     AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, Document, LabFinding, LabRequest, Level,
@@ -158,7 +158,10 @@ fn row(text: &str, provenance: Provenance, active: bool) -> (String, Provenance,
     (text.to_owned(), provenance, active)
 }
 
-fn status(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> AiStatus {
+fn status(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+) -> AiStatus<AiAlternativesError> {
     let panel = panel(workspace, cx);
     cx.read(|cx| panel.read(cx).ai_status())
 }
@@ -196,7 +199,7 @@ fn typing_two_question_marks_starts_a_quick_fill_that_never_becomes_a_variant(
     assert_eq!(shown_text(&workspace, cx), "Title\nShe ? the room.");
     press(cx, "?");
 
-    assert_eq!(status(&workspace, cx), AiStatus::Loading);
+    assert_eq!(status(&workspace, cx), AiStatus::Running);
     assert_eq!(shown_text(&workspace, cx), "Title\nShe owns the room.");
     assert_eq!(rows(&workspace, cx), the_two_writer_rows());
     press(cx, "enter");
@@ -226,12 +229,12 @@ fn quick_fill_results_come_in_batches_under_the_variants_and_the_active_one_stay
 
     cx.simulate_input("??");
     assert_eq!(rows(&workspace, cx).len(), 4);
-    assert_eq!(status(&workspace, cx), AiStatus::Loading);
+    assert_eq!(status(&workspace, cx), AiStatus::Running);
     cx.executor().advance_clock(BATCH);
     assert_eq!(rows(&workspace, cx).len(), 6);
     cx.executor().advance_clock(BATCH);
 
-    assert_eq!(status(&workspace, cx), AiStatus::Idle);
+    assert_eq!(status(&workspace, cx), AiStatus::Done);
     assert_eq!(
         rows(&workspace, cx),
         vec![
@@ -317,7 +320,7 @@ fn a_failed_quick_fill_shows_why_and_the_row_is_empty_again(cx: &mut TestAppCont
 
     assert_eq!(
         status(&workspace, cx),
-        AiStatus::Failed("the AI declined: no".to_owned())
+        AiStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
     );
     assert_eq!(rows(&workspace, cx), the_two_writer_rows());
     cx.simulate_input("x");

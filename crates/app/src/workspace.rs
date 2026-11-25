@@ -10,10 +10,11 @@ use ka_teb_core::{Document, SlotId};
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
-use crate::lab::Lab;
+use crate::lab::{self, Lab};
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::save_open::Notice;
 use crate::save_open::SaveOpen;
+use crate::settings;
 use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
@@ -21,7 +22,7 @@ use crate::{AlternativesPanel, Editor, Theme};
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
-    pub(crate) lab: Lab,
+    lab: Entity<Lab>,
     overflow_panel: Entity<OverflowPanel>,
     chrome_visible: bool,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
@@ -31,6 +32,7 @@ pub struct Workspace {
     _editor_changes: Subscription,
     _settings_saves: Subscription,
     _editor_events: Subscription,
+    _lab_changes: Subscription,
 }
 
 impl Workspace {
@@ -47,6 +49,8 @@ impl Workspace {
             },
         );
         let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
+        let lab = cx.new(|cx| Lab::new(editor.clone(), cx));
+        let lab_changes = cx.observe(&lab, |_, _, cx| cx.notify());
         let settings_modal = cx.new(SettingsModal::new);
         let settings_saves =
             cx.subscribe(&settings_modal, |workspace, _, failed: &SaveFailed, cx| {
@@ -55,8 +59,8 @@ impl Workspace {
         Self {
             editor,
             overflow_panel,
-            save_open: SaveOpen::with_notice(settings_modal::take_start_notice(cx)),
-            lab: Lab::new(cx),
+            save_open: SaveOpen::with_notice(settings::take_start_notice(cx)),
+            lab,
             chrome_visible: false,
             alternatives: None,
             overflow_open: false,
@@ -65,12 +69,18 @@ impl Workspace {
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
             _editor_events: editor_events,
+            _lab_changes: lab_changes,
         }
     }
 
     #[must_use]
     pub fn editor(&self) -> &Entity<Editor> {
         &self.editor
+    }
+
+    #[must_use]
+    pub fn lab(&self) -> &Entity<Lab> {
+        &self.lab
     }
 
     /// Hidden on open; a click on the Counter toggles it.
@@ -177,10 +187,31 @@ impl Workspace {
         });
     }
 
+    /// Lab actions that reach the Workspace (the focus is outside the Lab) go to the Lab.
+    fn route_lab_actions(&self, root: gpui::Div) -> gpui::Div {
+        let lab = &self.lab;
+        root.on_action(to_lab(lab, Lab::toggle))
+            .on_action(to_lab(lab, Lab::run_trim))
+            .on_action(to_lab(lab, Lab::make_trim_cuts))
+            .on_action(to_lab(lab, Lab::walk_trim))
+            .on_action(to_lab(lab, Lab::walk_keep))
+            .on_action(to_lab(lab, Lab::walk_cut))
+            .on_action(to_lab(lab, Lab::close_trim))
+    }
+
     fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
         self.chrome_visible = !self.chrome_visible;
         cx.notify();
     }
+}
+
+/// An action listener that runs `handle` on `lab`.
+fn to_lab<A: 'static>(
+    lab: &Entity<Lab>,
+    handle: fn(&mut Lab, &A, &mut Window, &mut Context<Lab>),
+) -> impl Fn(&A, &mut Window, &mut gpui::App) + 'static {
+    let lab = lab.clone();
+    move |action, window, cx| lab.update(cx, |lab, cx| handle(lab, action, window, cx))
 }
 
 impl Render for Workspace {
@@ -216,13 +247,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
-            .on_action(cx.listener(Self::toggle_lab))
-            .on_action(cx.listener(Self::run_trim))
-            .on_action(cx.listener(Self::make_trim_cuts))
-            .on_action(cx.listener(Self::walk_trim))
-            .on_action(cx.listener(Self::walk_keep))
-            .on_action(cx.listener(Self::walk_cut))
-            .on_action(cx.listener(Self::close_trim))
+            .map(|workspace| self.route_lab_actions(workspace))
             .child(
                 div()
                     .absolute()
@@ -280,7 +305,11 @@ impl Render for Workspace {
                         ),
                 )
             })
-            .children(self.lab_view(&theme, cx))
+            .children(
+                self.chrome_visible
+                    .then(|| lab::lab_button(&self.lab, &theme, cx)),
+            )
+            .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
             .when(self.settings_open, |workspace| {
                 workspace.child(self.settings_modal.clone())

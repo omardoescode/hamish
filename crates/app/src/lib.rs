@@ -14,6 +14,7 @@ mod lab;
 mod loading;
 mod overflow_panel;
 mod save_open;
+mod settings;
 mod settings_modal;
 mod sounds;
 mod theme;
@@ -35,15 +36,16 @@ pub use actions::{
     SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome,
     ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
-pub use ai::Ai;
-pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
+pub use ai::{Ai, AiFailure, AiStatus};
+pub use alternatives_panel::{AiAlternativesError, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
-pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
+pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
-pub use settings_modal::{SettingsModal, use_settings};
+pub use settings::use_settings;
+pub use settings_modal::SettingsModal;
 pub use sounds::{DeviceSounds, SoundSink, Sounds};
 pub use theme::Theme;
 pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
