@@ -6,6 +6,7 @@
 |---|---|
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
 | `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
+| `crates/core/src/title.rs` | `document_title`: the title at the top center and on the window (file name, else first line, else "Untitled"). |
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save. |
 | `crates/core/src/motion.rs` | `Effect`: the one Effect timing source (durations, progress, Reduced motion). |
 | `crates/core/src/particles.rs` | Particle math of the Explosion and the Undo burst: sparks, flames, glow per progress. The app paints them (`crates/app/src/effects.rs`). |
