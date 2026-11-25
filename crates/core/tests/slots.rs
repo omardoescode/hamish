@@ -583,3 +583,49 @@ fn writer_edit_of_a_nested_active_variant_makes_the_outer_ai_variant_mixed() {
         Provenance::Mixed
     );
 }
+
+#[test]
+fn each_paragraph_variant_keeps_its_own_inner_slots_and_choices() {
+    let mut document = Document::new("The cat sat.");
+    let paragraph = document
+        .create_slot(
+            0..12,
+            Level::Paragraph,
+            "A dog ran. It barked.",
+            Provenance::Writer,
+        )
+        .unwrap();
+    let cat = document
+        .create_slot(4..7, Level::Word, "lion", Provenance::Writer)
+        .unwrap();
+    document.set_active(cat, 1).unwrap();
+    document.set_active(paragraph, 1).unwrap();
+    let dog = document
+        .create_slot(2..5, Level::Word, "wolf", Provenance::Writer)
+        .unwrap();
+    let barked = document
+        .create_slot(
+            11..21,
+            Level::Sentence,
+            "It howled at the moon.",
+            Provenance::Writer,
+        )
+        .unwrap();
+    document.set_active(barked, 1).unwrap();
+    assert_eq!(document.text(), "A dog ran. It howled at the moon.");
+    assert_eq!(document.counter().to_string(), "8 words 33 chars");
+    let ids: Vec<_> = document.slots().iter().map(|slot| slot.id).collect();
+    assert_eq!(ids, [paragraph, dog, barked]);
+
+    document.set_active(paragraph, 0).unwrap();
+    assert_eq!(document.text(), "The lion sat.");
+    assert_eq!(document.counter().to_string(), "3 words 13 chars");
+    let ids: Vec<_> = document.slots().iter().map(|slot| slot.id).collect();
+    assert_eq!(ids, [paragraph, cat]);
+
+    document.set_active(paragraph, 1).unwrap();
+    assert_eq!(document.text(), "A dog ran. It howled at the moon.");
+    assert_eq!(document.slot(dog).unwrap().active, 0);
+    assert_eq!(document.slot(barked).unwrap().range, 11..33);
+    assert_eq!(document.slot(barked).unwrap().active, 1);
+}
