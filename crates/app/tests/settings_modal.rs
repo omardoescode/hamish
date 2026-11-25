@@ -229,11 +229,11 @@ fn reduced_motion_turns_on_in_appearance_and_saves(cx: &mut TestAppContext) {
     let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");
-    click(cx, "settings-reduced-motion-on");
+    click(cx, "settings-reduced-motion");
 
     assert!(Settings::load(&path).settings.reduced_motion);
 
-    click(cx, "settings-reduced-motion-off");
+    click(cx, "settings-reduced-motion");
 
     assert!(!Settings::load(&path).settings.reduced_motion);
 }
@@ -245,11 +245,11 @@ fn focus_zoom_turns_off_in_appearance_and_saves(cx: &mut TestAppContext) {
     let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");
-    click(cx, "settings-focus-zoom-off");
+    click(cx, "settings-focus-zoom");
 
     assert!(!Settings::load(&path).settings.focus_zoom);
 
-    click(cx, "settings-focus-zoom-on");
+    click(cx, "settings-focus-zoom");
 
     assert!(Settings::load(&path).settings.focus_zoom);
 }

@@ -1,6 +1,6 @@
 //! Settings: theme, UI scale, editor font values, cycle sounds,
-//! reduced motion, and focus zoom, with their defaults, limits, and the JSON file in the
-//! XDG config dir.
+//! reduced motion, and focus zoom, with their defaults, limits, labels, and the JSON file
+//! in the XDG config dir.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -36,6 +36,28 @@ impl Setting {
         }
     }
 
+    /// The name the writer reads.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::UiScale => "UI scale",
+            Self::FontSize => "Font size",
+            Self::LineHeight => "Line height",
+            Self::ColumnWidth => "Column width",
+        }
+    }
+
+    /// A lowercase, hyphenated id.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::UiScale => "ui-scale",
+            Self::FontSize => "font-size",
+            Self::LineHeight => "line-height",
+            Self::ColumnWidth => "column-width",
+        }
+    }
+
     const fn name(self) -> &'static str {
         match self {
             Self::UiScale => "ui_scale",
@@ -51,6 +73,36 @@ impl Setting {
         Self::LineHeight,
         Self::ColumnWidth,
     ];
+}
+
+/// A setting the writer turns on or off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Toggle {
+    ReducedMotion,
+    FocusZoom,
+    CycleSounds,
+}
+
+impl Toggle {
+    /// The name the writer reads.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::ReducedMotion => "Reduced motion",
+            Self::FocusZoom => "Focus zoom",
+            Self::CycleSounds => "Cycle sounds",
+        }
+    }
+
+    /// A lowercase, hyphenated id.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::ReducedMotion => "reduced-motion",
+            Self::FocusZoom => "focus-zoom",
+            Self::CycleSounds => "cycle-sounds",
+        }
+    }
 }
 
 /// The writer's settings. The file holds them as JSON; a field not in the file takes
@@ -217,6 +269,51 @@ impl Settings {
             Setting::FontSize => self.font_size,
             Setting::LineHeight => self.line_height,
             Setting::ColumnWidth => self.column_width,
+        }
+    }
+
+    /// The value of `setting` as the writer reads it, with its unit: "120%", "18 px", "1.8".
+    #[must_use]
+    pub fn shown(&self, setting: Setting) -> String {
+        let value = self.value(setting);
+        match setting {
+            Setting::UiScale => format!("{:.0}%", value * 100.),
+            Setting::FontSize | Setting::ColumnWidth => format!("{value:.0} px"),
+            Setting::LineHeight => format!("{value:.1}"),
+        }
+    }
+
+    /// `toggle` is on.
+    #[must_use]
+    pub fn is_on(&self, toggle: Toggle) -> bool {
+        *self.toggle_ref(toggle)
+    }
+
+    /// Turns `toggle` on when it is off, and off when it is on.
+    pub fn flip(&mut self, toggle: Toggle) {
+        let on = self.toggle_mut(toggle);
+        *on = !*on;
+    }
+
+    /// "On" or "Off".
+    #[must_use]
+    pub fn shown_toggle(&self, toggle: Toggle) -> &'static str {
+        if self.is_on(toggle) { "On" } else { "Off" }
+    }
+
+    fn toggle_ref(&self, toggle: Toggle) -> &bool {
+        match toggle {
+            Toggle::ReducedMotion => &self.reduced_motion,
+            Toggle::FocusZoom => &self.focus_zoom,
+            Toggle::CycleSounds => &self.cycle_sounds,
+        }
+    }
+
+    fn toggle_mut(&mut self, toggle: Toggle) -> &mut bool {
+        match toggle {
+            Toggle::ReducedMotion => &mut self.reduced_motion,
+            Toggle::FocusZoom => &mut self.focus_zoom,
+            Toggle::CycleSounds => &mut self.cycle_sounds,
         }
     }
 
