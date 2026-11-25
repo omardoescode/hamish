@@ -117,7 +117,8 @@ impl Document {
     }
 
     /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.
-    /// The Original stays the Active variant.
+    /// The Original stays the Active variant. A range inside a visible Slot makes a Slot
+    /// nested in that Slot's Active variant (ADR 0006): it shows only while that Variant does.
     ///
     /// # Errors
     /// [`SlotError::Range`] for an invalid range, [`SlotError::EmptyRange`] for an empty one,
