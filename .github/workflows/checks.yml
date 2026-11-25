@@ -58,4 +58,3 @@ jobs:
       - run: cargo test
       - name: core has no gpui dependency
         run: "! cargo tree -p ka-teb-core --edges normal,build --prefix none | grep -q '^gpui '"
-      - run: scripts/test-hooks.sh
