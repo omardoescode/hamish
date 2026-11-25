@@ -11,9 +11,9 @@ use crate::actions::{
     ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
     SelectPreviousVariant,
 };
-use crate::context_menu;
 use crate::editor::{Spotlight, paragraph_around};
 use crate::{Ai, Editor, Theme};
+use crate::{context_menu, loading};
 
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
@@ -605,6 +605,7 @@ impl AlternativesPanel {
             .flex()
             .flex_col()
             .children(variant_rows)
+            .children(self.render_ai_status(theme))
             .when(has_target, |list| list.child(new_row))
             .when(!has_target, |list| {
                 list.child(
@@ -613,6 +614,34 @@ impl AlternativesPanel {
                         .child("Select text, or put the cursor in a word."),
                 )
             })
+    }
+}
+
+impl AlternativesPanel {
+    /// FR-34: a Bot point row while the AI works; the reason when it failed.
+    fn render_ai_status(&self, theme: &Theme) -> Option<gpui::Stateful<gpui::Div>> {
+        let row = row_box(theme, false)
+            .id("alternatives-ai-status")
+            .debug_selector(|| "alternatives-ai-status".to_owned());
+        match &self.ai {
+            AiStatus::Idle => None,
+            AiStatus::Loading => Some(
+                row.child(provenance_marker(Provenance::Ai, theme.text_muted))
+                    .child(
+                        div()
+                            .mt(px(3.))
+                            .child(loading::dance("alternatives-ai-dance", theme.accent)),
+                    ),
+            ),
+            AiStatus::Failed(reason) => Some(
+                row.child(provenance_marker(Provenance::Ai, theme.accent))
+                    .child(
+                        div()
+                            .text_color(theme.text)
+                            .child(format!("No AI alternatives: {reason}")),
+                    ),
+            ),
+        }
     }
 }
 

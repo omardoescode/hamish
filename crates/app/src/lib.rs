@@ -11,6 +11,7 @@ mod context_menu;
 mod edit_history;
 mod editor;
 mod lab;
+mod loading;
 mod overflow_panel;
 mod save_open;
 mod theme;

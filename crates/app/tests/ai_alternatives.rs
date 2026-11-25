@@ -112,3 +112,47 @@ fn ai_alternatives_shows_progress_then_ai_variants_under_the_original(cx: &mut T
     );
     assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
 }
+
+#[gpui::test]
+fn a_failed_request_shows_why_and_changes_nothing(cx: &mut TestAppContext) {
+    let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
+    let (workspace, cx) = open(cx, Some(failing));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+
+    cx.simulate_keystrokes("ctrl-shift-g");
+
+    assert_eq!(
+        status(&workspace, cx),
+        AiStatus::Failed("the AI declined: no".to_owned())
+    );
+    assert!(cx.debug_bounds("alternatives-ai-status").is_some());
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![row("customer", Provenance::Writer, true)]
+    );
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+}
+
+#[gpui::test]
+fn with_no_ai_backend_the_panel_says_so(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, None);
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+
+    cx.simulate_keystrokes("ctrl-shift-g");
+
+    assert_eq!(
+        status(&workspace, cx),
+        AiStatus::Failed("no AI backend is set".to_owned())
+    );
+}
+
+#[gpui::test]
+fn the_panel_shows_the_loading_row_while_the_ai_works(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, Some(client_and_patron()));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+
+    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+    cx.update(|window, _| window.refresh());
+
+    assert!(cx.debug_bounds("alternatives-ai-status").is_some());
+}
