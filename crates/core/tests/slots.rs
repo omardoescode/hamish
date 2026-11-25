@@ -929,3 +929,25 @@ fn a_new_slot_over_a_whole_paragraph_or_across_lines_is_paragraph_level() {
     assert_eq!(document.level_for(&(6..37)), Level::Paragraph);
     assert_eq!(document.level_for(&(26..42)), Level::Paragraph);
 }
+
+#[test]
+fn slot_over_a_range_is_the_innermost_slot_that_holds_all_of_it() {
+    let mut document = Document::new("The cat sat. It purred.");
+    let sentence = document
+        .create_slot(0..12, Level::Sentence, "A dog ran.", Provenance::Writer)
+        .unwrap();
+    let word = document
+        .create_slot(4..7, Level::Word, "fox", Provenance::Writer)
+        .unwrap();
+    let examples = [
+        (4..7, Some(word)),
+        (5..6, Some(word)),
+        (4..8, Some(sentence)),
+        (0..12, Some(sentence)),
+        (10..14, None),
+        (13..23, None),
+    ];
+    for (range, expected) in examples {
+        assert_eq!(document.slot_over(&range), expected, "range {range:?}");
+    }
+}

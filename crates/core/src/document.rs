@@ -230,10 +230,16 @@ impl Document {
     /// (the caret at the end of a span is in it).
     #[must_use]
     pub fn slot_at(&self, caret: usize) -> Option<SlotId> {
+        self.slot_over(&(caret..caret))
+    }
+
+    /// The innermost visible Slot whose span holds all of `range`, edges included.
+    #[must_use]
+    pub fn slot_over(&self, range: &Range<usize>) -> Option<SlotId> {
         self.slots()
             .iter()
             .rev()
-            .find(|slot| slot.range.start <= caret && caret <= slot.range.end)
+            .find(|slot| slot.range.start <= range.start && range.end <= slot.range.end)
             .map(|slot| slot.id)
     }
 

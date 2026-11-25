@@ -128,13 +128,8 @@ impl AlternativesPanel {
         let editor = self.editor.read(cx);
         let range = editor.target();
         let document = editor.document();
-        let slot = document
-            .slots()
-            .into_iter()
-            .rev()
-            .find(|slot| slot.range.start <= range.start && range.end <= slot.range.end);
-        if let Some(slot) = slot {
-            return Target::Slot(slot.id);
+        if let Some(id) = document.slot_over(&range) {
+            return Target::Slot(id);
         }
         if range.is_empty() {
             return Target::Nothing;
