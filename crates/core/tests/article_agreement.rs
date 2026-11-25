@@ -30,3 +30,31 @@ fn the_article_keeps_its_case() {
         assert_eq!(document.text(), expected);
     }
 }
+
+#[test]
+fn the_article_follows_the_first_sound_not_the_first_letter() {
+    let examples = [
+        ("an", "hour", "an hour"),
+        ("an", "honest", "an honest"),
+        ("an", "heir", "an heir"),
+        ("an", "university", "a university"),
+        ("an", "unicorn", "a unicorn"),
+        ("an", "user", "a user"),
+        ("an", "European", "a European"),
+        ("an", "one-off", "a one-off"),
+        ("a", "unimportant", "an unimportant"),
+        ("a", "Umbrella", "an Umbrella"),
+        ("a", "house", "a house"),
+        ("an", "7", "an 7"),
+    ];
+    for (article, variant, expected) in examples {
+        let text = format!("{article} word");
+        let start = article.len() + 1;
+        let mut document = Document::new(&text);
+        let id = document
+            .create_slot(start..text.len(), Level::Word, variant, Provenance::Writer)
+            .unwrap();
+        document.set_active(id, 1).unwrap();
+        assert_eq!(document.text(), expected, "{variant}");
+    }
+}
