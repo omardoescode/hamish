@@ -5,7 +5,8 @@ use gpui::{
     Entity, EntityInputHandler, FocusHandle, Focusable, FontWeight, GlobalElementId, Hsla,
     InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, PaintQuad, Pixels, Point, Render, ScrollHandle, SharedString, Size, Style,
-    TextRun, UTF16Selection, Window, WrappedLine, div, fill, point, prelude::*, px, relative, size,
+    TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point, prelude::*, px,
+    relative, size,
 };
 use ka_teb_core::{Cycle, Document, Level, SlotId};
 use unicode_segmentation::UnicodeSegmentation;
@@ -17,6 +18,34 @@ use crate::actions::{
     SelectToLineStart, SelectUp, Undo,
 };
 use crate::edit_history::{EditHistory, EditKind};
+
+/// How a Slot shows that it has Variants (FR-12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerKind {
+    /// Word and Sentence: underline plus a row of Variant dots.
+    Underline,
+    /// Paragraph: a line in the left margin plus a column of Variant dots.
+    MarginLine,
+}
+
+/// The Marker of one visible Slot: `dots` Variant dots, dot `active` filled (FR-13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Marker {
+    pub slot: SlotId,
+    pub kind: MarkerKind,
+    pub dots: usize,
+    pub active: usize,
+}
+
+const DOT_SIZE: Pixels = px(4.);
+const DOT_GAP: Pixels = px(3.);
+/// Paragraph Marker: a line about 2 px wide, about 14 px left of the text (spec).
+const MARGIN_LINE_WIDTH: Pixels = px(2.);
+const MARGIN_LINE_GAP: Pixels = px(14.);
+/// How far left each nesting level moves a Paragraph margin line.
+const MARGIN_LINE_STEP: Pixels = px(10.);
+const HOVER_PAD: Pixels = px(2.);
+const HOVER_RADIUS: Pixels = px(3.);
 
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
@@ -34,6 +63,7 @@ pub struct Editor {
     selecting: bool,
     autoscroll: bool,
     hovered: Option<SlotId>,
+    markers: Vec<Marker>,
 }
 
 /// The text as last painted, for mouse and vertical cursor moves.
@@ -63,6 +93,7 @@ impl Editor {
             selecting: false,
             autoscroll: false,
             hovered: None,
+            markers: Vec::new(),
         }
     }
 
@@ -75,6 +106,12 @@ impl Editor {
     #[must_use]
     pub fn selection(&self) -> Range<usize> {
         self.selection.clone()
+    }
+
+    /// The Markers as last painted, in document order, each parent before the Slots in it.
+    #[must_use]
+    pub fn markers(&self) -> &[Marker] {
+        &self.markers
     }
 
     /// The Slot under the pointer, innermost first.
@@ -515,6 +552,94 @@ impl PaintedText {
         local.x >= left && local.x < right
     }
 
+    /// The hover box behind `range` (window coordinates): one rounded box per row for a
+    /// Word or Sentence Slot, one box over the full rows for a Paragraph (FR-14).
+    fn hover_quads(&self, range: &Range<usize>, level: Level, color: Hsla) -> Vec<PaintQuad> {
+        let Some((start, end)) = self.rows(range) else {
+            return Vec::new();
+        };
+        let origin = self.bounds.origin;
+        if level == Level::Paragraph {
+            let bounds = Bounds::from_corners(
+                origin + point(-HOVER_PAD * 2., start.y),
+                origin
+                    + point(
+                        self.bounds.size.width + HOVER_PAD * 2.,
+                        end.y + self.line_height,
+                    ),
+            );
+            return vec![fill(bounds, color).corner_radii(HOVER_RADIUS)];
+        }
+        self.selection_quads(range, color)
+            .into_iter()
+            .map(|quad| {
+                let bounds = Bounds::from_corners(
+                    quad.bounds.origin - point(HOVER_PAD, px(0.)),
+                    quad.bounds.bottom_right() + point(HOVER_PAD, px(0.)),
+                );
+                fill(bounds, color).corner_radii(HOVER_RADIUS)
+            })
+            .collect()
+    }
+
+    /// The Marker of a Slot over `range` (window coordinates), less the underline, which is
+    /// a text run. `depth`: how many Paragraph Slots hold it; each moves a margin line left.
+    fn marker_quads(
+        &self,
+        range: &Range<usize>,
+        marker: &Marker,
+        depth: usize,
+        theme: &Theme,
+    ) -> Vec<PaintQuad> {
+        let Some((start, end)) = self.rows(range) else {
+            return Vec::new();
+        };
+        let origin = self.bounds.origin;
+        let dots_length = (DOT_SIZE + DOT_GAP) * as_factor(marker.dots) - DOT_GAP;
+        let bottom = end.y + self.line_height;
+        let row_left = if start.y == end.y { start.x } else { px(0.) };
+        let line_x = -MARGIN_LINE_GAP - MARGIN_LINE_STEP * as_factor(depth);
+        let (first_dot, dot_step, line) = match marker.kind {
+            MarkerKind::Underline => (
+                point(
+                    (row_left + end.x - dots_length) / 2.,
+                    bottom - DOT_SIZE - px(1.),
+                ),
+                point(DOT_SIZE + DOT_GAP, px(0.)),
+                None,
+            ),
+            MarkerKind::MarginLine => (
+                point(
+                    line_x - DOT_GAP - DOT_SIZE,
+                    (start.y + bottom - dots_length) / 2.,
+                ),
+                point(px(0.), DOT_SIZE + DOT_GAP),
+                Some(fill(
+                    Bounds::from_corners(
+                        origin + point(line_x, start.y),
+                        origin + point(line_x + MARGIN_LINE_WIDTH, bottom),
+                    ),
+                    theme.slot_paragraph_line,
+                )),
+            ),
+        };
+        let dots = (0..marker.dots).map(|index| {
+            let at = origin + first_dot + dot_step * as_factor(index);
+            let quad = fill(
+                Bounds::new(at, size(DOT_SIZE, DOT_SIZE)),
+                theme.slot_dot_filled,
+            )
+            .corner_radii(DOT_SIZE / 2.);
+            if index == marker.active {
+                return quad;
+            }
+            quad.background(gpui::transparent_black())
+                .border_widths(px(1.))
+                .border_color(theme.slot_dot)
+        });
+        line.into_iter().chain(dots).collect()
+    }
+
     /// Quads that cover `range` (window coordinates), one per visual row.
     fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
@@ -702,42 +827,70 @@ struct EditorElement {
 
 struct EditorPrepaint {
     lines: Vec<PaintedLine>,
+    hover: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
+    marker_quads: Vec<PaintQuad>,
     cursor: Option<PaintQuad>,
 }
 
 impl EditorElement {
     /// Text runs: the title line bold in the title color (FR-5), the rest in body style.
+    /// Word and Sentence Slots are underlined (FR-12).
     fn runs(&self, window: &Window, cx: &App) -> Vec<TextRun> {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
         let style = window.text_style();
         let text = editor.document.text();
-        let body = TextRun {
-            len: text.len(),
-            font: style.font(),
-            color: theme.text,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
+        let title_end = editor.document.title().map_or(0, str::len);
+        let underlined: Vec<Range<usize>> = editor
+            .document
+            .slots()
+            .into_iter()
+            .filter(|slot| slot.level != Level::Paragraph)
+            .map(|slot| slot.range)
+            .collect();
+        let mut edges = vec![0, title_end, text.len()];
+        edges.extend(underlined.iter().flat_map(|range| [range.start, range.end]));
+        edges.sort_unstable();
+        edges.dedup();
+        let underline = UnderlineStyle {
+            thickness: px(1.),
+            color: Some(theme.slot_underline),
+            wavy: false,
         };
-        let Some(title) = editor.document.title() else {
-            return vec![body];
-        };
-        let mut title_font = style.font();
-        title_font.weight = FontWeight::BOLD;
-        vec![
-            TextRun {
-                len: title.len(),
-                font: title_font,
-                color: theme.text_title,
-                ..body.clone()
-            },
-            TextRun {
-                len: text.len() - title.len(),
-                ..body
-            },
-        ]
+        let runs: Vec<TextRun> = edges
+            .iter()
+            .zip(edges.iter().skip(1))
+            .map(|(&start, &end)| {
+                let mut font = style.font();
+                let title = end <= title_end;
+                if title {
+                    font.weight = FontWeight::BOLD;
+                }
+                let in_slot = underlined
+                    .iter()
+                    .any(|range| range.start <= start && end <= range.end);
+                TextRun {
+                    len: end - start,
+                    font,
+                    color: if title { theme.text_title } else { theme.text },
+                    background_color: None,
+                    underline: in_slot.then_some(underline),
+                    strikethrough: None,
+                }
+            })
+            .collect();
+        if runs.is_empty() {
+            return vec![TextRun {
+                len: 0,
+                font: style.font(),
+                color: theme.text,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }];
+        }
+        runs
     }
 
     fn shape(
@@ -840,6 +993,37 @@ impl Element for EditorElement {
         let theme = *cx.global::<Theme>();
         let editor = self.editor.read(cx);
         let selection = painted.selection_quads(&editor.selection, theme.selection);
+        let slots = editor.document.slots();
+        let hover = editor
+            .hovered
+            .and_then(|id| slots.iter().find(|slot| slot.id == id))
+            .map_or_default(|slot| {
+                painted.hover_quads(&slot.range, slot.level, theme.slot_hover_background)
+            });
+        let mut markers = Vec::new();
+        let mut marker_quads = Vec::new();
+        for (index, slot) in slots.iter().enumerate() {
+            let marker = Marker {
+                slot: slot.id,
+                kind: match slot.level {
+                    Level::Word | Level::Sentence => MarkerKind::Underline,
+                    Level::Paragraph => MarkerKind::MarginLine,
+                },
+                dots: slot.variants.len(),
+                active: slot.active,
+            };
+            let depth = slots
+                .iter()
+                .take(index)
+                .filter(|outer| {
+                    outer.level == Level::Paragraph
+                        && outer.range.start <= slot.range.start
+                        && slot.range.end <= outer.range.end
+                })
+                .count();
+            marker_quads.extend(painted.marker_quads(&slot.range, &marker, depth, &theme));
+            markers.push(marker);
+        }
         let cursor = editor
             .selection
             .is_empty()
@@ -859,11 +1043,15 @@ impl Element for EditorElement {
             );
             window.request_animation_frame();
         }
-        self.editor
-            .update(cx, |editor, _| editor.autoscroll = false);
+        self.editor.update(cx, |editor, _| {
+            editor.autoscroll = false;
+            editor.markers = markers;
+        });
         EditorPrepaint {
             lines: painted.lines,
+            hover,
             selection,
+            marker_quads,
             cursor,
         }
     }
@@ -884,7 +1072,12 @@ impl Element for EditorElement {
             ElementInputHandler::new(bounds, self.editor.clone()),
             cx,
         );
-        for quad in prepaint.selection.drain(..) {
+        for quad in prepaint
+            .hover
+            .drain(..)
+            .chain(prepaint.selection.drain(..))
+            .chain(prepaint.marker_quads.drain(..))
+        {
             window.paint_quad(quad);
         }
         let line_height = window.line_height();
@@ -910,6 +1103,11 @@ impl Element for EditorElement {
             });
         });
     }
+}
+
+/// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
+fn as_factor(count: usize) -> f32 {
+    f32::from(u16::try_from(count).unwrap_or(u16::MAX))
 }
 
 /// Where `offset` in `old` lands in `new`, when one span of `old` changed into `new`.

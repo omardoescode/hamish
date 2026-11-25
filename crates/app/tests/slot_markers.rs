@@ -1,4 +1,4 @@
-use app::Workspace;
+use app::{Marker, MarkerKind, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
@@ -121,4 +121,95 @@ fn the_pointer_over_a_slot_hovers_it(cx: &mut TestAppContext) {
 
     hover(&workspace, cx, 7);
     assert_eq!(hovered_slot(&workspace, cx), None);
+}
+
+fn markers(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Marker> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).markers().to_vec())
+}
+
+#[gpui::test]
+fn a_word_slot_shows_an_underline_with_one_dot_per_variant(cx: &mut TestAppContext) {
+    let (document, slot) = word_slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    assert_eq!(
+        markers(&workspace, cx),
+        vec![Marker {
+            slot,
+            kind: MarkerKind::Underline,
+            dots: 2,
+            active: 0,
+        }]
+    );
+
+    hover(&workspace, cx, 16);
+    cx.simulate_keystrokes("down");
+    assert_eq!(markers(&workspace, cx)[0].active, 1);
+}
+
+/// "Title\nOld text here." with a Paragraph Slot (Variants "Old text here.", "New words
+/// here.", "Third.") and a Word Slot on "words" nested in the second Variant.
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn nested_document() -> (Document, SlotId, SlotId) {
+    let mut document = Document::new("Title\nOld text here.");
+    let paragraph = document
+        .create_slot(
+            6..20,
+            Level::Paragraph,
+            "New words here.",
+            Provenance::Writer,
+        )
+        .expect("valid range");
+    document
+        .add_variant(paragraph, "Third.", Provenance::Ai)
+        .expect("visible Slot");
+    document.set_active(paragraph, 1).expect("Variant 1 exists");
+    let word = document
+        .create_slot(10..15, Level::Word, "lines", Provenance::Writer)
+        .expect("valid range");
+    document.set_active(paragraph, 0).expect("Variant 0 exists");
+    (document, paragraph, word)
+}
+
+#[gpui::test]
+fn nested_slot_markers_show_inside_the_active_paragraph_variant(cx: &mut TestAppContext) {
+    let (document, paragraph, word) = nested_document();
+    let (workspace, cx) = open(cx, document);
+    let paragraph_marker = |active| Marker {
+        slot: paragraph,
+        kind: MarkerKind::MarginLine,
+        dots: 3,
+        active,
+    };
+
+    assert_eq!(markers(&workspace, cx), vec![paragraph_marker(0)]);
+
+    hover(&workspace, cx, 8);
+    cx.simulate_keystrokes("down");
+    assert_eq!(text(&workspace, cx), "Title\nNew words here.");
+    assert_eq!(
+        markers(&workspace, cx),
+        vec![
+            paragraph_marker(1),
+            Marker {
+                slot: word,
+                kind: MarkerKind::Underline,
+                dots: 2,
+                active: 0,
+            },
+        ]
+    );
+}
+
+#[gpui::test]
+fn the_innermost_slot_under_the_pointer_is_hovered(cx: &mut TestAppContext) {
+    let (mut document, paragraph, word) = nested_document();
+    document.set_active(paragraph, 1).expect("Variant 1 exists");
+    let (workspace, cx) = open(cx, document);
+
+    hover(&workspace, cx, 11);
+    assert_eq!(hovered_slot(&workspace, cx), Some(word));
+
+    hover(&workspace, cx, 7);
+    assert_eq!(hovered_slot(&workspace, cx), Some(paragraph));
 }
