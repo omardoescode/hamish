@@ -23,7 +23,7 @@ use crate::editor::Spotlight;
 use crate::effects::{self, Particles, PlayingEffect};
 use crate::sounds;
 use crate::{Ai, Editor, Theme};
-use crate::{context_menu, loading, settings_modal};
+use crate::{context_menu, loading, settings};
 
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
@@ -915,7 +915,7 @@ impl AlternativesPanel {
             .children(variant_rows)
             .children(self.render_ai_status(theme))
             .when(self.ai == AiStatus::Loading, |list| {
-                let reduced_motion = settings_modal::is_on(cx, |settings| settings.reduced_motion);
+                let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
                 list.child(
                     row_box(theme, true)
                         .id("alternatives-loading")

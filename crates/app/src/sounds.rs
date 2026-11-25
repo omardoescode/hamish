@@ -11,7 +11,7 @@ use cpal::{FromSample, SizedSample, Stream, StreamConfig};
 use gpui::{App, Global};
 use ka_teb_core::Sound;
 
-use crate::settings_modal;
+use crate::settings;
 
 /// Plays sounds. It returns at once; the sound plays off the UI thread.
 pub trait SoundSink: Send + Sync {
@@ -27,7 +27,7 @@ impl Global for Sounds {}
 /// Plays `sound` when the "Cycle sounds" setting is on. A Variant delete plays
 /// [`Sound::Explosion`].
 pub(crate) fn play(sound: Sound, cx: &App) {
-    if !settings_modal::is_on(cx, |settings| settings.cycle_sounds) {
+    if !settings::is_on(cx, |settings| settings.cycle_sounds) {
         return;
     }
     if let Some(Sounds(sink)) = cx.try_global::<Sounds>() {

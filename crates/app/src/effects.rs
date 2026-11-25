@@ -7,7 +7,7 @@ use std::time::Instant;
 use gpui::{App, Bounds, BoxShadow, Hsla, Pixels, Window, fill, point, px, rgb, size};
 use ka_teb_core::{Effect, Particle, ParticleArea};
 
-use crate::settings_modal;
+use crate::settings;
 
 /// Spec colors (estimate): core, flame, sparks.
 fn core_color() -> Hsla {
@@ -126,7 +126,7 @@ fn bounds_in(area: Bounds<Pixels>, particle: Particle) -> Bounds<Pixels> {
 
 /// Whether Effects play: with Reduced motion they show no particles and are done at once.
 pub(crate) fn plays(cx: &App) -> bool {
-    !settings_modal::is_on(cx, |settings| settings.reduced_motion)
+    !settings::is_on(cx, |settings| settings.reduced_motion)
 }
 
 #[cfg(test)]

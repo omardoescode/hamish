@@ -29,7 +29,7 @@ use crate::actions::{
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::effects::{self, Particles, PlayingEffect};
-use crate::settings_modal;
+use crate::settings;
 use crate::sounds;
 
 mod focus_zoom;
@@ -598,7 +598,7 @@ impl Editor {
             .saturating_duration_since(started);
         let progress = Effect::VariantFadeIn.progress(
             elapsed,
-            settings_modal::is_on(cx, |settings| settings.reduced_motion),
+            settings::is_on(cx, |settings| settings.reduced_motion),
         );
         (progress < 1.).then_some((
             slot,

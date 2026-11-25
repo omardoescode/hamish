@@ -14,6 +14,7 @@ use crate::lab::Lab;
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::save_open::Notice;
 use crate::save_open::SaveOpen;
+use crate::settings;
 use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
@@ -55,7 +56,7 @@ impl Workspace {
         Self {
             editor,
             overflow_panel,
-            save_open: SaveOpen::with_notice(settings_modal::take_start_notice(cx)),
+            save_open: SaveOpen::with_notice(settings::take_start_notice(cx)),
             lab: Lab::new(cx),
             chrome_visible: false,
             alternatives: None,
