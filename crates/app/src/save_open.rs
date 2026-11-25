@@ -33,9 +33,19 @@ pub(crate) struct SaveOpen {
     /// A save asked for while one runs; it starts when that one ends, so two saves never
     /// write the same file at once.
     queued: Option<PathBuf>,
+    /// Counts the Documents that replaced the first one. A save that ends after a New or an
+    /// Open belongs to a Document that is gone, so it changes nothing.
+    generation: u64,
 }
 
 impl SaveOpen {
+    fn replaced(&self) -> Self {
+        Self {
+            generation: self.generation + 1,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn with_notice(notice: Option<Notice>) -> Self {
         Self {
             notice,
@@ -100,10 +110,15 @@ impl Workspace {
         self.save_open.saving = true;
         let (document, at) = self.editor.update(cx, |editor, _| editor.snapshot());
         let target = path.clone();
+        let generation = self.save_open.generation;
         let saving = cx.background_spawn(async move { document.save(&target) });
         cx.spawn(async move |this, cx| {
             let result = saving.await;
-            this.update(cx, |workspace, cx| workspace.saved(path, at, result, cx))
+            this.update(cx, |workspace, cx| {
+                if workspace.save_open.generation == generation {
+                    workspace.saved(path, at, result, cx);
+                }
+            })
         })
         .detach();
     }
@@ -171,7 +186,7 @@ impl Workspace {
                 workspace
                     .editor
                     .update(cx, |editor, cx| editor.load(Document::default(), cx));
-                workspace.save_open = SaveOpen::default();
+                workspace.save_open = workspace.save_open.replaced();
                 workspace.reset_panels(window, cx);
             })
         })
@@ -235,6 +250,7 @@ impl Workspace {
         };
         self.editor
             .update(cx, |editor, cx| editor.load(document, cx));
+        self.save_open = self.save_open.replaced();
         self.save_open.path = Some(path);
         self.save_open.notice = (!dropped.is_empty()).then_some(Notice::Dropped(dropped));
         cx.notify();
