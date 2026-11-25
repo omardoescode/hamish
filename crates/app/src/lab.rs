@@ -37,6 +37,8 @@ const POPOVER_WIDTH: gpui::Pixels = px(270.);
 const CARD_WIDTH: gpui::Pixels = px(320.);
 /// Space between the top of the Chrome bar and a popover above the LAB button.
 const POPOVER_GAP: gpui::Pixels = px(8.);
+/// Width of an AI bar.
+const BAR_WIDTH: gpui::Pixels = px(390.);
 
 /// One row of the Lab popover.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,8 +106,7 @@ fn guide(check: LabCheck) -> &'static str {
 
 fn status_text(status: &LabStatus) -> SharedString {
     match status {
-        LabStatus::Idle => "".into(),
-        LabStatus::Running => "marking…".into(),
+        LabStatus::Idle | LabStatus::Running => "".into(),
         LabStatus::Marked(0) => "no marks".into(),
         LabStatus::Marked(1) => "1 mark".into(),
         LabStatus::Marked(count) => format!("{count} marks").into(),
@@ -270,6 +271,11 @@ impl Lab {
             );
         let rows = self.rows(cx).into_iter().enumerate().map(|(index, row)| {
             let check = row.check;
+            let (border, color) = if row.status == LabStatus::Running {
+                (theme.accent_outline, theme.accent)
+            } else {
+                (gpui::transparent_black(), theme.text)
+            };
             let detail = match &row.status {
                 LabStatus::Failed(failure) => Some(failure.to_string()),
                 LabStatus::Idle | LabStatus::Running | LabStatus::Marked(_) => {
@@ -281,6 +287,8 @@ impl Lab {
                 .debug_selector(move || format!("lab-check-{index}"))
                 .px(px(12.))
                 .py(px(2.))
+                .border_1()
+                .border_color(border)
                 .rounded(theme.elevated_radius)
                 .cursor_pointer()
                 .hover(|row| row.bg(theme.elevated_row_hover))
@@ -292,9 +300,19 @@ impl Lab {
                         .flex()
                         .justify_between()
                         .gap(px(12.))
-                        .child(div().text_color(theme.text).child(row.label))
                         .child(
                             div()
+                                .debug_selector(move || format!("lab-check-label-{index}"))
+                                .flex_1()
+                                .min_w_0()
+                                .text_color(color)
+                                .child(row.label),
+                        )
+                        .child(
+                            div()
+                                .debug_selector(move || format!("lab-check-status-{index}"))
+                                .flex_none()
+                                .whitespace_nowrap()
                                 .text_color(theme.text_muted)
                                 .child(status_text(&row.status)),
                         ),
@@ -412,6 +430,11 @@ impl Render for Lab {
                 .map(|mark| self.mark_card(&mark, &theme, cx))
         };
         let bar = self.trim_bar_view(&theme, cx);
+        let check_bars: Vec<_> = LabCheck::ALL
+            .into_iter()
+            .filter(|check| self.checks.get(check).is_some_and(AiRun::is_running))
+            .map(|check| ai_bar(&theme, label(check), "marking…".into()).into_any_element())
+            .collect();
         bottom_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP).child(
             div()
                 .flex()
@@ -419,6 +442,7 @@ impl Render for Lab {
                 .items_center()
                 .gap(px(6.))
                 .children(bar)
+                .children(check_bars)
                 .children(below),
         )
     }
@@ -457,6 +481,35 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
                 .child(if running { "LAB …" } else { "LAB" }),
         )
         .into_any_element()
+}
+
+/// An AI bar above the Lab popover: `name` in bold, then `detail` in accent. A Trim and
+/// each running Lab check show one.
+pub(crate) fn ai_bar(theme: &Theme, name: &'static str, detail: SharedString) -> gpui::Div {
+    div()
+        .debug_selector(|| "ai-bar".to_owned())
+        .occlude()
+        .w(BAR_WIDTH)
+        .p(px(8.))
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .bg(theme.elevated_background)
+        .rounded(theme.elevated_radius)
+        .shadow_md()
+        .text_size(theme.font_size_hint)
+        .child(
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .text_color(theme.text_title)
+                        .child(name),
+                )
+                .child(div().text_color(theme.accent).child(detail)),
+        )
 }
 
 /// A full-width row at `bottom` that centers its child.

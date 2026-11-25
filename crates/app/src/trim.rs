@@ -6,6 +6,7 @@ use gpui::{AnyElement, App, Context, IntoElement, SharedString, Window, div, pre
 use ka_teb_core::{TrimError, TrimLevel};
 
 use crate::ai::{AiRun, AiStatus};
+use crate::lab::ai_bar;
 use crate::{Lab, Theme};
 
 #[expect(
@@ -25,9 +26,6 @@ mod actions {
 }
 
 pub use actions::{CloseTrim, MakeTrimCuts, RunTrim, WalkCut, WalkKeep, WalkTrim};
-
-/// Width of the trim bar.
-const BAR_WIDTH: gpui::Pixels = px(390.);
 
 /// What the trim bar shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -279,30 +277,8 @@ impl Lab {
             .trim_start()
             .to_owned();
         Some(
-            div()
+            ai_bar(theme, name, detail.into())
                 .id("trim-bar")
-                .occlude()
-                .w(BAR_WIDTH)
-                .p(px(8.))
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .bg(theme.elevated_background)
-                .rounded(theme.elevated_radius)
-                .shadow_md()
-                .text_size(theme.font_size_hint)
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(
-                            div()
-                                .font_weight(gpui::FontWeight::BOLD)
-                                .text_color(theme.text_title)
-                                .child(name),
-                        )
-                        .child(div().text_color(theme.accent).child(detail)),
-                )
                 .children(hint.map(|hint| div().text_color(theme.text_muted).child(hint)))
                 .child(
                     div()
