@@ -10,12 +10,14 @@ mod alternatives_panel;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod effects;
 mod lab;
 mod loading;
 mod overflow_panel;
 mod save_open;
 mod settings_modal;
 mod theme;
+mod trim;
 mod workspace;
 
 use std::borrow::Cow;
@@ -27,21 +29,23 @@ use actions::{
 use gpui::{App, KeyBinding};
 
 pub use actions::{
-    AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, LeaveOverflow,
-    MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, Open,
-    OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs, SelectAll, SelectDown, SelectLeft,
-    SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost,
-    ToggleOverflow, Undo, UseOverflowBlock,
+    AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, DeleteActiveVariant,
+    LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline,
+    Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs, SelectAll, SelectDown,
+    SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome,
+    ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::Ai;
 pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use effects::{Effect, EffectKind};
 pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings_modal::{SettingsModal, use_settings};
 pub use theme::Theme;
+pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
 pub use workspace::Workspace;
 
 /// Loads the bundled body font (Regular, Bold, Italic, Bold Italic), sets the default settings
@@ -98,6 +102,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-/", ToggleGhost, editor),
         KeyBinding::new("ctrl-shift-x", Stash, editor),
         KeyBinding::new("escape", CloseMenu, editor),
+        KeyBinding::new("ctrl-shift-backspace", DeleteActiveVariant, editor),
         KeyBinding::new("ctrl-enter", UseOverflowBlock, overflow),
         KeyBinding::new("escape", LeaveOverflow, overflow),
         KeyBinding::new("ctrl-shift-o", ToggleOverflow, Some("Workspace")),

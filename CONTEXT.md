@@ -83,6 +83,15 @@ _Avoid_: Item, chunk
 Move (not copy) a selection from the Document to the end of Overflow.
 _Avoid_: Cut, park
 
+### Effects
+
+**Explosion**:
+The particle burst that plays at a span (or panel row) when a Variant is deleted.
+_Avoid_: Animation, boom
+
+**Undo burst**:
+The burst that plays at a span when an undo puts a deleted Variant back.
+
 ### Markdown
 
 **Markdown style**:

@@ -13,6 +13,7 @@ use ka_teb_core::{AiError, LabCheck, LabFinding, LabMark, LabMarkId, LabRequest}
 
 use gpui::Focusable;
 
+use crate::trim::TrimRun;
 use crate::{Ai, Theme, Workspace};
 
 #[expect(
@@ -77,6 +78,7 @@ pub(crate) struct Lab {
     open: bool,
     guide: bool,
     runs: HashMap<LabCheck, Run>,
+    pub(crate) trim: TrimRun,
     focus_handle: FocusHandle,
 }
 
@@ -86,6 +88,7 @@ impl Lab {
             open: false,
             guide: false,
             runs: HashMap::new(),
+            trim: TrimRun::Idle,
             focus_handle: cx.focus_handle(),
         }
     }
@@ -278,25 +281,41 @@ impl Workspace {
         }
     }
 
-    /// The LAB button (with the Chrome), the open popover, and the card of the mark at the
-    /// cursor (while the popover is closed).
+    /// The LAB button (with the Chrome), and above it the trim bar over the open popover or
+    /// over the card of the mark at the cursor (while the popover is closed).
     pub(crate) fn lab_view(&self, theme: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut elements = Vec::new();
         if self.chrome_visible() {
             elements.push(self.lab_button(theme, cx));
         }
-        if self.lab.open {
-            elements.push(self.lab_popover(theme, cx));
-            return elements;
-        }
-        if let Some(mark) = self.lab_mark_at_cursor(cx) {
-            elements.push(self.lab_mark_card(&mark, theme, cx));
+        let below = if self.lab.open {
+            Some(self.lab_popover(theme, cx))
+        } else {
+            self.lab_mark_at_cursor(cx)
+                .map(|mark| self.lab_mark_card(&mark, theme, cx))
+        };
+        let bar = self.trim_bar_view(theme, cx);
+        if bar.is_some() || below.is_some() {
+            elements.push(
+                bottom_center(POPOVER_BOTTOM)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(6.))
+                            .children(bar)
+                            .children(below),
+                    )
+                    .into_any_element(),
+            );
         }
         elements
     }
 
     fn lab_button(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let running = self.lab.runs.values().any(|run| *run == Run::Running);
+        let running = self.lab.runs.values().any(|run| *run == Run::Running)
+            || matches!(self.lab.trim, TrimRun::Running(_));
         let color = if self.lab.open {
             theme.accent
         } else {
@@ -383,24 +402,22 @@ impl Workspace {
                             .child(detail)
                     }))
             });
-        bottom_center(POPOVER_BOTTOM)
-            .child(
-                div()
-                    .id("lab-popover")
-                    .key_context("Lab")
-                    .track_focus(&self.lab.focus_handle)
-                    .on_action(cx.listener(Self::close_lab))
-                    .on_action(cx.listener(Self::run_lab_check))
-                    .occlude()
-                    .w(POPOVER_WIDTH)
-                    .pb(px(4.))
-                    .bg(theme.elevated_background)
-                    .rounded(theme.elevated_radius)
-                    .shadow_md()
-                    .text_size(theme.font_size_hint)
-                    .child(header)
-                    .children(rows),
-            )
+        div()
+            .id("lab-popover")
+            .key_context("Lab")
+            .track_focus(&self.lab.focus_handle)
+            .on_action(cx.listener(Self::close_lab))
+            .on_action(cx.listener(Self::run_lab_check))
+            .occlude()
+            .w(POPOVER_WIDTH)
+            .pb(px(4.))
+            .bg(theme.elevated_background)
+            .rounded(theme.elevated_radius)
+            .shadow_md()
+            .text_size(theme.font_size_hint)
+            .child(header)
+            .children(rows)
+            .child(self.trim_row(theme, cx))
             .into_any_element()
     }
 
@@ -441,31 +458,28 @@ impl Workspace {
             .note
             .as_ref()
             .map(|note| div().text_color(theme.text_muted).child(note.clone()));
-        bottom_center(POPOVER_BOTTOM)
+        div()
+            .id("lab-mark-card")
+            .occlude()
+            .w(CARD_WIDTH)
+            .p(px(8.))
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .bg(theme.elevated_background)
+            .rounded(theme.elevated_radius)
+            .shadow_md()
+            .text_size(theme.font_size_hint)
+            .child(div().text_color(theme.accent).child(label(mark.check)))
+            .children(fix)
+            .children(note)
             .child(
                 div()
-                    .id("lab-mark-card")
-                    .occlude()
-                    .w(CARD_WIDTH)
-                    .p(px(8.))
                     .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .bg(theme.elevated_background)
-                    .rounded(theme.elevated_radius)
-                    .shadow_md()
-                    .text_size(theme.font_size_hint)
-                    .child(div().text_color(theme.accent).child(label(mark.check)))
-                    .children(fix)
-                    .children(note)
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .text_color(theme.text)
-                            .children(accept)
-                            .child(dismiss),
-                    ),
+                    .gap(px(8.))
+                    .text_color(theme.text)
+                    .children(accept)
+                    .child(dismiss),
             )
             .into_any_element()
     }

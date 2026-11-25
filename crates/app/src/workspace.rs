@@ -40,6 +40,7 @@ impl Workspace {
             window,
             |workspace, _, event: &EditorEvent, window, cx| match *event {
                 EditorEvent::SlotClicked(slot) => workspace.show_slot(slot, window, cx),
+                EditorEvent::VariantDeleted(_) | EditorEvent::VariantRestored(_) => {}
             },
         );
         let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
@@ -213,6 +214,12 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::toggle_lab))
+            .on_action(cx.listener(Self::run_trim))
+            .on_action(cx.listener(Self::make_trim_cuts))
+            .on_action(cx.listener(Self::walk_trim))
+            .on_action(cx.listener(Self::walk_keep))
+            .on_action(cx.listener(Self::walk_cut))
+            .on_action(cx.listener(Self::close_trim))
             .child(
                 div()
                     .absolute()
