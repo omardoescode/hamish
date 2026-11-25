@@ -8,5 +8,7 @@
 - AI calls only through the AI adapter trait. The UI thread never waits on I/O (use the background executor).
 - AI never changes text without a writer action (spec NFR).
 - Names come from the glossary (CONTEXT.md).
+- Unit tests: `#[cfg(test)] mod tests` in the same file; they test private logic of one module. Run: `cargo test --workspace --lib --bins`.
+- Integration tests: `crates/<crate>/tests/*.rs`; public API only, at the agreed seams (Document API, persistence round trip, AI adapter, GPUI action dispatch) plus architecture rules (`crates/core/tests/architecture.rs`: core has no gpui). Run: `cargo test --workspace --test '*'`.
 - Tests: no tautological tests. Expected values come from the spec or hardcoded worked examples. Test at agreed seams only.
 - Commits: no Co-Authored-By.

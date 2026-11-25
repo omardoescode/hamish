@@ -55,6 +55,7 @@ jobs:
         with:
           cache-all-crates: true
           cache-on-failure: true
-      - run: cargo test
-      - name: core has no gpui dependency
-        run: "! cargo tree -p ka-teb-core --edges normal,build --prefix none | grep -q '^gpui '"
+      - name: unit tests
+        run: cargo test --workspace --lib --bins
+      - name: integration tests
+        run: cargo test --workspace --test '*'
