@@ -251,7 +251,7 @@ fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
         .top(px(22.))
         .left(px(24.))
         .text_size(theme.font_size_hint)
-        .text_color(theme.text_faint)
+        .text_color(theme.text_muted)
         .cursor_pointer()
         .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
         .child(label)
