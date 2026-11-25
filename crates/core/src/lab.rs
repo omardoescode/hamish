@@ -89,9 +89,13 @@ pub struct LabMark {
 
 impl LabMark {
     /// This mark after a text edit: `edit` was replaced by `inserted` bytes.
-    /// An insert at an edge goes outside the mark. `None` when the mark ends: all its
-    /// text was removed, or it has a proposed fix and its text changed (the fix is stale).
+    /// An insert at an edge goes outside the mark; an empty edit (a Ghost, a new Slot)
+    /// changes nothing. `None` when the mark ends: all its text was removed, or it has a
+    /// proposed fix and its text changed (the fix is stale).
     pub(crate) fn follow(mut self, edit: &Range<usize>, inserted: usize) -> Option<Self> {
+        if edit.is_empty() && inserted == 0 {
+            return Some(self);
+        }
         let range = self.range.clone();
         if edit.end <= range.start {
             self.range = range.start + inserted - edit.len()..range.end + inserted - edit.len();

@@ -425,3 +425,29 @@ fn marks_follow_a_variant_switch_like_a_text_edit() {
         vec![mark(LabCheck::OffToneWords, 23..27, None, None)]
     );
 }
+
+#[test]
+fn a_ghost_or_a_slot_inside_a_mark_with_a_fix_keeps_the_mark() {
+    let mut document = Document::new("I saw teh big cat sat");
+    run(
+        &mut document,
+        LabCheck::PunctuationTypos,
+        vec![finding(6..13, Some("typo"), Some("the big"))],
+    )
+    .unwrap();
+
+    document.ghost(10..13).unwrap();
+    document
+        .create_slot(6..9, Level::Word, "a", Provenance::Writer)
+        .unwrap();
+
+    assert_eq!(
+        marks(&document),
+        vec![mark(
+            LabCheck::PunctuationTypos,
+            6..13,
+            Some("typo"),
+            Some("the big")
+        )]
+    );
+}
