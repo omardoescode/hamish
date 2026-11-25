@@ -102,6 +102,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("escape", ClosePanel, panel),
         KeyBinding::new("backspace", DeleteBackward, panel),
         KeyBinding::new("ctrl-backspace", DeleteVariant, panel),
+        KeyBinding::new("ctrl-shift-g", AiAlternatives, panel),
         KeyBinding::new("ctrl-v", Paste, panel),
     ]);
     Ok(())
