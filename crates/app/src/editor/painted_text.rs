@@ -4,8 +4,8 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, Hsla, PaintQuad, Pixels, Point, SharedString, TextRun, Window, WrappedLine, fill,
-    point, px,
+    App, Bounds, FontId, GlyphId, Hsla, PaintQuad, Pixels, Point, SharedString, TextRun, Window,
+    WrappedLine, fill, point, px,
 };
 
 /// The text as last painted, for mouse and vertical caret moves.
@@ -19,6 +19,83 @@ pub(crate) struct PaintedLine {
     pub(super) start: usize,
     pub(super) top: Pixels,
     pub(super) line: WrappedLine,
+}
+
+/// One glyph of a painted line, before any zoom (window coordinates).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LineGlyph {
+    /// Byte offset in the text.
+    pub(super) offset: usize,
+    /// Top left of the glyph cell on its row.
+    pub(super) top_left: Point<Pixels>,
+    pub(super) baseline: Point<Pixels>,
+    /// Advance to the next glyph, or to the line end.
+    pub(super) width: Pixels,
+    pub(super) font_id: FontId,
+    pub(super) id: GlyphId,
+    pub(super) emoji: bool,
+}
+
+impl PaintedLine {
+    /// The glyphs of this line, its top left at `origin`, each on its wrapped row.
+    pub(super) fn glyphs(&self, origin: Point<Pixels>, line_height: Pixels) -> Vec<LineGlyph> {
+        let layout = &self.line.unwrapped_layout;
+        let baseline = (line_height - layout.ascent - layout.descent) / 2. + layout.ascent;
+        let positioned: Vec<_> = layout
+            .runs
+            .iter()
+            .enumerate()
+            .flat_map(|(run_ix, run)| {
+                run.glyphs
+                    .iter()
+                    .enumerate()
+                    .map(move |(glyph_ix, glyph)| (run_ix, glyph_ix, run.font_id, glyph))
+            })
+            .collect();
+        let mut row = 0_u16;
+        let mut row_start = px(0.);
+        let mut glyphs = Vec::with_capacity(positioned.len());
+        for (index, &(run_ix, glyph_ix, font_id, glyph)) in positioned.iter().enumerate() {
+            if self
+                .line
+                .wrap_boundaries
+                .iter()
+                .any(|wrap| wrap.run_ix == run_ix && wrap.glyph_ix == glyph_ix)
+            {
+                row += 1;
+                row_start = glyph.position.x;
+            }
+            let top_left =
+                origin + point(glyph.position.x - row_start, line_height * f32::from(row));
+            let next_x = positioned
+                .get(index + 1)
+                .map_or(layout.width, |next| next.3.position.x);
+            glyphs.push(LineGlyph {
+                offset: self.start + glyph.index,
+                top_left,
+                baseline: top_left + point(px(0.), baseline),
+                width: next_x - glyph.position.x,
+                font_id,
+                id: glyph.id,
+                emoji: glyph.is_emoji,
+            });
+        }
+        glyphs
+    }
+
+    /// Byte range of this line in the text.
+    pub(super) fn range(&self) -> Range<usize> {
+        self.start..self.start + self.line.len()
+    }
+}
+
+/// The run that covers byte `offset`.
+pub(super) fn run_at(runs: &[TextRun], offset: usize) -> Option<&TextRun> {
+    let mut end = 0;
+    runs.iter().find(|run| {
+        end += run.len;
+        offset < end
+    })
 }
 
 impl PaintedText {

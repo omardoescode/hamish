@@ -145,8 +145,15 @@ The UI tools around the text: icons, buttons, counter.
 Live word and character count of the Document, or of the selection.
 
 **Settings**:
-The writer's choices for theme, UI scale, body font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
+The writer's choices for theme, UI scale, UI font, Text font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
 _Avoid_: Preferences, config
+
+**UI font**:
+The font of the Chrome, panels, Settings, menus, and popovers.
+
+**Text font**:
+The font of the Document text and the Overflow text. Its default is the UI font.
+_Avoid_: Body font
 
 ### Lab
 

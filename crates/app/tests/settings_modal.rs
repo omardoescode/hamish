@@ -150,24 +150,72 @@ fn line_height_and_column_width_change_the_editor(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_font_from_the_font_select_changes_the_setting(cx: &mut TestAppContext) {
+fn a_font_from_the_ui_font_select_changes_the_ui_font(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let (_, cx) = open_with_file(cx, path.clone());
+
+    cx.simulate_keystrokes("ctrl-,");
+    assert_eq!(theme(cx).ui_font, "IBM Plex Mono");
+
+    click(cx, "settings-ui-font-select");
+    click(cx, "settings-ui-font-1");
+    assert_ne!(theme(cx).ui_font, "IBM Plex Mono");
+    assert_ne!(Settings::load(&path).settings.ui_font, "IBM Plex Mono");
+
+    click(cx, "settings-ui-font-select");
+    click(cx, "settings-ui-font-0");
+    assert_eq!(theme(cx).ui_font, "IBM Plex Mono");
+    assert_eq!(Settings::load(&path).settings.ui_font, "IBM Plex Mono");
+}
+
+#[gpui::test]
+fn the_text_font_select_starts_at_default_and_changes_the_text_font(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
     let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");
     click(cx, "settings-section-editor");
-    assert_eq!(theme(cx).font_family, "IBM Plex Mono");
+    click(cx, "settings-text-font-select");
+    click(cx, "settings-text-font-1");
+    let chosen = Settings::load(&path).settings.text_font;
+    assert!(
+        chosen
+            .as_deref()
+            .is_some_and(|family| family != "IBM Plex Mono")
+    );
+    assert_eq!(Some(theme(cx).text_font.to_string()), chosen);
+    assert_eq!(theme(cx).ui_font, "IBM Plex Mono");
 
-    click(cx, "settings-font-select");
-    click(cx, "settings-font-1");
-    assert_ne!(theme(cx).font_family, "IBM Plex Mono");
-    assert_ne!(Settings::load(&path).settings.font_family, "IBM Plex Mono");
+    click(cx, "settings-text-font-select");
+    click(cx, "settings-text-font-default");
+    assert_eq!(Settings::load(&path).settings.text_font, None);
+    assert_eq!(theme(cx).text_font, "IBM Plex Mono");
+}
 
-    click(cx, "settings-font-select");
-    click(cx, "settings-font-0");
-    assert_eq!(theme(cx).font_family, "IBM Plex Mono");
-    assert_eq!(Settings::load(&path).settings.font_family, "IBM Plex Mono");
+#[gpui::test]
+fn the_rows_of_a_font_select_have_one_height(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx);
+
+    cx.simulate_keystrokes("ctrl-,");
+    click(cx, "settings-section-editor");
+    click(cx, "settings-text-font-select");
+
+    let heights: Vec<_> = [
+        "settings-text-font-default",
+        "settings-text-font-0",
+        "settings-text-font-1",
+    ]
+    .into_iter()
+    .filter_map(|id| cx.debug_bounds(id))
+    .map(|bounds| bounds.size.height)
+    .collect();
+    assert_eq!(heights.len(), 3);
+    assert!(
+        heights.iter().all(|height| *height == heights[0]),
+        "{heights:?}"
+    );
 }
 
 #[gpui::test]

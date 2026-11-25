@@ -2,10 +2,13 @@
 //! active section on the right. A change applies at once and saves to the settings file
 //! on the background executor.
 
+use std::ops::Range;
+use std::rc::Rc;
+
 use gpui::{
     AnyElement, App, ClickEvent, Context, Corner, Div, EventEmitter, FocusHandle, Focusable,
-    IntoElement, MouseButton, MouseDownEvent, Render, SharedString, Stateful, Window, anchored,
-    deferred, div, prelude::*, px, rgb,
+    IntoElement, MouseButton, MouseDownEvent, Pixels, Render, SharedString, Stateful, Window,
+    anchored, deferred, div, prelude::*, px, rgb, uniform_list,
 };
 use ka_teb_core::{Setting, Settings, ThemeName, Toggle};
 
@@ -23,7 +26,8 @@ enum Section {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Select {
     Theme,
-    Font,
+    UiFont,
+    TextFont,
 }
 
 /// A settings save failed.
@@ -33,7 +37,7 @@ pub struct SettingsModal {
     focus_handle: FocusHandle,
     section: Section,
     /// The bundled font first, then the fonts the text system knows.
-    fonts: Vec<SharedString>,
+    fonts: Rc<[SharedString]>,
     /// The select whose list shows, if one does.
     open_select: Option<Select>,
 }
@@ -42,7 +46,7 @@ impl EventEmitter<SaveFailed> for SettingsModal {}
 
 impl SettingsModal {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
-        let bundled = Settings::default().font_family;
+        let bundled = Settings::default().ui_font;
         let system = cx.text_system().all_font_names();
         let fonts = std::iter::once(bundled.clone())
             .chain(
@@ -90,23 +94,23 @@ impl SettingsModal {
         }
     }
 
-    /// A select field: the button shows `current`; when open, a list of `rows` shows
-    /// under it, over the fields below.
+    /// A select field: the button shows `current`; when open, `list` (made only then)
+    /// shows under it, over the fields below.
     fn select(
         &self,
         select: Select,
         current: impl IntoElement,
-        rows: Vec<AnyElement>,
+        list: impl FnOnce() -> AnyElement,
         theme: &Theme,
         cx: &Context<Self>,
     ) -> Div {
         let (button_id, list_id) = match select {
             Select::Theme => ("settings-theme-select", "settings-theme-list"),
-            Select::Font => ("settings-font-select", "settings-font-list"),
+            Select::UiFont => ("settings-ui-font-select", "settings-ui-font-list"),
+            Select::TextFont => ("settings-text-font-select", "settings-text-font-list"),
         };
         let open = self.open_select == Some(select);
-        let scale = theme.font_size_hint / px(10.);
-        let width = px(240.) * scale;
+        let width = list_width(theme);
         let button = div()
             .id(button_id)
             .debug_selector(|| button_id.to_owned())
@@ -146,8 +150,6 @@ impl SettingsModal {
                             .occlude()
                             .mt(px(2.))
                             .w(width)
-                            .max_h(px(220.) * scale)
-                            .overflow_y_scroll()
                             .p(px(4.))
                             .bg(theme.elevated_background)
                             .border_1()
@@ -155,11 +157,85 @@ impl SettingsModal {
                             .rounded(theme.elevated_radius)
                             .shadow_md()
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .children(rows),
+                            .child(list()),
                     ),
             )
         });
         div().flex().flex_col().child(button).children(list)
+    }
+
+    /// The list of a font select, in the UI font: only the rows in view are made, all
+    /// at one height. The Text font list starts with "Default", the UI font.
+    fn font_list(&self, select: Select, theme: &Theme, cx: &Context<Self>) -> AnyElement {
+        let default_row = usize::from(select == Select::TextFont);
+        let count = self.fonts.len() + default_row;
+        let rows_height = row_height(theme) * f32::from(u16::try_from(count).unwrap_or(u16::MAX));
+        let list_id = match select {
+            Select::TextFont => "settings-text-font-rows",
+            Select::Theme | Select::UiFont => "settings-ui-font-rows",
+        };
+        uniform_list(
+            list_id,
+            count,
+            cx.processor(move |modal, range: Range<usize>, _, cx| {
+                let settings = cx.global::<SettingsStore>().settings.clone();
+                let theme = cx.global::<Theme>().clone();
+                range
+                    .map(|index| modal.font_row(select, index, &settings, &theme, cx))
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .w_full()
+        .h(rows_height.min(list_max_height(theme)))
+        .into_any_element()
+    }
+
+    /// Row `index` of the list of a font select.
+    fn font_row(
+        &self,
+        select: Select,
+        index: usize,
+        settings: &Settings,
+        theme: &Theme,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        if select == Select::TextFont && index == 0 {
+            return Self::select_row(
+                "settings-text-font-default".to_owned(),
+                settings.text_font.is_none(),
+                theme,
+                cx,
+                |settings| settings.text_font = None,
+            )
+            .child("Default")
+            .into_any_element();
+        }
+        let font = if select == Select::TextFont {
+            index - 1
+        } else {
+            index
+        };
+        let family = self.fonts.get(font).cloned().unwrap_or_default();
+        let pick = family.to_string();
+        let row = if select == Select::TextFont {
+            Self::select_row(
+                format!("settings-text-font-{font}"),
+                settings.text_font.as_deref() == Some(family.as_ref()),
+                theme,
+                cx,
+                move |settings| settings.text_font = Some(pick.clone()),
+            )
+        } else {
+            Self::select_row(
+                format!("settings-ui-font-{font}"),
+                settings.ui_font == family.as_ref(),
+                theme,
+                cx,
+                move |settings| settings.ui_font.clone_from(&pick),
+            )
+        };
+        row.child(div().overflow_hidden().whitespace_nowrap().child(family))
+            .into_any_element()
     }
 
     /// One choice in the list of a select; `chosen` shows in the accent color.
@@ -173,6 +249,7 @@ impl SettingsModal {
         div()
             .id(SharedString::from(id.clone()))
             .debug_selector(move || id.clone())
+            .h(row_height(theme))
             .px(px(6.))
             .flex()
             .items_center()
@@ -221,13 +298,22 @@ impl SettingsModal {
                 .child(name.label())
                 .into_any_element()
             })
-            .collect();
+            .collect::<Vec<_>>();
         let current = div()
             .flex()
             .items_center()
             .gap(px(8.))
             .child(swatch(settings.theme, theme))
             .child(settings.theme.label());
+        let theme_list = || {
+            div()
+                .id("settings-theme-rows")
+                .max_h(list_max_height(theme))
+                .overflow_y_scroll()
+                .children(themes)
+                .into_any_element()
+        };
+        let ui_font = div().child(settings.ui_font.clone());
         div()
             .flex()
             .flex_col()
@@ -235,7 +321,18 @@ impl SettingsModal {
             .child(field(
                 "Theme",
                 theme,
-                self.select(Select::Theme, current, themes, theme, cx),
+                self.select(Select::Theme, current, theme_list, theme, cx),
+            ))
+            .child(field(
+                "UI font",
+                theme,
+                self.select(
+                    Select::UiFont,
+                    ui_font,
+                    || self.font_list(Select::UiFont, theme, cx),
+                    theme,
+                    cx,
+                ),
             ))
             .child(Self::stepper(Setting::UiScale, settings, theme, cx))
             .child(Self::toggle(Toggle::ReducedMotion, settings, theme, cx))
@@ -243,35 +340,26 @@ impl SettingsModal {
     }
 
     fn editor(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let fonts = self
-            .fonts
-            .iter()
-            .enumerate()
-            .map(|(index, family)| {
-                let pick = family.to_string();
-                Self::select_row(
-                    format!("settings-font-{index}"),
-                    settings.font_family == family.as_ref(),
-                    theme,
-                    cx,
-                    move |settings| settings.font_family.clone_from(&pick),
-                )
-                .font_family(family.clone())
-                .child(family.clone())
-                .into_any_element()
-            })
-            .collect();
-        let current = div()
-            .font_family(settings.font_family.clone())
-            .child(settings.font_family.clone());
+        let current = div().child(
+            settings
+                .text_font
+                .clone()
+                .unwrap_or_else(|| "Default".to_owned()),
+        );
         div()
             .flex()
             .flex_col()
             .gap(px(12.))
             .child(field(
-                "Font",
+                "Text font",
                 theme,
-                self.select(Select::Font, current, fonts, theme, cx),
+                self.select(
+                    Select::TextFont,
+                    current,
+                    || self.font_list(Select::TextFont, theme, cx),
+                    theme,
+                    cx,
+                ),
             ))
             .child(Self::stepper(Setting::FontSize, settings, theme, cx))
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
@@ -371,6 +459,21 @@ fn swatch(name: ThemeName, theme: &Theme) -> Div {
         .border_color(theme.panel_border)
         .bg(rgb(palette.background))
         .child(div().size(px(4.)).rounded_full().bg(rgb(palette.accent)))
+}
+
+/// Width of a select button and its list.
+fn list_width(theme: &Theme) -> Pixels {
+    px(240.) * (theme.font_size_hint / px(10.))
+}
+
+/// Highest a select list grows before it scrolls.
+fn list_max_height(theme: &Theme) -> Pixels {
+    px(212.) * (theme.font_size_hint / px(10.))
+}
+
+/// Height of each row of a select list.
+fn row_height(theme: &Theme) -> Pixels {
+    theme.line_height_overflow + px(4.)
 }
 
 /// A field row: its label above its control.

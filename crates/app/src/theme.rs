@@ -42,7 +42,10 @@ pub struct Theme {
     /// Text outside the current paragraph while the Alternatives panel is open.
     pub panel_open_dim_opacity: f32,
     pub edge_fade_height: Pixels,
-    pub font_family: SharedString,
+    /// Font family of the Chrome, panels, Settings, menus and popovers.
+    pub ui_font: SharedString,
+    /// Font family of the Document text and the Overflow text.
+    pub text_font: SharedString,
     pub font_size_body: Pixels,
     /// Markdown heading sizes, `#` to `###`; they share the body line height.
     pub font_size_heading: [Pixels; 3],
@@ -56,7 +59,7 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// The theme for `settings`: its colors, body font, and the Chrome at its UI scale.
+    /// The theme for `settings`: its colors, fonts, and the Chrome at its UI scale.
     #[must_use]
     pub fn new(settings: &Settings) -> Self {
         let scale = settings.ui_scale;
@@ -67,7 +70,8 @@ impl Theme {
             font_size_hint: base.font_size_hint * scale,
             font_size_overflow: base.font_size_overflow * scale,
             line_height_overflow: base.line_height_overflow * scale,
-            font_family: settings.font_family.clone().into(),
+            ui_font: settings.ui_font.clone().into(),
+            text_font: settings.text_font_family().to_owned().into(),
             font_size_body: px(settings.font_size),
             font_size_heading: base
                 .font_size_heading
@@ -110,7 +114,8 @@ impl Theme {
             trim_fade_opacity: 0.22,
             panel_open_dim_opacity: 0.40,
             edge_fade_height: px(30.),
-            font_family: "IBM Plex Mono".into(),
+            ui_font: "IBM Plex Mono".into(),
+            text_font: "IBM Plex Mono".into(),
             font_size_body: px(15.),
             font_size_heading: [px(21.), px(18.), px(16.)],
             font_size_hint: px(10.),

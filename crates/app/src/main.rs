@@ -19,7 +19,7 @@ fn main() {
     let loaded = path.as_deref().map(Settings::load);
     Application::new().run(|cx: &mut App| {
         if let Err(error) = app::init(cx) {
-            eprintln!("ka-teb: cannot load the body font: {error:#}");
+            eprintln!("ka-teb: cannot load the bundled font: {error:#}");
             cx.quit();
             return;
         }

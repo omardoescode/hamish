@@ -17,7 +17,7 @@ use crate::sounds;
 use gpui::{
     App, Bounds, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, ScrollHandle,
-    Window, div, prelude::*,
+    SharedString, Window, div, prelude::*,
 };
 use ka_teb_core::{
     Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
@@ -33,6 +33,7 @@ mod focus_zoom;
 mod painted_text;
 mod pen;
 mod runs;
+mod synthetic_bold;
 
 pub(crate) use painted_text::{PaintedText, shape};
 
@@ -89,6 +90,10 @@ pub struct Editor {
     column: Option<Column>,
     /// Where a dragged Overflow block goes in if it drops now.
     drop_target: Option<usize>,
+    /// The font family of the text as last painted.
+    text_font: SharedString,
+    /// Offsets of the glyphs last painted with synthetic bold.
+    synthetic_bold: Vec<usize>,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims.
@@ -134,7 +139,22 @@ impl Editor {
             zooms: Vec::new(),
             column: None,
             drop_target: None,
+            text_font: SharedString::default(),
+            synthetic_bold: Vec::new(),
         }
+    }
+
+    /// The font family of the text as last painted.
+    #[must_use]
+    pub fn text_font(&self) -> &SharedString {
+        &self.text_font
+    }
+
+    /// Byte offsets (in the shown Document) of the glyphs last painted with synthetic bold:
+    /// bold text in a font with no bold face.
+    #[must_use]
+    pub fn synthetic_bold(&self) -> Vec<usize> {
+        self.synthetic_bold.clone()
     }
 
     #[must_use]
@@ -815,6 +835,7 @@ impl Render for Editor {
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll_handle)
+            .font_family(theme.text_font.clone())
             .text_size(theme.font_size_body)
             .line_height(theme.line_height_body)
             .text_color(theme.text)

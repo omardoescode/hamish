@@ -2,8 +2,8 @@
 //! actions between them.
 
 use gpui::{
-    App, Context, DragMoveEvent, Entity, Focusable, IntoElement, Pixels, Render, Subscription,
-    Window, div, linear_color_stop, linear_gradient, prelude::*, px,
+    App, Context, DragMoveEvent, Entity, Focusable, IntoElement, Pixels, Render, SharedString,
+    Subscription, Window, canvas, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
 use ka_teb_core::{Document, SlotId, document_title};
 
@@ -33,6 +33,8 @@ pub struct Workspace {
     pub(crate) settings_open: bool,
     /// The title last set on the window, so a frame sets it only when it changes.
     window_title: String,
+    /// The font family of the Chrome bar as last painted.
+    chrome_font: SharedString,
     _editor_changes: Subscription,
     _settings_saves: Subscription,
     _editor_events: Subscription,
@@ -79,6 +81,7 @@ impl Workspace {
             settings_modal,
             settings_open: false,
             window_title: String::new(),
+            chrome_font: SharedString::default(),
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
             _editor_events: editor_events,
@@ -89,6 +92,12 @@ impl Workspace {
     #[must_use]
     pub fn editor(&self) -> &Entity<Editor> {
         &self.editor
+    }
+
+    /// The font family of the Chrome bar as last painted.
+    #[must_use]
+    pub fn chrome_font(&self) -> &SharedString {
+        &self.chrome_font
     }
 
     #[must_use]
@@ -291,6 +300,7 @@ impl Workspace {
             .bg(theme.elevated_background)
             .border_t_1()
             .border_color(theme.panel_border)
+            .child(chrome_font_probe(cx))
             .child(self.save_open_icons(theme, cx))
             .child(lab::lab_button(&self.lab, theme, cx))
             .child(
@@ -301,6 +311,21 @@ impl Workspace {
                     .child(overflow_panel::overflow_button(self.overflow_open, theme)),
             )
     }
+}
+
+/// An empty element that keeps the font family the Chrome bar paints with.
+fn chrome_font_probe(cx: &Context<Workspace>) -> impl IntoElement {
+    let workspace = cx.weak_entity();
+    canvas(
+        move |_, window, cx| {
+            let font = window.text_style().font_family;
+            workspace
+                .update(cx, |workspace, _| workspace.chrome_font = font)
+                .ok();
+        },
+        |_, (), _, _| {},
+    )
+    .absolute()
 }
 
 /// The Document title, small at the top center.
@@ -354,7 +379,7 @@ impl Render for Workspace {
             .size_full()
             .relative()
             .bg(theme.background)
-            .font_family(theme.font_family.clone())
+            .font_family(theme.ui_font.clone())
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::open_alternatives))

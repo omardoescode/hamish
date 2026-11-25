@@ -33,7 +33,8 @@ fn defaults_are_the_ka_teb_theme_and_the_bundled_font_at_the_default_sizes() {
     let settings = Settings::default();
     assert_eq!(settings.theme, ThemeName::KaTeb);
     assert!((settings.ui_scale - 1.0).abs() < 1e-6);
-    assert_eq!(settings.font_family, "IBM Plex Mono");
+    assert_eq!(settings.ui_font, "IBM Plex Mono");
+    assert_eq!(settings.text_font, None);
     assert!((settings.font_size - 15.0).abs() < 1e-6);
     assert!((settings.line_height - 1.8).abs() < 1e-6);
     assert!((settings.column_width - 585.0).abs() < 1e-6);
@@ -47,7 +48,8 @@ fn saved_settings_open_again_the_same() {
     let settings = Settings {
         theme: ThemeName::KaTebLight,
         ui_scale: 1.2,
-        font_family: "DejaVu Serif".to_owned(),
+        ui_font: "DejaVu Sans".to_owned(),
+        text_font: Some("DejaVu Serif".to_owned()),
         font_size: 18.0,
         line_height: 1.5,
         column_width: 700.0,
@@ -88,6 +90,46 @@ fn a_file_that_is_not_settings_json_gives_the_defaults_and_a_problem() {
 }
 
 #[test]
+fn the_default_text_font_is_the_ui_font() {
+    let settings = Settings {
+        ui_font: "Adwaita Sans".to_owned(),
+        ..Settings::default()
+    };
+    assert_eq!(settings.text_font_family(), "Adwaita Sans");
+
+    let settings = Settings {
+        text_font: Some("DejaVu Serif".to_owned()),
+        ..settings
+    };
+    assert_eq!(settings.text_font_family(), "DejaVu Serif");
+    assert_eq!(settings.ui_font, "Adwaita Sans");
+}
+
+#[test]
+fn an_old_file_with_one_font_gives_that_font_as_the_text_font() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(
+        &path,
+        r#"{ "font_family": "DejaVu Serif", "font_size": 18 }"#,
+    )
+    .unwrap();
+
+    let loaded = Settings::load(&path);
+
+    assert_eq!(
+        loaded.settings,
+        Settings {
+            text_font: Some("DejaVu Serif".to_owned()),
+            font_size: 18.0,
+            ..Settings::default()
+        }
+    );
+    assert_eq!(loaded.settings.ui_font, "IBM Plex Mono");
+    assert!(loaded.problem.is_none());
+}
+
+#[test]
 fn a_field_not_in_the_file_takes_its_default() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
@@ -112,7 +154,7 @@ fn a_value_out_of_its_limits_takes_its_default_and_names_it_in_the_problem() {
     let path = dir.path().join("settings.json");
     fs::write(
         &path,
-        r#"{ "font_size": 300, "line_height": 2.0, "font_family": " " }"#,
+        r#"{ "font_size": 300, "line_height": 2.0, "ui_font": " ", "text_font": "" }"#,
     )
     .unwrap();
 
@@ -127,7 +169,7 @@ fn a_value_out_of_its_limits_takes_its_default_and_names_it_in_the_problem() {
     );
     let problem = loaded.problem.unwrap().to_string();
     assert!(
-        problem.ends_with("out of limits, default used: font_size, font_family"),
+        problem.ends_with("out of limits, default used: font_size, ui_font, text_font"),
         "{problem}"
     );
 }
