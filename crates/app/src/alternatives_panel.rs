@@ -114,11 +114,32 @@ impl AlternativesPanel {
             .update(cx, |editor, cx| editor.set_spotlight(spotlight, cx));
     }
 
+    /// FR-68: the draft of the last row shows in the Document in place of the panel target,
+    /// while it has text.
+    fn sync_preview(&self, cx: &mut App) {
+        let range = match &self.target {
+            Target::Slot(id) => self
+                .editor
+                .read(cx)
+                .document()
+                .slot(*id)
+                .map(|slot| slot.range),
+            Target::Text { range, .. } => Some(range.clone()),
+            Target::Nothing => None,
+        };
+        let range = range.filter(|_| !self.draft.is_empty());
+        let draft = self.draft.clone();
+        self.editor.update(cx, |editor, cx| {
+            editor.set_preview(range.map(|range| (range, draft.as_str())), cx);
+        });
+    }
+
     /// FR-21: shows Slot `id`, with the last row selected.
     pub(crate) fn show_slot(&mut self, id: SlotId, cx: &mut Context<Self>) {
         self.set_target(Target::Slot(id), cx);
         self.editing = None;
         self.draft.clear();
+        self.sync_preview(cx);
         self.row = self.rows(cx).len();
         cx.notify();
     }
@@ -348,6 +369,7 @@ impl AlternativesPanel {
         };
         if added {
             self.draft.clear();
+            self.sync_preview(cx);
             self.row = self.rows(cx).len();
             cx.notify();
         }
@@ -403,11 +425,12 @@ impl AlternativesPanel {
     }
 
     fn delete_backward(&mut self, _: &DeleteBackward, _: &mut Window, cx: &mut Context<Self>) {
-        let text = match self.editing.as_mut() {
-            Some(text) => text,
-            None => &mut self.draft,
-        };
-        text.pop();
+        if let Some(text) = self.editing.as_mut() {
+            text.pop();
+        } else {
+            self.draft.pop();
+            self.sync_preview(cx);
+        }
         cx.notify();
     }
 
@@ -479,6 +502,7 @@ impl AlternativesPanel {
         }
         self.row = self.rows(cx).len();
         self.draft.push_str(&typed);
+        self.sync_preview(cx);
     }
 }
 
@@ -548,6 +572,7 @@ impl AlternativesPanel {
             .map(|slot| slot.id);
         let target = slot.map_or(Target::Text { range, level }, Target::Slot);
         self.set_target(target, cx);
+        self.sync_preview(cx);
         self.editing = None;
         self.row = self.rows(cx).len();
         cx.notify();
@@ -590,7 +615,7 @@ impl AlternativesPanel {
             } else {
                 theme.text_muted
             };
-            let marker_color = if row.active {
+            let marker_color = if row.active && self.draft.is_empty() {
                 theme.accent
             } else {
                 theme.text_muted
@@ -605,10 +630,15 @@ impl AlternativesPanel {
                 .child(div().text_color(color).child(text))
         });
         let has_target = self.target != Target::Nothing;
+        let draft_marker = if self.draft.is_empty() {
+            theme.text_faint
+        } else {
+            theme.accent
+        };
         let new_row = row_box(theme, self.row == last)
             .id(("alternatives-row", last))
             .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))
-            .child(provenance_marker(Provenance::Writer, theme.text_faint))
+            .child(provenance_marker(Provenance::Writer, draft_marker))
             .child(
                 div()
                     .text_color(theme.text)

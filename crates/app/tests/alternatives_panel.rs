@@ -89,6 +89,49 @@ fn return_in_the_last_row_adds_a_variant_and_makes_it_active(cx: &mut TestAppCon
     assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
 }
 
+fn shown_text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
+    cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .shown_document()
+            .text()
+            .to_owned()
+    })
+}
+
+#[gpui::test]
+fn text_typed_in_the_empty_row_shows_in_the_document_in_place_of_the_slot_text(
+    cx: &mut TestAppContext,
+) {
+    let (workspace, cx) = open(cx, slot_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+
+    cx.simulate_input("buyers");
+    cx.simulate_keystrokes("backspace");
+
+    assert_eq!(shown_text(&workspace, cx), "Title\nThe buyer waits.");
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+}
+
+#[gpui::test]
+fn the_preview_ends_when_the_draft_is_added_or_the_panel_closes(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("client");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(shown_text(&workspace, cx), "Title\nThe client waits.");
+
+    cx.simulate_input("patron");
+    assert_eq!(shown_text(&workspace, cx), "Title\nThe patron waits.");
+    cx.simulate_keystrokes("escape");
+
+    assert_eq!(shown_text(&workspace, cx), "Title\nThe client waits.");
+}
+
 #[gpui::test]
 fn after_return_a_new_empty_row_takes_the_next_variant(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, customer_document());
