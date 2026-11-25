@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::{Document, EditHistory, EditKind, SlotId};
+use crate::{Document, EditHistory, EditKind, SlotId, follow_change};
 
 /// A Document with its selection and its editor undo steps. Each change made through it is
 /// one undo step, and the selection follows the change.
@@ -252,55 +252,5 @@ impl EditSession {
             restored: Vec::new(),
             switched: ShownVariant::switched(&shown, &self.document),
         })
-    }
-}
-
-/// Where `offset` in `old` lands in `new`, when one span of `old` changed into `new`.
-/// An offset inside the changed span goes to the end of the new span. Offsets are bytes;
-/// an offset past `old` gives an offset past `new`.
-#[must_use]
-pub fn follow_change(offset: usize, old: &str, new: &str) -> usize {
-    let prefix = old
-        .char_indices()
-        .zip(new.chars())
-        .find(|((_, a), b)| a != b)
-        .map_or(old.len().min(new.len()), |((index, _), _)| index);
-    let suffix = old
-        .get(prefix..)
-        .unwrap_or_default()
-        .chars()
-        .rev()
-        .zip(new.get(prefix..).unwrap_or_default().chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(a, _)| a.len_utf8())
-        .sum::<usize>();
-    if offset <= prefix {
-        return offset;
-    }
-    let old_end = old.len() - suffix;
-    let new_end = new.len() - suffix;
-    if offset >= old_end {
-        return offset - old_end + new_end;
-    }
-    new_end
-}
-
-#[cfg(test)]
-mod tests {
-    use super::follow_change;
-
-    #[test]
-    fn an_offset_after_a_changed_span_moves_by_its_change_in_length() {
-        let old = "It is an eraser here.";
-        let new = "It is a thumbtack here.";
-        assert_eq!(follow_change(3, old, new), 3);
-        assert_eq!(follow_change(21, old, new), 23);
-        assert_eq!(follow_change(10, old, new), 17);
-    }
-
-    #[test]
-    fn a_shared_suffix_does_not_reach_into_the_shared_prefix() {
-        assert_eq!(follow_change(1, "aa", "a"), 1);
-        assert_eq!(follow_change(2, "aa", "a"), 1);
     }
 }
