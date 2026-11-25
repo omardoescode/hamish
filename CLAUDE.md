@@ -21,4 +21,14 @@ For work that is a GitHub issue (skip for a small fix the user asks for directly
 - Commits carry no Co-Authored-By trailer.
 
 ## Agent skills
-(/setup-matt-pocock-skills fills this block)
+### Issue tracker
+
+GitHub Issues in `omardoescode/ka-teb` via `gh`, native blocking edges. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Defaults, except `AFK` = ready-for-agent. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
