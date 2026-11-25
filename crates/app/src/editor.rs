@@ -1,14 +1,16 @@
+use std::f32::consts::TAU;
+use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight,
     GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Render, ScrollHandle, SharedString,
-    Size, Style, TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point,
-    prelude::*, px, relative, size,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, Path, PathBuilder, Pixels, Point, Render,
+    ScrollHandle, SharedString, Size, Style, TextRun, UTF16Selection, Window, WrappedLine, div,
+    fill, point, prelude::*, px, relative, size,
 };
-use ka_teb_core::{Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, SlotId};
+use ka_teb_core::{Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotId};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
@@ -49,6 +51,15 @@ const MARGIN_LINE_STEP: Pixels = px(10.);
 const HOVER_PAD: Pixels = px(2.);
 const HOVER_RADIUS: Pixels = px(3.);
 
+/// Word and Sentence underline: an editor's pen, a little wavy (issue #28). Height of the
+/// wobble, length of its main wave, base thickness and how much the thickness changes.
+const PEN_WOBBLE: f32 = 0.8;
+const PEN_WAVELENGTH: f32 = 60.;
+const PEN_THICKNESS: f32 = 1.;
+const PEN_THICKNESS_WOBBLE: f32 = 0.25;
+/// Distance between the points of the pen line.
+const PEN_STEP: Pixels = px(2.);
+
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
 
@@ -66,6 +77,7 @@ pub struct Editor {
     autoscroll: bool,
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
+    underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
@@ -116,6 +128,7 @@ impl Editor {
             autoscroll: false,
             hovered: None,
             markers: Vec::new(),
+            underlines: Vec::new(),
             context_menu: None,
             spotlight: None,
             saved: None,
@@ -167,6 +180,17 @@ impl Editor {
         &self.markers
     }
 
+    /// The centre line of the underline of `slot` as last painted (window coordinates), row
+    /// by row; empty when it has none.
+    #[must_use]
+    pub fn underline(&self, slot: SlotId) -> Vec<Point<Pixels>> {
+        self.underlines
+            .iter()
+            .filter(|stroke| stroke.slot == slot)
+            .flat_map(|stroke| stroke.centre.iter().copied())
+            .collect()
+    }
+
     /// The Slot under the pointer, innermost first.
     #[must_use]
     pub fn hovered_slot(&self) -> Option<SlotId> {
@@ -177,6 +201,25 @@ impl Editor {
     #[must_use]
     pub fn context_menu_items(&self) -> Option<Vec<ContextMenuItem>> {
         self.context_menu.as_ref().map(ContextMenu::items)
+    }
+
+    /// The text cut at Slot, Ghost and bright paragraph edges: what a Slot underline needs.
+    fn underline_spans(&self) -> Vec<Span> {
+        let underlined: Vec<Range<usize>> = self
+            .document
+            .slots()
+            .into_iter()
+            .filter(|slot| slot.level != Level::Paragraph)
+            .map(|slot| slot.range)
+            .collect();
+        spans(
+            self.document.text().len(),
+            0,
+            &underlined,
+            &self.document.ghost_ranges(),
+            &[],
+            self.bright_paragraph().as_ref(),
+        )
     }
 
     /// The paragraph that stays bright while the Alternatives panel is open (FR-27); the
@@ -966,6 +1009,83 @@ impl PaintedText {
         line.into_iter().chain(dots).collect()
     }
 
+    /// The pen strokes under `range` of `text` (window coordinates), one per row. The wobble
+    /// depends only on the distance from the start of `slot`, so it stays the same on every
+    /// paint and when text before the Slot changes.
+    fn pen_strokes(
+        &self,
+        text: &str,
+        range: &Range<usize>,
+        slot: &Slot,
+        color: Hsla,
+    ) -> Vec<PenStroke> {
+        let Some(slot_start) = self.position_for(slot.range.start) else {
+            return Vec::new();
+        };
+        let seed = BuildHasherDefault::<DefaultHasher>::default().hash_one(slot.id);
+        let width = f32::from(self.bounds.size.width);
+        self.pen_rows(text, range)
+            .into_iter()
+            .filter(|row| row.left < row.right)
+            .map(|row| {
+                let along = f32::from(row.left - slot_start.x)
+                    + (row.top - slot_start.y) / self.line_height * width;
+                let mut stroke = PenStroke {
+                    slot: slot.id,
+                    centre: Vec::new(),
+                    thickness: Vec::new(),
+                    color,
+                };
+                let baseline = self.underline_y(row.top);
+                let mut x = row.left;
+                loop {
+                    let (offset, thickness) = pen(seed, along + f32::from(x - row.left));
+                    stroke
+                        .centre
+                        .push(self.bounds.origin + point(x, baseline + px(offset)));
+                    stroke.thickness.push(px(thickness));
+                    if x >= row.right {
+                        return stroke;
+                    }
+                    x = (x + PEN_STEP).min(row.right);
+                }
+            })
+            .collect()
+    }
+
+    /// The rows `range` of `text` covers, each from its first to its last char edge.
+    fn pen_rows(&self, text: &str, range: &Range<usize>) -> Vec<PenRow> {
+        let offsets = text
+            .get(range.clone())
+            .unwrap_or_default()
+            .char_indices()
+            .map(|(index, _)| range.start + index)
+            .chain([range.end]);
+        let mut rows: Vec<PenRow> = Vec::new();
+        for at in offsets.filter_map(|offset| self.position_for(offset)) {
+            if let Some(row) = rows.last_mut().filter(|row| row.top == at.y) {
+                row.right = at.x;
+                continue;
+            }
+            let left = if rows.is_empty() { at.x } else { px(0.) };
+            rows.push(PenRow {
+                top: at.y,
+                left,
+                right: at.x,
+            });
+        }
+        rows
+    }
+
+    /// Local y of the underline on the row at `top`: where gpui puts a text underline.
+    fn underline_y(&self, top: Pixels) -> Pixels {
+        let Some(painted) = self.lines.iter().rev().find(|line| line.top <= top) else {
+            return top + self.line_height;
+        };
+        let (ascent, descent) = (painted.line.ascent(), painted.line.descent());
+        top + (self.line_height - ascent - descent) / 2. + ascent + descent * 0.618
+    }
+
     /// Quads that cover `range` (window coordinates), one per visual row.
     pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
@@ -1170,14 +1290,15 @@ struct EditorPrepaint {
     lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
     marker_quads: Vec<PaintQuad>,
+    underlines: Vec<PenStroke>,
     cursor: Option<PaintQuad>,
 }
 
 impl EditorElement {
     /// Text runs and the heading lines with their font size. The title line is bold in the
     /// title color (FR-5) unless it is a Markdown heading, which uses the heading style.
-    /// Markdown styles draw under Slot underlines (FR-12) and Ghost dimming (FR-37). Text
-    /// outside the bright paragraph dims while the Alternatives panel is open (FR-27).
+    /// Ghost text dims (FR-37), and so does text outside the bright paragraph while the
+    /// Alternatives panel is open (FR-27). Slot underlines are pen strokes, not text runs.
     fn runs(&self, window: &Window, cx: &App) -> (Vec<TextRun>, Vec<(usize, Pixels)>) {
         let editor = self.editor.read(cx);
         let theme = cx.global::<Theme>();
@@ -1232,24 +1353,13 @@ impl EditorElement {
                 color = theme.text_title;
             }
             let (font, color, background) = markdown_look(&span.markdown, theme, font, color);
-            let ghost = if span.ghost { theme.ghost_opacity } else { 1. };
-            let dim = if span.dimmed {
-                theme.panel_open_dim_opacity
-            } else {
-                1.
-            };
-            let opacity = ghost * dim;
-            let underline = UnderlineStyle {
-                thickness: px(1.),
-                color: Some(theme.slot_underline.opacity(opacity)),
-                wavy: false,
-            };
+            let opacity = span.opacity(theme);
             TextRun {
                 len: span.range.len(),
                 font,
                 color: color.opacity(opacity),
                 background_color: background.map(|background| background.opacity(opacity)),
-                underline: span.underlined.then_some(underline),
+                underline: None,
                 strikethrough: None,
             }
         })
@@ -1490,6 +1600,7 @@ impl Element for EditorElement {
             marker_quads.extend(painted.marker_quads(&slot.range, &marker, depth, &theme));
             markers.push(marker);
         }
+        let underlines = pen_strokes(&painted, editor, &slots, &theme);
         let cursor = editor
             .selection
             .is_empty()
@@ -1512,6 +1623,7 @@ impl Element for EditorElement {
         self.editor.update(cx, |editor, _| {
             editor.autoscroll = false;
             editor.markers = markers;
+            editor.underlines.clone_from(&underlines);
         });
         EditorPrepaint {
             lines: painted.lines,
@@ -1519,6 +1631,7 @@ impl Element for EditorElement {
             lab_marks,
             selection,
             marker_quads,
+            underlines,
             cursor,
         }
     }
@@ -1556,6 +1669,11 @@ impl Element for EditorElement {
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        for stroke in &prepaint.underlines {
+            if let Some(path) = stroke.path() {
+                window.paint_path(path, stroke.color);
+            }
         }
         if focus_handle.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
@@ -1647,6 +1765,98 @@ fn spans(
         .collect()
 }
 
+impl Span {
+    /// Ghost and dim opacity of the text and its underline.
+    fn opacity(&self, theme: &Theme) -> f32 {
+        let ghost = if self.ghost { theme.ghost_opacity } else { 1. };
+        let dim = if self.dimmed {
+            theme.panel_open_dim_opacity
+        } else {
+            1.
+        };
+        ghost * dim
+    }
+}
+
+/// One row of a Slot underline in one opacity, drawn like an editor's pen (issue #28).
+#[derive(Debug, Clone)]
+struct PenStroke {
+    slot: SlotId,
+    /// Window coordinates.
+    centre: Vec<Point<Pixels>>,
+    thickness: Vec<Pixels>,
+    color: Hsla,
+}
+
+impl PenStroke {
+    /// The stroke outline as a filled path; `None` when it does not tessellate.
+    fn path(&self) -> Option<Path<Pixels>> {
+        let half = |thickness: &Pixels| point(px(0.), *thickness / 2.);
+        let top = self
+            .centre
+            .iter()
+            .zip(&self.thickness)
+            .map(|(at, thickness)| *at - half(thickness));
+        let bottom = self
+            .centre
+            .iter()
+            .zip(&self.thickness)
+            .rev()
+            .map(|(at, thickness)| *at + half(thickness));
+        let outline: Vec<Point<Pixels>> = top.chain(bottom).collect();
+        let mut builder = PathBuilder::fill();
+        builder.add_polygon(&outline, true);
+        builder.build().ok()
+    }
+}
+
+/// A row of text under a pen stroke (local coordinates).
+struct PenRow {
+    top: Pixels,
+    left: Pixels,
+    right: Pixels,
+}
+
+/// The pen strokes under the Word and Sentence Slots: one per row and opacity. Each span
+/// belongs to the innermost Slot over it, which gives its stroke its seed.
+fn pen_strokes(
+    painted: &PaintedText,
+    editor: &Editor,
+    slots: &[Slot],
+    theme: &Theme,
+) -> Vec<PenStroke> {
+    let text = editor.document.text();
+    editor
+        .underline_spans()
+        .into_iter()
+        .filter(|span| span.underlined)
+        .filter_map(|span| {
+            let owner = slots
+                .iter()
+                .filter(|slot| {
+                    slot.level != Level::Paragraph
+                        && slot.range.start <= span.range.start
+                        && span.range.end <= slot.range.end
+                })
+                .min_by_key(|slot| slot.range.len())?;
+            let color = theme.slot_underline.opacity(span.opacity(theme));
+            Some(painted.pen_strokes(text, &span.range, owner, color))
+        })
+        .flatten()
+        .collect()
+}
+
+/// Offset from a straight line and thickness of a pen stroke `along` px into its Slot. Two
+/// slow sines with phases from `seed`: a hand-drawn line, not a zigzag.
+fn pen(seed: u64, along: f32) -> (f32, f32) {
+    let phase = |shift: u32| f32::from(u16::try_from((seed >> shift) & 0x3ff).unwrap_or(0)) / 1024.;
+    let wave = |wavelength: f32, shift: u32| ((along / wavelength + phase(shift)) * TAU).sin();
+    let offset =
+        PEN_WOBBLE * (0.65 * wave(PEN_WAVELENGTH, 0) + 0.35 * wave(PEN_WAVELENGTH * 0.37, 10));
+    let thickness = PEN_THICKNESS + PEN_THICKNESS_WOBBLE * wave(PEN_WAVELENGTH * 0.61, 20);
+    (offset, thickness)
+}
+
 /// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
 fn as_factor(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
@@ -1707,7 +1917,36 @@ pub(crate) fn scroll_into_view(
 mod tests {
     use ka_teb_core::{MarkdownSpan, MarkdownStyle};
 
-    use super::{Span, follow_change, heading_lines, spans};
+    use super::{Span, follow_change, heading_lines, pen, spans};
+
+    fn samples(seed: u64) -> Vec<(f32, f32)> {
+        (0..400u16)
+            .map(|along| pen(seed, f32::from(along)))
+            .collect()
+    }
+
+    #[test]
+    fn the_pen_line_wobbles_about_half_to_one_pixel() {
+        let wobble = samples(7)
+            .iter()
+            .map(|(offset, _)| offset.abs())
+            .fold(0., f32::max);
+        assert!((0.5..=1.).contains(&wobble), "wobble {wobble}");
+    }
+
+    #[test]
+    fn the_pen_line_thickness_changes_a_little() {
+        let thickness: Vec<f32> = samples(7).iter().map(|(_, thickness)| *thickness).collect();
+        let thinnest = thickness.iter().copied().fold(f32::MAX, f32::min);
+        let thickest = thickness.iter().copied().fold(0., f32::max);
+        assert!(thinnest >= 0.7 && thickest <= 1.3, "{thinnest}..{thickest}");
+        assert!(thickest - thinnest > 0.2, "{thinnest}..{thickest}");
+    }
+
+    #[test]
+    fn slots_with_other_seeds_draw_other_lines() {
+        assert_ne!(samples(7), samples(0x5_0505_0505));
+    }
 
     #[test]
     fn ghost_and_slot_ranges_split_the_text_into_styled_spans() {
