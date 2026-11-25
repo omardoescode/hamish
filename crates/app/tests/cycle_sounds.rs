@@ -115,6 +115,16 @@ fn alternatives_panel_previews_use_the_same_tones(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_variant_delete_plays_the_explosion(cx: &mut TestAppContext) {
+    let (_, heard, cx) = open(cx, Settings::default());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+
+    cx.simulate_keystrokes("ctrl-shift-backspace");
+
+    assert_eq!(heard.take(), [Sound::Explosion]);
+}
+
+#[gpui::test]
 fn no_sound_plays_with_cycle_sounds_off(cx: &mut TestAppContext) {
     let settings = Settings {
         cycle_sounds: false,

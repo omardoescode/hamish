@@ -12,7 +12,7 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId,
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId, Sound,
     TrimError,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -105,8 +105,7 @@ pub(crate) enum Spotlight {
 pub(crate) enum EditorEvent {
     /// A click on the text of a visible Slot (FR-21).
     SlotClicked(SlotId),
-    /// A Variant of the Slot was deleted; its explosion plays (FR-78). The explosion sound
-    /// hooks here (#27).
+    /// A Variant of the Slot was deleted; its explosion and its sound (#27) play (FR-78).
     VariantDeleted(SlotId),
     /// An undo put a deleted Variant of the Slot back; its burst plays (FR-79).
     VariantRestored(SlotId),
@@ -226,6 +225,7 @@ impl Editor {
             EffectKind::Explosion,
             range.start.min(len)..range.end.min(len),
         );
+        sounds::play(Sound::Explosion, cx);
         cx.emit(EditorEvent::VariantDeleted(id));
         Ok(())
     }
