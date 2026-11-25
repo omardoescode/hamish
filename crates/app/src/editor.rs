@@ -39,8 +39,11 @@ pub(crate) use painted_text::{PaintedText, shape};
 /// How a Slot shows that it has Variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerKind {
-    /// Word and Sentence: underline plus a row of Variant dots.
+    /// Word: underline plus a row of Variant dots under the word.
     Underline,
+    /// Sentence: underline under the rows of the sentence only, plus a row of Variant dots
+    /// after its last char.
+    SentenceUnderline,
     /// Paragraph: a line in the left margin plus a column of Variant dots.
     MarginLine,
 }
@@ -67,6 +70,9 @@ pub struct Editor {
     autoscroll: bool,
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
+    /// The Variant dots of each Marker as last painted (window coordinates).
+    marker_dots: Vec<element::MarkerDot>,
+    hover_tint: Vec<Bounds<Pixels>>,
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
@@ -113,6 +119,8 @@ impl Editor {
             autoscroll: false,
             hovered: None,
             markers: Vec::new(),
+            marker_dots: Vec::new(),
+            hover_tint: Vec::new(),
             underlines: Vec::new(),
             context_menu: None,
             spotlight: None,
@@ -165,6 +173,24 @@ impl Editor {
     #[must_use]
     pub fn markers(&self) -> &[Marker] {
         &self.markers
+    }
+
+    /// The Variant dots of the Marker of `slot` as last painted (window coordinates), in
+    /// Variant order; empty when it has none.
+    #[must_use]
+    pub fn marker_dots(&self, slot: SlotId) -> Vec<Bounds<Pixels>> {
+        self.marker_dots
+            .iter()
+            .filter(|(id, _)| *id == slot)
+            .map(|(_, dot)| *dot)
+            .collect()
+    }
+
+    /// The hover tint boxes behind the hovered Slot as last painted (window coordinates);
+    /// empty when no Slot is hovered.
+    #[must_use]
+    pub fn hover_tint(&self) -> Vec<Bounds<Pixels>> {
+        self.hover_tint.clone()
     }
 
     /// The effects that play now, oldest first.
