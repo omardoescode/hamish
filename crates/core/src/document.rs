@@ -1,6 +1,7 @@
 use std::fmt;
 use std::ops::Range;
 
+use crate::article;
 use crate::slot::{self, SlotNode};
 use crate::{Counter, Cycle, Level, Provenance, Slot, SlotError, SlotId, Variant};
 
@@ -227,15 +228,57 @@ impl Document {
         change(node)?;
         let shown = node.active_text()?.to_owned();
         node.range.end = node.range.start + shown.len();
-        let writer_edit =
-            kind == SlotChange::WriterText && self.text.get(old.clone()) != Some(shown.as_str());
+        let shown_changed = self.text.get(old.clone()) != Some(shown.as_str());
+        let writer_edit = kind == SlotChange::WriterText && shown_changed;
+        let agrees = node.level == Level::Word && shown_changed;
         let ends = node.variants.len() < 2;
         slot::shift(&mut slots, &old, shown.len(), writer_edit, Some(id));
         if ends {
             slot::dissolve(&mut slots, id);
         }
-        self.commit(old, &shown, slots)?;
+        let Some((article_range, article)) = agrees
+            .then(|| self.article_agreement(id, &old, &shown))
+            .flatten()
+        else {
+            self.commit(old, &shown, slots)?;
+            return Ok(());
+        };
+        slot::shift(&mut slots, &article_range, article.len(), false, None);
+        let gap = self
+            .text
+            .get(article_range.end..old.start)
+            .unwrap_or_default();
+        let inserted = format!("{article}{gap}{shown}");
+        self.commit(article_range.start..old.end, &inserted, slots)?;
         Ok(())
+    }
+
+    /// Article agreement (FR-17) for Word Slot `id` at `old`, now showing `shown`:
+    /// the range of the "a"/"an" before it and the article that agrees.
+    /// `None` when there is no such article, it already agrees, or it is part of
+    /// a Slot that does not hold the Word Slot.
+    fn article_agreement(
+        &self,
+        id: SlotId,
+        old: &Range<usize>,
+        shown: &str,
+    ) -> Option<(Range<usize>, &'static str)> {
+        let before = self.text.get(..old.start)?;
+        let gap_start = before.trim_end().len();
+        if gap_start == old.start {
+            return None;
+        }
+        let head = before.get(..gap_start)?;
+        let start = head.trim_end_matches(char::is_alphanumeric).len();
+        let current = head.get(start..)?;
+        let wanted = article::agreeing(current, shown)?;
+        let reach = start..old.end;
+        let blocked = self.slots().iter().any(|slot| {
+            slot.id != id
+                && !(slot.range.end <= start || old.start <= slot.range.start)
+                && !(slot.range.start <= reach.start && reach.end <= slot.range.end)
+        });
+        (wanted != current && !blocked).then_some((start..gap_start, wanted))
     }
 
     /// Inserts `text` at byte offset `at`.
