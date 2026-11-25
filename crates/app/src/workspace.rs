@@ -40,6 +40,7 @@ impl Workspace {
             window,
             |workspace, _, event: &EditorEvent, window, cx| match *event {
                 EditorEvent::SlotClicked(slot) => workspace.show_slot(slot, window, cx),
+                EditorEvent::VariantDeleted(_) | EditorEvent::VariantRestored(_) => {}
             },
         );
         let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
