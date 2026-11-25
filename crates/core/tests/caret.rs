@@ -170,3 +170,26 @@ fn spaces_and_punctuation_are_no_word() {
     assert_eq!(word_at("a  . b", 2), None);
     assert_eq!(word_at("a  . b", 4), None);
 }
+
+#[test]
+fn word_moves_cross_blank_lines_and_word_at_finds_the_word_on_its_line() {
+    let text = "one two\n\n\nthree, four\nfive";
+    assert_eq!(Caret::at(13).moved(text, Motion::WordLeft).offset(), 10);
+    assert_eq!(Caret::at(10).moved(text, Motion::WordLeft).offset(), 4);
+    assert_eq!(Caret::at(7).moved(text, Motion::WordRight).offset(), 15);
+    assert_eq!(Caret::at(21).moved(text, Motion::WordRight).offset(), 26);
+    assert_eq!(Caret::at(26).moved(text, Motion::WordRight).offset(), 26);
+    assert_eq!(Caret::at(2).moved(text, Motion::WordLeft).offset(), 0);
+    assert_eq!(word_at(text, 10), Some(10..15));
+    assert_eq!(word_at(text, 15), Some(10..15));
+    assert_eq!(word_at(text, 16), None);
+    assert_eq!(word_at(text, 9), None);
+}
+
+#[test]
+fn a_flag_of_two_regional_indicators_is_one_grapheme_for_left_and_right() {
+    let flags = "\u{1f1ec}\u{1f1f7}\u{1f1ec}\u{1f1f7}";
+    assert_eq!(Caret::at(16).moved(flags, Motion::Left).offset(), 8);
+    assert_eq!(Caret::at(0).moved(flags, Motion::Right).offset(), 8);
+    assert_eq!(Caret::at(8).moved(flags, Motion::Right).offset(), 16);
+}

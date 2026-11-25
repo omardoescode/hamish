@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use gpui::{Font, FontId, FontWeight, GlyphId, Hsla, Pixels, Point, TextRun, Window, point, px};
 
-use super::painted_text::{PaintedText, run_at};
+use super::painted_text::{PaintedText, run_ends};
 
 /// The second paint is this part of the font size to the right of the first.
 const SPREAD: f32 = 1. / 24.;
@@ -69,7 +69,7 @@ impl BoldGlyph {
     }
 }
 
-/// The glyphs of `painted` inside `bold`, with the colors of `runs`.
+/// The glyphs of `painted` inside `bold` (sorted, disjoint), with the colors of `runs`.
 pub(super) fn glyphs(
     painted: &PaintedText,
     runs: &[TextRun],
@@ -78,22 +78,39 @@ pub(super) fn glyphs(
     if bold.is_empty() {
         return Vec::new();
     }
-    let in_bold = |offset: usize| bold.iter().any(|range| range.contains(&offset));
+    let first_ending_after = |offset: usize| bold.partition_point(|range| range.end <= offset);
+    let run_ends = run_ends(runs);
+    let color_at = |offset: usize| {
+        runs.get(run_ends.partition_point(|&end| end <= offset))
+            .map_or_else(Hsla::default, |run| run.color)
+    };
     painted
         .lines
         .iter()
         .enumerate()
         .filter(|(_, line)| {
             let range = line.range();
-            bold.iter()
-                .any(|bold| bold.start < range.end && range.start < bold.end)
+            bold.get(first_ending_after(range.start))
+                .is_some_and(|bold| bold.start < range.end)
         })
         .flat_map(|(index, line)| {
+            let range = line.range();
+            let line_bold = bold
+                .get(
+                    first_ending_after(range.start)
+                        ..bold.partition_point(|bold| bold.start < range.end),
+                )
+                .unwrap_or_default();
+            let in_bold = move |offset: usize| {
+                line_bold
+                    .get(line_bold.partition_point(|range| range.end <= offset))
+                    .is_some_and(|range| range.contains(&offset))
+            };
             let origin = painted.bounds.origin + point(px(0.), line.top);
             let font_size = line.line.unwrapped_layout.font_size;
             line.glyphs(origin, painted.line_height)
                 .into_iter()
-                .filter(|glyph| !glyph.emoji && in_bold(glyph.offset))
+                .filter(move |glyph| !glyph.emoji && in_bold(glyph.offset))
                 .map(move |glyph| BoldGlyph {
                     line: index,
                     offset: glyph.offset,
@@ -101,7 +118,7 @@ pub(super) fn glyphs(
                     font_id: glyph.font_id,
                     id: glyph.id,
                     font_size,
-                    color: run_at(runs, glyph.offset).map_or_else(Hsla::default, |run| run.color),
+                    color: color_at(glyph.offset),
                 })
         })
         .collect()

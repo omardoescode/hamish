@@ -5,6 +5,7 @@ Option Rust std type.
 format Rust format! macro and text formats.
 cursor_pointer GPUI mouse pointer style.
 CursorStyle GPUI mouse pointer style.
+GraphemeCursor unicode-segmentation grapheme boundary finder. Not the caret.
 .cursor( GPUI mouse pointer style.
 animation_frame GPUI frame request.
 with_animation GPUI element animation.

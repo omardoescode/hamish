@@ -366,7 +366,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.preview = preview.and_then(|(range, text)| {
-            let mut shown = self.session.document().clone();
+            let mut shown = self.session.document().without_history();
             shown.replace(range, text).ok().map(|()| shown)
         });
         cx.notify();

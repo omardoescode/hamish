@@ -366,10 +366,12 @@ fn find_mut(slots: &mut [SlotNode], id: SlotId, base: usize) -> Option<(&mut Slo
 fn sync(slots: &mut [SlotNode], text: &str, base: usize) {
     for node in slots {
         let start = base + node.range.start;
-        let active_text = text.get(start..base + node.range.end).map(str::to_owned);
+        let active_text = text.get(start..base + node.range.end);
         let active = node.active;
-        if let (Some(active_text), Some(variant)) = (active_text, node.variants.get_mut(active)) {
-            variant.text = active_text;
+        if let (Some(active_text), Some(variant)) = (active_text, node.variants.get_mut(active))
+            && variant.text != active_text
+        {
+            active_text.clone_into(&mut variant.text);
         }
         if let Ok(active) = node.active_mut() {
             sync(&mut active.tree.slots, text, start);

@@ -99,6 +99,13 @@ pub(super) fn run_at(runs: &[TextRun], offset: usize) -> Option<&TextRun> {
 }
 
 impl PaintedText {
+    /// The last line for which `holds` is true. The lines are in text order, so their starts
+    /// and tops only grow: `holds` must be true for a prefix of the lines.
+    fn last_line_where(&self, holds: impl Fn(&PaintedLine) -> bool) -> Option<&PaintedLine> {
+        let count = self.lines.partition_point(holds);
+        self.lines.get(count.checked_sub(1)?)
+    }
+
     /// Height of all lines.
     pub(crate) fn height(&self) -> Pixels {
         self.lines.last().map_or(self.line_height, |last| {
@@ -127,7 +134,7 @@ impl PaintedText {
 
     /// Position of `offset`, relative to the text origin.
     pub(crate) fn position_for(&self, offset: usize) -> Option<Point<Pixels>> {
-        let painted = self.lines.iter().rev().find(|line| line.start <= offset)?;
+        let painted = self.last_line_where(|line| line.start <= offset)?;
         let position = painted
             .line
             .position_for_index(offset - painted.start, self.line_height)?;
@@ -140,7 +147,7 @@ impl PaintedText {
         if local.y < px(0.) {
             return 0;
         }
-        let Some(painted) = self.lines.iter().rev().find(|line| line.top <= local.y) else {
+        let Some(painted) = self.last_line_where(|line| line.top <= local.y) else {
             return 0;
         };
         let height = painted.line.size(self.line_height).height;
@@ -159,11 +166,10 @@ impl PaintedText {
 
     /// Offset of the glyph under `local` (relative to the text origin); `None` off the glyphs.
     pub(super) fn glyph_at(&self, local: Point<Pixels>) -> Option<usize> {
-        let painted = self
-            .lines
-            .iter()
-            .rev()
-            .find(|line| line.top <= local.y && local.x >= px(0.))?;
+        if local.x < px(0.) {
+            return None;
+        }
+        let painted = self.last_line_where(|line| line.top <= local.y)?;
         let row_point = point(local.x, local.y - painted.top);
         let index = painted
             .line
@@ -182,7 +188,7 @@ impl PaintedText {
 
     /// Local y of the underline on the row at `top`: where gpui puts a text underline.
     pub(super) fn underline_y(&self, top: Pixels) -> Pixels {
-        let Some(painted) = self.lines.iter().rev().find(|line| line.top <= top) else {
+        let Some(painted) = self.last_line_where(|line| line.top <= top) else {
             return top + self.line_height;
         };
         let (ascent, descent) = (painted.line.ascent(), painted.line.descent());
@@ -205,7 +211,7 @@ impl PaintedText {
 
     /// Local x where the text of the row at local `top` ends, less trailing spaces.
     fn text_end(&self, top: Pixels) -> Option<Pixels> {
-        let painted = self.lines.iter().rev().find(|line| line.top <= top)?;
+        let painted = self.last_line_where(|line| line.top <= top)?;
         let layout = &painted.line.unwrapped_layout;
         let wraps = painted.line.wrap_boundaries.iter().filter_map(|boundary| {
             let run = layout.runs.get(boundary.run_ix)?;
@@ -281,6 +287,7 @@ pub(super) fn shape_sized(
     window: &Window,
 ) -> Vec<PaintedLine> {
     let body_size = window.text_style().font_size.to_pixels(window.rem_size());
+    let run_ends = run_ends(runs);
     let mut start = 0;
     let mut top = px(0.);
     let mut lines = Vec::new();
@@ -293,7 +300,7 @@ pub(super) fn shape_sized(
         let Ok(shaped) = window.text_system().shape_text(
             SharedString::from(line_text.to_owned()),
             font_size,
-            &runs_within(runs, &(start..end)),
+            &runs_within(runs, &run_ends, &(start..end)),
             wrap_width,
             None,
         ) else {
@@ -309,15 +316,64 @@ pub(super) fn shape_sized(
     lines
 }
 
-/// The parts of `runs` (which cover the text from offset 0) inside byte `range`.
-fn runs_within(runs: &[TextRun], range: &Range<usize>) -> Vec<TextRun> {
-    let mut at = 0;
+/// The end offset of each of `runs` (which cover the text from offset 0).
+pub(super) fn run_ends(runs: &[TextRun]) -> Vec<usize> {
     runs.iter()
-        .filter_map(|run| {
-            let run_start = at;
-            at += run.len;
-            let len = at.min(range.end).saturating_sub(run_start.max(range.start));
+        .scan(0, |end, run| {
+            *end += run.len;
+            Some(*end)
+        })
+        .collect()
+}
+
+/// The parts of `runs` (which cover the text from offset 0, ending at `ends`) inside byte
+/// `range`.
+fn runs_within(runs: &[TextRun], ends: &[usize], range: &Range<usize>) -> Vec<TextRun> {
+    let first = ends.partition_point(|&end| end <= range.start);
+    runs.iter()
+        .zip(ends)
+        .skip(first)
+        .map(|(run, &end)| (run, end - run.len, end))
+        .take_while(|&(_, start, _)| start < range.end)
+        .filter_map(|(run, start, end)| {
+            let len = end.min(range.end).saturating_sub(start.max(range.start));
             (len > 0).then(|| TextRun { len, ..run.clone() })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{TextRun, font, hsla};
+
+    use super::{run_ends, runs_within};
+
+    fn run(len: usize) -> TextRun {
+        TextRun {
+            len,
+            font: font("IBM Plex Mono"),
+            color: hsla(0., 0., 1., 1.),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        }
+    }
+
+    #[test]
+    fn the_runs_within_a_line_are_cut_at_its_edges() {
+        let runs = [run(3), run(4), run(0), run(5)];
+        let ends = run_ends(&runs);
+        assert_eq!(ends, [3, 7, 7, 12]);
+
+        let lens = |range| -> Vec<usize> {
+            runs_within(&runs, &ends, &range)
+                .iter()
+                .map(|run| run.len)
+                .collect()
+        };
+        assert_eq!(lens(2..8), [1, 4, 1]);
+        assert_eq!(lens(7..12), [5]);
+        assert_eq!(lens(5..5), Vec::<usize>::new());
+        assert_eq!(lens(0..3), [3]);
+    }
 }

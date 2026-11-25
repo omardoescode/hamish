@@ -1,5 +1,6 @@
 //! The Document as the writer edits it: the selection and the undo steps the writer sees.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::{Caret, CaretEdit, Document, EditHistory, EditedText, SlotId, word_at};
@@ -62,12 +63,13 @@ impl ShownVariant {
 
     /// The first Slot of `document` whose Active variant replaces the one in `before`.
     fn switched(before: &[Self], document: &Document) -> Option<SlotId> {
+        let before: HashMap<SlotId, &Self> = before.iter().map(|old| (old.slot, old)).collect();
         Self::of(document)
             .into_iter()
             .find(|shown| {
                 before
-                    .iter()
-                    .any(|old| old.slot == shown.slot && shown.replaces(old))
+                    .get(&shown.slot)
+                    .is_some_and(|old| shown.replaces(old))
             })
             .map(|shown| shown.slot)
     }
@@ -135,7 +137,7 @@ impl EditSession {
     /// unsaved again.
     pub fn snapshot(&mut self) -> (Document, Option<u64>) {
         self.history.close();
-        (self.document.clone(), self.history.top())
+        (self.document.without_history(), self.history.top())
     }
 
     /// Marks undo step `at` (from [`Self::snapshot`]) as the saved one.
