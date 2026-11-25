@@ -12,12 +12,26 @@ repository = "https://github.com/omardoescode/ka-teb"
 gpui = "=0.2.2"
 
 [workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+as_conversions = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
-cast_possible_truncation = "deny"
-cast_possible_wrap = "deny"
-cast_precision_loss = "deny"
-cast_sign_loss = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+allow_attributes_without_reason = "deny"
+let_underscore_must_use = "deny"
+wildcard_enum_match_arm = "deny"
+map_err_ignore = "deny"
+clone_on_ref_ptr = "deny"
+exit = "deny"
+
+[workspace.lints.cargo]
+unused_dependencies = "allow"
 
 # The profile that 'dist' will build with
 [profile.dist]
