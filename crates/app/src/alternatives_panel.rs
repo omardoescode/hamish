@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    Modifiers, Render, Subscription, Task, Window, canvas, div, prelude::*, px,
+    Modifiers, Render, ScrollHandle, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
 use ka_teb_core::{
     AiRequest, AiTrigger, ApplyError, Effect, Level, Provenance, RangeError, SlotId, Switch,
@@ -105,6 +105,7 @@ pub struct AlternativesPanel {
     reveal: Option<Reveal>,
     /// The last row is hidden after a quick fill, until the writer goes to it.
     new_row_hidden: bool,
+    scroll: ScrollHandle,
     _editor_changes: Subscription,
 }
 
@@ -123,6 +124,7 @@ impl AlternativesPanel {
             ai: AiRun::default(),
             reveal: None,
             new_row_hidden: false,
+            scroll: ScrollHandle::new(),
             _editor_changes: editor_changes,
         };
         let target = panel.target_at_editor(cx);
@@ -511,6 +513,7 @@ impl AlternativesPanel {
         }
         self.row = row;
         self.editing = None;
+        self.scroll_to_row(cx);
         cx.notify();
         let Target::Slot(id) = self.target else {
             return;
@@ -634,6 +637,18 @@ impl AlternativesPanel {
         cx.stop_propagation();
     }
 
+    /// The list scrolls so the selected row shows. The failed-AI row sits between the
+    /// Variant rows and the last row.
+    fn scroll_to_row(&self, cx: &App) {
+        let failed = matches!(self.ai.status(), AiStatus::Failed(_));
+        let child = if self.row < self.rows(cx).len() {
+            self.row
+        } else {
+            self.row + usize::from(failed)
+        };
+        self.scroll.scroll_to_item(child);
+    }
+
     /// Typed text goes into the edit in progress, else into the last row, which it selects.
     fn type_text(&mut self, typed: &str, cx: &mut Context<Self>) {
         if self.ai_busy() {
@@ -647,6 +662,7 @@ impl AlternativesPanel {
         }
         self.row = self.rows(cx).len();
         self.new_row_hidden = false;
+        self.scroll_to_row(cx);
         self.draft.push_str(&typed);
         if self.draft == QUICK_FILL {
             self.start_quick_fill(cx);
@@ -808,7 +824,13 @@ impl AlternativesPanel {
                     .child(format!("{}\u{258f}", self.draft)),
             );
         div()
+            .id("alternatives-rows")
+            .track_scroll(&self.scroll)
+            .overflow_y_scroll()
+            .flex_1()
+            .min_h_0()
             .mt(px(35.))
+            .mb(px(48.))
             .flex()
             .flex_col()
             .children(variant_rows)
@@ -866,6 +888,7 @@ impl AlternativesPanel {
 fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
     div()
         .relative()
+        .flex_none()
         .flex()
         .items_start()
         .gap(px(8.))
@@ -926,6 +949,8 @@ impl Render for AlternativesPanel {
             .bottom_0()
             .left_0()
             .w(theme.panel_width)
+            .flex()
+            .flex_col()
             .pt(px(56.))
             .px(px(16.))
             .bg(theme.panel_background)
