@@ -107,8 +107,13 @@ impl Document {
     /// # Errors
     /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
     pub fn replace(&mut self, range: Range<usize>, text: &str) -> Result<(), RangeError> {
-        self.check(&range)?;
-        let removed = self.text.get(range.clone()).unwrap_or_default().to_owned();
+        let removed = self
+            .text
+            .get(range.clone())
+            .ok_or(RangeError {
+                range: range.clone(),
+            })?
+            .to_owned();
         if removed.is_empty() && text.is_empty() {
             return Ok(());
         }
@@ -147,15 +152,5 @@ impl Document {
         let end = step.at + step.inserted.len();
         self.text.replace_range(step.at..end, &step.removed);
         step.inverse()
-    }
-
-    fn check(&self, range: &Range<usize>) -> Result<(), RangeError> {
-        if self.text.get(range.clone()).is_some() {
-            Ok(())
-        } else {
-            Err(RangeError {
-                range: range.clone(),
-            })
-        }
     }
 }
