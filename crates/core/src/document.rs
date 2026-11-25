@@ -172,6 +172,8 @@ impl Document {
     }
 
     /// Makes Variant `index` of Slot `id` the Active variant (FR-15, FR-16).
+    /// For a Word Slot, an "a"/"an" just before it changes to agree with the
+    /// new text, in the same undoable step (Article agreement, FR-17).
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
