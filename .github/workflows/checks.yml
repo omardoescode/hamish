@@ -56,7 +56,8 @@ jobs:
       - name: unit tests
         run: cargo test --workspace --lib --bins
       - name: integration tests
-        run: cargo test --workspace --test '*'
+        # --test '*' fails when no integration test exists yet
+        run: if compgen -G 'crates/*/tests/*.rs' > /dev/null; then cargo test --workspace --test '*'; fi
       - name: doc tests
         run: cargo test --workspace --doc
 
