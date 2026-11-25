@@ -8,6 +8,7 @@
 - AI calls only through the AI adapter trait. The UI thread never waits on I/O (use the background executor).
 - AI never changes text without a writer action (spec NFR).
 - Names come from the glossary (CONTEXT.md).
+- No Arabic text anywhere in the repo (code, tests, docs). For non-ASCII test text use other scripts (e.g. Greek).
 - Unit tests: `#[cfg(test)] mod tests` in the same file; they test private logic of one module. Run: `cargo test --workspace --lib --bins`.
 - Integration tests: `crates/<crate>/tests/*.rs`; public API only, at the agreed seams (Document API, persistence round trip, AI adapter, GPUI action dispatch). Run: `cargo test --workspace --test '*'`.
 - Doc tests: examples in doc comments. Run: `cargo test --workspace --doc`.

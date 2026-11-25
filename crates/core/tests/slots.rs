@@ -230,7 +230,7 @@ fn slot_that_partly_overlaps_another_is_refused() {
 
 #[test]
 fn slot_over_an_empty_or_invalid_range_is_refused() {
-    let mut document = Document::new("كاتب");
+    let mut document = Document::new("λέξη");
     assert_eq!(
         document.create_slot(2..2, Level::Word, "x", Provenance::Writer),
         Err(SlotError::EmptyRange)
