@@ -7,6 +7,7 @@
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
 | `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
 | `crates/core/src/settings.rs` | Settings: defaults, limits, steps, `$XDG_CONFIG_HOME/ka-teb/settings.json` load/save (issue #21). |
+| `crates/core/src/motion.rs` | `Effect`: the one animation timing source (durations, progress, Reduced motion; issue #31). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
 | `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |
 | `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest`, `AiError`; `Document::ai_request` / `apply_ai_result` (ADR 0004). |

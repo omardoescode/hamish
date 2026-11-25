@@ -85,6 +85,13 @@ _Avoid_: Cut, park
 
 ### Effects
 
+**Effect**:
+A timed visual change: Variant fade-in, Explosion, Undo burst, dance, focus zoom. It never blocks input. Its duration comes from one timing source (`Effect` in core).
+_Avoid_: Animation (in code), transition
+
+**Reduced motion**:
+The setting that makes every Effect instant: no fade, no particles. Off unless the writer turns it on (GPUI does not expose the OS setting).
+
 **Explosion**:
 The particle burst that plays at a span (or panel row) when a Variant is deleted.
 _Avoid_: Animation, boom
@@ -107,7 +114,7 @@ The UI tools around the text: icons, buttons, counter.
 Live word and character count of the Document, or of the selection.
 
 **Settings**:
-The writer's choices for theme, UI scale, body font, font size, line height, and column width. They apply at once and save to a JSON file in the XDG config dir.
+The writer's choices for theme, UI scale, body font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
 _Avoid_: Preferences, config
 
 ### Lab

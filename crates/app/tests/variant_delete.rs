@@ -1,6 +1,6 @@
 use app::{Effect, EffectKind, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Level, Provenance, SlotId};
+use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings, SlotId};
 
 fn open(
     cx: &mut TestAppContext,
@@ -175,4 +175,30 @@ fn up_and_down_with_the_caret_in_a_slot_cycle_its_variants(cx: &mut TestAppConte
         variants(&workspace, cx, slot).map(|(_, active)| active),
         Some(2)
     );
+}
+fn reduce_motion(cx: &mut VisualTestContext) {
+    let loaded = LoadedSettings {
+        settings: Settings {
+            reduced_motion: true,
+            ..Settings::default()
+        },
+        problem: None,
+    };
+    cx.update(|_, cx| app::use_settings(None, loaded, cx));
+}
+
+#[gpui::test]
+fn with_reduced_motion_delete_and_undo_play_no_effect(cx: &mut TestAppContext) {
+    let (document, _) = slot_document();
+    let (workspace, cx) = open(cx, document);
+    reduce_motion(cx);
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-backspace");
+    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
+    assert_eq!(effects(&workspace, cx), Vec::new());
+
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    assert_eq!(effects(&workspace, cx), Vec::new());
 }

@@ -1,5 +1,6 @@
-//! Settings (issue #21): theme, UI scale, editor font values, and cycle sounds, with their defaults,
-//! limits, and the JSON file in the XDG config dir.
+//! Settings (issue #21): theme, UI scale, editor font values, cycle sounds (issue #27),
+//! and reduced motion (issue #31), with their defaults, limits, and the JSON file in the
+//! XDG config dir.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -71,6 +72,9 @@ pub struct Settings {
     pub font_size: f32,
     pub line_height: f32,
     pub column_width: f32,
+    /// Effects are instant (spec NFR "Reduced motion"). Off by default: GPUI 0.2.2 does not
+    /// expose the OS setting.
+    pub reduced_motion: bool,
     /// A tone on each Active variant switch and a sound on a Variant delete (issue #27).
     pub cycle_sounds: bool,
 }
@@ -85,6 +89,7 @@ impl Default for Settings {
             font_size: 15.0,
             line_height: 1.8,
             column_width: 585.0,
+            reduced_motion: false,
             cycle_sounds: true,
         }
     }

@@ -13,7 +13,7 @@ use crate::actions::{
     SelectPreviousVariant,
 };
 use crate::editor::{Spotlight, paragraph_around};
-use crate::effects::{Effect, EffectKind, Playing};
+use crate::effects::{self, Effect, EffectKind, Playing};
 use crate::sounds;
 use crate::{Ai, Editor, Theme};
 use crate::{context_menu, loading};
@@ -444,7 +444,7 @@ impl AlternativesPanel {
             range,
         };
         let seed = u64::try_from(row).unwrap_or_default().wrapping_add(0x5eed);
-        self.explosion = Some((row, Playing::new(effect, seed)));
+        self.explosion = effects::plays(cx).then(|| (row, Playing::new(effect, seed)));
         if let Some(kept) = kept {
             let text = self.editor.read(cx).document().text();
             let target = ended_slot_text(text, start, &kept)
