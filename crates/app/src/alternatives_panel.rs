@@ -12,7 +12,7 @@ use gpui::{
 };
 use ka_teb_core::{
     AiRequest, AiTrigger, ApplyError, Effect, Level, Provenance, RangeError, SlotId, Switch,
-    paragraph_around, sentence_around,
+    follow_change, paragraph_around, sentence_around,
 };
 
 use crate::actions::{
@@ -106,12 +106,18 @@ pub struct AlternativesPanel {
     /// The last row is hidden after a quick fill, until the writer goes to it.
     new_row_hidden: bool,
     scroll: ScrollHandle,
+    /// The Document text at the last editor change, to move a text target along with edits.
+    seen_text: String,
     _editor_changes: Subscription,
 }
 
 impl AlternativesPanel {
     pub(crate) fn new(editor: Entity<Editor>, cx: &mut Context<Self>) -> Self {
-        let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        let editor_changes = cx.observe(&editor, |panel, _, cx| {
+            panel.follow_document(cx);
+            cx.notify();
+        });
+        let seen_text = editor.read(cx).document().text().to_owned();
         let mut panel = Self {
             editor,
             focus_handle: cx.focus_handle(),
@@ -125,6 +131,7 @@ impl AlternativesPanel {
             reveal: None,
             new_row_hidden: false,
             scroll: ScrollHandle::new(),
+            seen_text,
             _editor_changes: editor_changes,
         };
         let target = panel.target_at_editor(cx);
@@ -148,6 +155,31 @@ impl AlternativesPanel {
         Target::Text { range, level }
     }
 
+    /// A text target moves along with a Document edit. Text edited away leaves no target.
+    fn follow_document(&mut self, cx: &mut App) {
+        let text = self.editor.read(cx).document().text();
+        if text == self.seen_text {
+            return;
+        }
+        let new = text.to_owned();
+        let old = std::mem::replace(&mut self.seen_text, new);
+        let Target::Text { range, level } = &self.target else {
+            return;
+        };
+        let range = follow_change(range.start, &old, &self.seen_text)
+            ..follow_change(range.end, &old, &self.seen_text);
+        let target = if range.is_empty() {
+            Target::Nothing
+        } else {
+            Target::Text {
+                range,
+                level: *level,
+            }
+        };
+        self.set_target(target, cx);
+        self.sync_preview(cx);
+    }
+
     /// Shows `target`; its paragraph stays bright in the editor.
     fn set_target(&mut self, target: Target, cx: &mut App) {
         let spotlight = match &target {
@@ -156,6 +188,11 @@ impl AlternativesPanel {
             Target::Nothing => None,
         };
         self.target = target;
+        self.editor
+            .read(cx)
+            .document()
+            .text()
+            .clone_into(&mut self.seen_text);
         self.editor
             .update(cx, |editor, cx| editor.set_spotlight(spotlight, cx));
     }
