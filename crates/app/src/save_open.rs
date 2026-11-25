@@ -224,6 +224,7 @@ impl Workspace {
             .child(
                 div()
                     .id("save")
+                    .debug_selector(|| "save".to_owned())
                     .cursor_pointer()
                     .text_color(save_color)
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(Save), cx))
@@ -250,7 +251,7 @@ impl Workspace {
             div()
                 .id("notice")
                 .absolute()
-                .bottom(px(56.))
+                .bottom(crate::workspace::chrome_bar_height(cx) + px(16.))
                 .left(px(24.))
                 .max_w(theme.column_width)
                 .p(px(10.))

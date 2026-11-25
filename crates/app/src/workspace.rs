@@ -2,8 +2,8 @@
 //! actions between them.
 
 use gpui::{
-    Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div, linear_color_stop,
-    linear_gradient, prelude::*, px,
+    Context, Entity, Focusable, IntoElement, Pixels, Render, Subscription, Window, div,
+    linear_color_stop, linear_gradient, prelude::*, px,
 };
 use ka_teb_core::{Document, SlotId};
 
@@ -33,6 +33,14 @@ pub struct Workspace {
     _settings_saves: Subscription,
     _editor_events: Subscription,
     _lab_changes: Subscription,
+}
+
+/// Height of the Chrome bar at UI scale 1.
+const CHROME_BAR_HEIGHT: Pixels = px(40.);
+
+/// Height of the Chrome bar at the window bottom, at the UI scale in use.
+pub(crate) fn chrome_bar_height(cx: &gpui::App) -> Pixels {
+    CHROME_BAR_HEIGHT * settings::ui_scale(cx)
 }
 
 impl Workspace {
@@ -214,10 +222,42 @@ fn to_lab<A: 'static>(
     move |action, window, cx| lab.update(cx, |lab, cx| handle(lab, action, window, cx))
 }
 
+impl Workspace {
+    /// The Chrome bar: Save and Open left, LAB center, Settings and Overflow right.
+    fn chrome_bar(&self, theme: &Theme, height: Pixels, cx: &Context<Self>) -> impl IntoElement {
+        div()
+            .id("chrome")
+            .debug_selector(|| "chrome-bar".to_owned())
+            .occlude()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .h(height)
+            .px(px(24.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .bg(theme.elevated_background)
+            .border_t_1()
+            .border_color(theme.panel_border)
+            .child(self.save_open_icons(theme, cx))
+            .child(lab::lab_button(&self.lab, theme, cx))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .child(settings_modal::settings_button(theme))
+                    .child(overflow_panel::overflow_button(self.overflow_open, theme)),
+            )
+    }
+}
+
 impl Render for Workspace {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
         let counter_label = self.editor.read(cx).counter_label();
+        let bar_height = chrome_bar_height(cx);
         let fade = |angle| {
             linear_gradient(
                 angle,
@@ -266,12 +306,22 @@ impl Render for Workspace {
                     .h(theme.edge_fade_height)
                     .bg(fade(0.)),
             )
-            .when(self.overflow_open, |workspace| {
-                workspace.child(self.overflow_panel.clone())
-            })
-            .when_some(self.alternatives_panel().cloned(), |workspace, panel| {
-                workspace.child(panel)
-            })
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .bottom(if self.chrome_visible {
+                        bar_height
+                    } else {
+                        px(0.)
+                    })
+                    .when(self.overflow_open, |panels| {
+                        panels.child(self.overflow_panel.clone())
+                    })
+                    .children(self.alternatives_panel().cloned()),
+            )
             .child(
                 div()
                     .id("counter")
@@ -284,30 +334,9 @@ impl Render for Workspace {
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
                     .child(counter_label),
             )
-            .when(self.chrome_visible, |workspace| {
-                workspace.child(
-                    div()
-                        .id("chrome")
-                        .absolute()
-                        .bottom(px(24.))
-                        .left(px(24.))
-                        .right(px(24.))
-                        .h(px(16.))
-                        .flex()
-                        .justify_between()
-                        .child(self.save_open_icons(&theme, cx))
-                        .child(
-                            div()
-                                .flex()
-                                .gap(px(16.))
-                                .child(settings_modal::settings_button(&theme))
-                                .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
-                        ),
-                )
-            })
             .children(
                 self.chrome_visible
-                    .then(|| lab::lab_button(&self.lab, &theme, cx)),
+                    .then(|| self.chrome_bar(&theme, bar_height, cx)),
             )
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))

@@ -35,10 +35,8 @@ pub use actions::{CloseLab, RunLabCheck, ToggleLab};
 const POPOVER_WIDTH: gpui::Pixels = px(270.);
 /// Width of the Lab mark card.
 const CARD_WIDTH: gpui::Pixels = px(320.);
-/// Distance from the window bottom to the LAB button, as the Chrome row.
-const BUTTON_BOTTOM: gpui::Pixels = px(24.);
-/// Distance from the window bottom to a popover above the LAB button.
-const POPOVER_BOTTOM: gpui::Pixels = px(48.);
+/// Space between the top of the Chrome bar and a popover above the LAB button.
+const POPOVER_GAP: gpui::Pixels = px(8.);
 
 /// One row of the Lab popover.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -316,6 +314,7 @@ impl Lab {
             .on_action(cx.listener(Self::run_lab_check))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
+            .debug_selector(|| "lab-popover".to_owned())
             .occlude()
             .w(POPOVER_WIDTH)
             .pb(px(4.))
@@ -411,7 +410,7 @@ impl Render for Lab {
                 .map(|mark| self.mark_card(&mark, &theme, cx))
         };
         let bar = self.trim_bar_view(&theme, cx);
-        bottom_center(POPOVER_BOTTOM).child(
+        bottom_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP).child(
             div()
                 .flex()
                 .flex_col()
@@ -431,7 +430,12 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
     };
     let color = if open { theme.accent } else { theme.text_muted };
     let lab = lab.clone();
-    bottom_center(BUTTON_BOTTOM)
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
         .child(
             div()
                 .id("lab-button")
