@@ -54,10 +54,6 @@ fn counter(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String 
     cx.read(|cx| workspace.read(cx).editor().read(cx).counter_label())
 }
 
-fn chrome_visible(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
-    cx.read(|cx| workspace.read(cx).chrome_visible())
-}
-
 #[gpui::test]
 fn typing_inserts_text(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, "");
@@ -131,18 +127,6 @@ fn mouse_drag_selects_text(cx: &mut TestAppContext) {
     );
 
     assert_eq!(counter(&workspace, cx), "2 words 11 chars selected");
-}
-
-#[gpui::test]
-fn a_click_on_the_counter_toggles_the_chrome(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, "Hello");
-    assert!(!chrome_visible(&workspace, cx));
-
-    cx.simulate_click(point(px(30.), px(28.)), Modifiers::none());
-    assert!(chrome_visible(&workspace, cx));
-
-    cx.simulate_click(point(px(30.), px(28.)), Modifiers::none());
-    assert!(!chrome_visible(&workspace, cx));
 }
 
 #[gpui::test]

@@ -52,7 +52,6 @@ gpui::actions!(
 gpui::actions!(
     workspace,
     [
-        ToggleChrome,
         ToggleOverflow,
         Save,
         SaveAs,
@@ -60,6 +59,17 @@ gpui::actions!(
         NewDocument,
         OpenSettings,
         CloseSettings
+    ]
+);
+
+gpui::actions!(
+    settings_modal,
+    [
+        PreviousRow,
+        NextRow,
+        PickRow,
+        CloseSelect,
+        DeleteQueryBackward
     ]
 );
 
