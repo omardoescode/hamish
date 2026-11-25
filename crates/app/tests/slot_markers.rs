@@ -266,3 +266,149 @@ fn a_slot_underline_is_wavy_and_the_same_after_an_edit_elsewhere(cx: &mut TestAp
     assert_eq!(text(&workspace, cx), "My Title\nIt is a tension here.");
     assert_eq!(underline(&workspace, cx, slot), before);
 }
+
+/// "Title\n" then a paragraph of 3 sentences, each long enough to wrap, with a Sentence
+/// Slot on the middle one.
+const THREE_SENTENCES: &str = "Title\nThe first sentence of this paragraph runs long enough to wrap onto a second row of text in the column. The middle sentence is the one with Variants and it also runs long enough to wrap onto rows. The last sentence ends the paragraph after the Slot.";
+const MIDDLE_SENTENCE: std::ops::Range<usize> = 109..201;
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn sentence_slot_document() -> (Document, SlotId) {
+    let mut document = Document::new(THREE_SENTENCES);
+    let slot = document
+        .create_slot(
+            MIDDLE_SENTENCE,
+            Level::Sentence,
+            "Short one.",
+            Provenance::Writer,
+        )
+        .expect("valid range");
+    (document, slot)
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+/// The window bounds of the caret box at byte `offset`: its row top and height.
+fn caret_box(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    offset: usize,
+) -> Bounds<Pixels> {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    cx.update(|window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.bounds_for_range(offset..offset, Bounds::default(), window, cx)
+        })
+    })
+    .expect("the editor painted the text")
+}
+
+fn marker_dots(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    slot: SlotId,
+) -> Vec<Bounds<Pixels>> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).marker_dots(slot))
+}
+
+#[gpui::test]
+fn a_sentence_slot_mid_paragraph_shows_a_sentence_marker_with_dots_after_its_end(
+    cx: &mut TestAppContext,
+) {
+    let (document, slot) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    assert_eq!(
+        markers(&workspace, cx),
+        vec![Marker {
+            slot,
+            kind: MarkerKind::SentenceUnderline,
+            dots: 2,
+            active: 0,
+        }]
+    );
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    let next_sentence = caret_box(&workspace, cx, MIDDLE_SENTENCE.end + 5);
+    let dots = marker_dots(&workspace, cx, slot);
+    assert_eq!(dots.len(), 2);
+    for dot in &dots {
+        assert!(
+            dot.left() >= end.left(),
+            "dot {dot:?} is after the end {end:?}"
+        );
+        assert!(
+            dot.left() < next_sentence.left(),
+            "dot {dot:?} is before the next sentence"
+        );
+        assert!(
+            dot.top() >= end.top() && dot.bottom() <= end.bottom(),
+            "dot {dot:?} is on the last row {end:?}"
+        );
+    }
+}
+
+#[gpui::test]
+fn a_sentence_slot_underline_covers_only_the_rows_of_the_sentence(cx: &mut TestAppContext) {
+    let (document, slot) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    assert!(end.top() > start.top(), "the sentence wraps");
+
+    let line = underline(&workspace, cx, slot);
+    let (first, last) = (line[0], line[line.len() - 1]);
+    assert_eq!(first.x, start.left());
+    assert!(first.y > start.top() && first.y < start.bottom());
+    assert_eq!(last.x, end.left());
+    assert!(last.y > end.top() && last.y < end.bottom());
+    assert!(
+        line.iter()
+            .all(|at| at.y > start.top() && at.y < end.bottom()),
+        "no stroke on rows of the other sentences"
+    );
+}
+
+fn hover_tint(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).hover_tint())
+}
+
+#[gpui::test]
+fn hovering_a_sentence_slot_tints_only_the_sentence(cx: &mut TestAppContext) {
+    let (document, _) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+
+    hover(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+    cx.run_until_parked();
+    let tint = hover_tint(&workspace, cx);
+
+    assert!(tint.len() >= 2, "one box per row: {tint:?}");
+    let (first, last) = (tint[0], tint[tint.len() - 1]);
+    assert!(first.left() > start.left() - px(4.) && first.left() < start.left());
+    assert_eq!(first.top(), start.top());
+    assert!(last.right() > end.left() && last.right() < end.left() + px(4.));
+    assert_eq!(last.bottom(), end.bottom());
+
+    hover(&workspace, cx, 10);
+    cx.run_until_parked();
+    assert_eq!(hover_tint(&workspace, cx), Vec::new());
+}
+
+#[gpui::test]
+fn the_sentence_slot_the_alternatives_panel_shows_keeps_its_tint(cx: &mut TestAppContext) {
+    let (document, _) = sentence_slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    let inside = point_at(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+    cx.simulate_click(inside, Modifiers::none());
+    cx.simulate_keystrokes("ctrl-shift-a");
+    hover(&workspace, cx, 10);
+    cx.run_until_parked();
+    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+    let tint = hover_tint(&workspace, cx);
+
+    assert!(tint.len() >= 2, "one box per row: {tint:?}");
+    assert_eq!(tint[0].top(), start.top());
+    assert_eq!(tint[tint.len() - 1].bottom(), end.bottom());
+}

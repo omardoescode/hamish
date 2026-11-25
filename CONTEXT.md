@@ -46,7 +46,7 @@ _Avoid_: Article fix
 ### Markers (UI)
 
 **Marker**:
-The visual sign that a Slot has Variants: underline + Variant dots (Word, Sentence) or a left-margin line + vertical dots (Paragraph).
+The visual sign that a Slot has Variants: underline + Variant dots under a Word or after the end of a Sentence or a left-margin line + vertical dots (Paragraph).
 
 **Variant dots**:
 One dot per Variant; the Active variant's dot is filled.

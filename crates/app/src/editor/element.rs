@@ -9,12 +9,12 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style,
     Window, fill, point, px, relative, size,
 };
-use ka_teb_core::{Level, Slot};
+use ka_teb_core::{Level, Slot, SlotId};
 
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
 use super::runs::text_runs;
-use super::{Editor, Marker, MarkerKind, focus_zoom};
+use super::{Editor, Marker, MarkerKind, Spotlight, focus_zoom};
 use crate::Theme;
 use crate::caret;
 use crate::effects::Particles;
@@ -31,6 +31,9 @@ const HOVER_RADIUS: Pixels = px(3.);
 
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
+
+/// One Variant dot of the Marker of a Slot (window coordinates).
+pub(super) type MarkerDot = (SlotId, Bounds<Pixels>);
 
 pub(super) struct EditorElement {
     pub(super) editor: Entity<Editor>,
@@ -176,18 +179,26 @@ impl Element for EditorElement {
             painted.selection_quads(&editor.to_shown(&editor.selection()), theme.selection);
         let lab_marks = lab_mark_quads(&painted, editor, &theme);
         let slots = shown.slots();
-        let hover = editor
+        let shown_in_panel = match editor.spotlight {
+            Some(Spotlight::Slot(id)) => Some(id),
+            Some(Spotlight::Text(_)) | None => None,
+        };
+        let tinted = editor
             .hovered
-            .and_then(|id| slots.iter().find(|slot| slot.id == id))
-            .map_or_default(|slot| {
+            .into_iter()
+            .chain(shown_in_panel.filter(|id| editor.hovered != Some(*id)));
+        let hover: Vec<PaintQuad> = tinted
+            .filter_map(|id| slots.iter().find(|slot| slot.id == id))
+            .flat_map(|slot| {
                 hover_quads(
                     &painted,
                     &slot.range,
                     slot.level,
                     theme.slot_hover_background,
                 )
-            });
-        let (markers, marker_quads) = slot_markers(&painted, &slots, &theme);
+            })
+            .collect();
+        let (markers, marker_quads, marker_dots) = slot_markers(&painted, &slots, &theme);
         let underlines = pen_strokes(&painted, editor, &slots, &theme);
         let caret = editor
             .selection()
@@ -206,6 +217,8 @@ impl Element for EditorElement {
         self.editor.update(cx, |editor, _| {
             editor.autoscroll = false;
             editor.markers = markers;
+            editor.marker_dots = marker_dots;
+            editor.hover_tint = hover.iter().map(|quad| quad.bounds).collect();
             editor.underlines.clone_from(&underlines);
         });
         EditorPrepaint {
@@ -357,19 +370,22 @@ fn hover_quads(
         .collect()
 }
 
-/// The Marker of each Slot in `slots` and the quads that draw them (window coordinates).
+/// The Marker of each Slot in `slots`, the quads that draw them and the bounds of each
+/// Variant dot (window coordinates).
 fn slot_markers(
     painted: &PaintedText,
     slots: &[Slot],
     theme: &Theme,
-) -> (Vec<Marker>, Vec<PaintQuad>) {
+) -> (Vec<Marker>, Vec<PaintQuad>, Vec<MarkerDot>) {
     let mut markers = Vec::new();
     let mut marker_quads = Vec::new();
+    let mut marker_dots = Vec::new();
     for (index, slot) in slots.iter().enumerate() {
         let marker = Marker {
             slot: slot.id,
             kind: match slot.level {
-                Level::Word | Level::Sentence => MarkerKind::Underline,
+                Level::Word => MarkerKind::Underline,
+                Level::Sentence => MarkerKind::SentenceUnderline,
                 Level::Paragraph => MarkerKind::MarginLine,
             },
             dots: slot.variants.len(),
@@ -384,16 +400,13 @@ fn slot_markers(
                     && slot.range.end <= outer.range.end
             })
             .count();
-        marker_quads.extend(marker_quads_for(
-            painted,
-            &slot.range,
-            &marker,
-            depth,
-            theme,
-        ));
+        let quads = marker_quads_for(painted, &slot.range, &marker, depth, theme);
+        let dots = quads.iter().rev().take(marker.dots).rev();
+        marker_dots.extend(dots.map(|quad| (slot.id, quad.bounds)));
+        marker_quads.extend(quads);
         markers.push(marker);
     }
-    (markers, marker_quads)
+    (markers, marker_quads, marker_dots)
 }
 
 /// The Marker of a Slot over `range` (window coordinates), less the underline, which is
@@ -419,6 +432,11 @@ fn marker_quads_for(
                 (row_left + end.x - dots_length) / 2.,
                 bottom - DOT_SIZE - px(1.),
             ),
+            point(DOT_SIZE + DOT_GAP, px(0.)),
+            None,
+        ),
+        MarkerKind::SentenceUnderline => (
+            sentence_dots_at(painted, end, dots_length),
             point(DOT_SIZE + DOT_GAP, px(0.)),
             None,
         ),
@@ -452,6 +470,24 @@ fn marker_quads_for(
             .border_color(theme.slot_dot)
     });
     line.into_iter().chain(dots).collect()
+}
+
+/// Where the first Variant dot of a Sentence Marker goes (local coordinates): after the
+/// sentence's last char, in the middle of its row. Past the right edge, the dots go under
+/// the row and end at the last char.
+fn sentence_dots_at(
+    painted: &PaintedText,
+    end: Point<Pixels>,
+    dots_length: Pixels,
+) -> Point<Pixels> {
+    let after = end.x + DOT_GAP * 2.;
+    if after + dots_length <= painted.bounds.size.width {
+        return point(after, end.y + (painted.line_height - DOT_SIZE) / 2.);
+    }
+    point(
+        (end.x - dots_length).max(px(0.)),
+        end.y + painted.line_height - DOT_SIZE - px(1.),
+    )
 }
 
 /// The Lab marks and the Trim cut being walked through, as highlight quads.
