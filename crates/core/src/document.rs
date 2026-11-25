@@ -2,14 +2,16 @@ use std::fmt;
 use std::ops::Range;
 
 use crate::article;
+use crate::ghost;
 use crate::slot::{self, SlotNode};
-use crate::{Counter, Cycle, Level, Provenance, Slot, SlotError, SlotId, Variant};
+use crate::{Counter, Cycle, GhostError, Level, Provenance, Slot, SlotError, SlotId, Variant};
 
-/// One piece of writing: its text, Slots, and edit history.
+/// One piece of writing: its text, Slots, Ghost ranges, and edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
     slots: Vec<SlotNode>,
+    ghosts: Vec<Range<usize>>,
     next_slot: SlotId,
     undo_steps: Vec<Step>,
     redo_steps: Vec<Step>,
@@ -24,14 +26,21 @@ enum SlotChange {
 }
 
 /// One undoable change: `removed` at `at` was swapped for `inserted`,
-/// and the Slots went from `slots_before` to `slots_after`.
+/// and the Slots and Ghost ranges went from `before` to `after`.
 #[derive(Debug, Clone)]
 struct Step {
     at: usize,
     removed: String,
     inserted: String,
-    slots_before: Vec<SlotNode>,
-    slots_after: Vec<SlotNode>,
+    before: Tree,
+    after: Tree,
+}
+
+/// The Slots and top-level Ghost ranges of the Document at one time (ADR 0006).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct Tree {
+    slots: Vec<SlotNode>,
+    ghosts: Vec<Range<usize>>,
 }
 
 impl Step {
@@ -40,8 +49,8 @@ impl Step {
             at: self.at,
             removed: self.inserted,
             inserted: self.removed,
-            slots_before: self.slots_after,
-            slots_after: self.slots_before,
+            before: self.after,
+            after: self.before,
         }
     }
 }
@@ -78,9 +87,78 @@ impl Document {
         &self.text
     }
 
+    /// Counter of the Document. Ghost text is not counted; a Ghost range splits words.
     #[must_use]
     pub fn counter(&self) -> Counter {
-        Counter::of(&self.text)
+        self.count(0..self.text.len())
+    }
+
+    /// The visible Ghost ranges in document order, as byte ranges of the active text.
+    #[must_use]
+    pub fn ghost_ranges(&self) -> Vec<Range<usize>> {
+        let mut nested = Vec::new();
+        slot::collect_ghosts(&self.slots, 0, &mut nested);
+        let mut out = self.ghosts.clone();
+        for range in nested {
+            ghost::join(&mut out, range);
+        }
+        out
+    }
+
+    /// Ghosts `range` (FR-37): the text stays in the Document, dimmed. Ghost ranges
+    /// that overlap or touch it join it. A range inside a Slot is Ghost only in that Slot's
+    /// Active variant (ADR 0006); a range that holds a Slot stays Ghost whichever Variant shows.
+    ///
+    /// # Errors
+    /// [`GhostError::Range`] for an invalid range, [`GhostError::EmptyRange`] for an empty one,
+    /// [`GhostError::PartialOverlap`] when `range` partly overlaps a Slot.
+    pub fn ghost(&mut self, range: Range<usize>) -> Result<(), GhostError> {
+        self.text.get(range.clone()).ok_or(RangeError {
+            range: range.clone(),
+        })?;
+        if range.is_empty() {
+            return Err(GhostError::EmptyRange);
+        }
+        let mut slots = self.slots.clone();
+        let mut ghosts = self.ghosts.clone();
+        slot::place_ghost(&mut slots, &mut ghosts, range.clone())?;
+        self.commit(range.start..range.start, "", Tree { slots, ghosts })?;
+        Ok(())
+    }
+
+    /// Revives (FR-39) each visible Ghost range that `range` touches. An empty `range`
+    /// (a caret) touches a Ghost range it lies in or on an edge of.
+    ///
+    /// # Errors
+    /// [`GhostError::NoGhost`] when `range` touches no Ghost range.
+    pub fn revive(&mut self, range: Range<usize>) -> Result<(), GhostError> {
+        let mut slots = self.slots.clone();
+        let mut ghosts = self.ghosts.clone();
+        if slot::revive(&mut slots, &mut ghosts, &range) == 0 {
+            return Err(GhostError::NoGhost(range));
+        }
+        self.commit(range.start..range.start, "", Tree { slots, ghosts })?;
+        Ok(())
+    }
+
+    /// Counter of the text in `range` outside Ghost ranges, each piece on its own.
+    fn count(&self, range: Range<usize>) -> Counter {
+        let mut pieces = Vec::new();
+        let mut from = range.start;
+        for ghost in self.ghost_ranges() {
+            let to = ghost.start.clamp(from, range.end);
+            pieces.push(from..to);
+            from = ghost.end.clamp(from, range.end);
+        }
+        pieces.push(from..range.end);
+        pieces
+            .into_iter()
+            .filter_map(|piece| self.text.get(piece))
+            .map(Counter::of)
+            .fold(Counter::default(), |all, piece| Counter {
+                words: all.words + piece.words,
+                chars: all.chars + piece.chars,
+            })
     }
 
     /// The first line, shown as the title (FR-5). `None` when the first line is blank.
@@ -92,15 +170,15 @@ impl Document {
             .filter(|line| !line.trim().is_empty())
     }
 
-    /// Counter of the text in byte range `selection`.
+    /// Counter of the text in byte range `selection`. Ghost text is not counted.
     ///
     /// # Errors
     /// [`RangeError`] when `selection` is out of bounds, reversed, or not on char boundaries.
     pub fn selection_counter(&self, selection: Range<usize>) -> Result<Counter, RangeError> {
-        self.text
-            .get(selection.clone())
-            .map(Counter::of)
-            .ok_or(RangeError { range: selection })
+        if self.text.get(selection.clone()).is_none() {
+            return Err(RangeError { range: selection });
+        }
+        Ok(self.count(selection))
     }
 
     /// The visible Slots in document order, each parent before the Slots nested in it.
@@ -131,6 +209,18 @@ impl Document {
         text: &str,
         provenance: Provenance,
     ) -> Result<SlotId, SlotError> {
+        self.create_slot_with(range, level, &[text], provenance)
+    }
+
+    /// Makes a Slot over `range`: its text becomes the Original, `texts` the next Variants,
+    /// as one undoable step. The Original stays the Active variant.
+    pub(crate) fn create_slot_with(
+        &mut self,
+        range: Range<usize>,
+        level: Level,
+        texts: &[&str],
+        provenance: Provenance,
+    ) -> Result<SlotId, SlotError> {
         let original = self.text.get(range.clone()).ok_or(RangeError {
             range: range.clone(),
         })?;
@@ -138,19 +228,20 @@ impl Document {
             return Err(SlotError::EmptyRange);
         }
         let id = self.next_slot;
+        let variants = std::iter::once(Variant::new(original, Provenance::Writer))
+            .chain(texts.iter().map(|text| Variant::new(text, provenance)))
+            .collect();
         let node = SlotNode {
             id,
             level,
             range: range.clone(),
-            variants: vec![
-                Variant::new(original, Provenance::Writer),
-                Variant::new(text, provenance),
-            ],
+            variants,
             active: 0,
         };
         let mut slots = self.slots.clone();
-        slot::place(&mut slots, node)?;
-        self.commit(range.start..range.start, "", slots)?;
+        let mut ghosts = self.ghosts.clone();
+        slot::place(&mut slots, &mut ghosts, node)?;
+        self.commit(range.start..range.start, "", Tree { slots, ghosts })?;
         self.next_slot = id.next();
         Ok(id)
     }
@@ -167,6 +258,21 @@ impl Document {
     ) -> Result<(), SlotError> {
         self.change_slot(id, SlotChange::Switch, |node| {
             node.push_variant(text, provenance);
+            Ok(())
+        })
+    }
+
+    /// Adds `texts` as Variants at the end of Slot `id`, as one undoable step.
+    pub(crate) fn add_variants(
+        &mut self,
+        id: SlotId,
+        texts: &[&str],
+        provenance: Provenance,
+    ) -> Result<(), SlotError> {
+        self.change_slot(id, SlotChange::Switch, |node| {
+            for text in texts {
+                node.push_variant(text, provenance);
+            }
             Ok(())
         })
     }
@@ -234,24 +340,43 @@ impl Document {
         let writer_edit = kind == SlotChange::WriterText && shown_changed;
         let agrees = node.level == Level::Word && shown_changed;
         let ends = node.variants.len() < 2;
-        slot::shift(&mut slots, &old, shown.len(), writer_edit, Some(id));
+        let mut ghosts = self.ghosts.clone();
+        slot::shift(
+            &mut slots,
+            &mut ghosts,
+            &old,
+            shown.len(),
+            writer_edit,
+            Some(id),
+        );
         if ends {
-            slot::dissolve(&mut slots, id);
+            slot::dissolve(&mut slots, &mut ghosts, id);
         }
         let Some((article_range, article)) = agrees
             .then(|| self.article_agreement(id, &old, &shown))
             .flatten()
         else {
-            self.commit(old, &shown, slots)?;
+            self.commit(old, &shown, Tree { slots, ghosts })?;
             return Ok(());
         };
-        slot::shift(&mut slots, &article_range, article.len(), false, None);
+        slot::shift(
+            &mut slots,
+            &mut ghosts,
+            &article_range,
+            article.len(),
+            false,
+            None,
+        );
         let gap = self
             .text
             .get(article_range.end..old.start)
             .unwrap_or_default();
         let inserted = format!("{article}{gap}{shown}");
-        self.commit(article_range.start..old.end, &inserted, slots)?;
+        self.commit(
+            article_range.start..old.end,
+            &inserted,
+            Tree { slots, ghosts },
+        )?;
         Ok(())
     }
 
@@ -312,16 +437,25 @@ impl Document {
         }
         let writer_edit = removed != text;
         let mut slots = self.slots.clone();
-        slot::shift(&mut slots, &range, text.len(), writer_edit, None);
-        self.commit(range, text, slots)
+        let mut ghosts = self.ghosts.clone();
+        slot::shift(
+            &mut slots,
+            &mut ghosts,
+            &range,
+            text.len(),
+            writer_edit,
+            None,
+        );
+        self.commit(range, text, Tree { slots, ghosts })
     }
 
-    /// Replaces `range` with `inserted` and sets the Slots to `slots`, as one undoable step.
+    /// Replaces `range` with `inserted` and sets the Slots and Ghost ranges to `tree`,
+    /// as one undoable step.
     fn commit(
         &mut self,
         range: Range<usize>,
         inserted: &str,
-        mut slots: Vec<SlotNode>,
+        mut tree: Tree,
     ) -> Result<(), RangeError> {
         let removed = self
             .text
@@ -332,18 +466,25 @@ impl Document {
             .to_owned();
         let mut text = self.text.clone();
         text.replace_range(range.clone(), inserted);
-        slot::sync(&mut slots, &text, 0);
-        if text == self.text && slots == self.slots {
+        slot::sync(&mut tree.slots, &text, 0);
+        let before = Tree {
+            slots: std::mem::take(&mut self.slots),
+            ghosts: std::mem::take(&mut self.ghosts),
+        };
+        if text == self.text && tree == before {
+            self.slots = before.slots;
+            self.ghosts = before.ghosts;
             return Ok(());
         }
         self.text = text;
-        let slots_before = std::mem::replace(&mut self.slots, slots);
+        self.slots.clone_from(&tree.slots);
+        self.ghosts.clone_from(&tree.ghosts);
         self.undo_steps.push(Step {
             at: range.start,
             removed,
             inserted: inserted.to_owned(),
-            slots_before,
-            slots_after: self.slots.clone(),
+            before,
+            after: tree,
         });
         self.redo_steps.clear();
         Ok(())
@@ -373,7 +514,8 @@ impl Document {
     fn apply(&mut self, step: Step) -> Step {
         let end = step.at + step.inserted.len();
         self.text.replace_range(step.at..end, &step.removed);
-        self.slots.clone_from(&step.slots_before);
+        self.slots.clone_from(&step.before.slots);
+        self.ghosts.clone_from(&step.before.ghosts);
         step.inverse()
     }
 }

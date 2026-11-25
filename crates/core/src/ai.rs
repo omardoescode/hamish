@@ -1,0 +1,182 @@
+mod claude;
+
+use std::fmt;
+use std::ops::Range;
+use std::time::Duration;
+
+pub use claude::ClaudeBackend;
+
+use crate::{Document, Level, Provenance, RangeError, SlotError, SlotId, Variant};
+
+/// What the AI gets: the selected text and the text around it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiRequest {
+    range: Range<usize>,
+    level: Level,
+    selection: String,
+    context: String,
+}
+
+impl AiRequest {
+    /// Byte range of the selection in the active text when the request was made.
+    #[must_use]
+    pub fn range(&self) -> Range<usize> {
+        self.range.clone()
+    }
+
+    #[must_use]
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
+    #[must_use]
+    pub fn selection(&self) -> &str {
+        &self.selection
+    }
+
+    /// The active text of the whole Document.
+    #[must_use]
+    pub fn context(&self) -> &str {
+        &self.context
+    }
+}
+
+/// The one way to ask an AI for Variants. Implementations block, so the app calls them
+/// on a background thread.
+pub trait AiAdapter: Send + Sync {
+    /// Variant texts for the selection of `request`.
+    ///
+    /// # Errors
+    /// [`AiError`] when the AI gives no usable answer.
+    fn variants(&self, request: &AiRequest) -> Result<Vec<String>, AiError>;
+}
+
+/// Why an AI call gave no Variants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AiError {
+    /// The AI program did not start or could not be watched.
+    Start(String),
+    /// The AI program ended with a failure.
+    Exit { code: Option<i32>, message: String },
+    /// The AI answered without Variants, for example it declined.
+    Declined(String),
+    /// The output was not the expected shape.
+    BadOutput(String),
+    /// No answer within this time; the call was stopped.
+    Timeout(Duration),
+}
+
+impl fmt::Display for AiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Start(detail) => write!(f, "the AI did not start: {detail}"),
+            Self::Exit {
+                code: Some(code),
+                message,
+            } => write!(f, "the AI failed (exit {code}): {message}"),
+            Self::Exit {
+                code: None,
+                message,
+            } => write!(f, "the AI was stopped: {message}"),
+            Self::Declined(message) => write!(f, "the AI gave no Variants: {message}"),
+            Self::BadOutput(detail) => write!(f, "the AI gave bad output: {detail}"),
+            Self::Timeout(limit) => write!(f, "the AI gave no answer in {} s", limit.as_secs()),
+        }
+    }
+}
+
+impl std::error::Error for AiError {}
+
+/// Why an AI result was not added. A refused result changes nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyError {
+    /// The text at the request range is not the requested selection any more.
+    Stale,
+    /// No text was new: all were blank or repeated a Variant.
+    NoVariants,
+    Slot(SlotError),
+}
+
+impl fmt::Display for ApplyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Stale => f.write_str("the text changed since the AI request"),
+            Self::NoVariants => f.write_str("the AI gave no new Variant"),
+            Self::Slot(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ApplyError {}
+
+impl From<SlotError> for ApplyError {
+    fn from(error: SlotError) -> Self {
+        Self::Slot(error)
+    }
+}
+
+impl Document {
+    /// An AI request for the text in byte range `range`, with the whole active text as context.
+    ///
+    /// # Errors
+    /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
+    pub fn ai_request(&self, range: Range<usize>, level: Level) -> Result<AiRequest, RangeError> {
+        let selection = self
+            .text()
+            .get(range.clone())
+            .ok_or(RangeError {
+                range: range.clone(),
+            })?
+            .to_owned();
+        Ok(AiRequest {
+            range,
+            level,
+            selection,
+            context: self.text().to_owned(),
+        })
+    }
+
+    /// Adds `texts` as AI Variants to the Slot over the range of `request`, or to a new Slot
+    /// there, as one undoable step. Of Slots with the same range, the innermost gets them.
+    /// The Active variant stays (FR-32, FR-36).
+    ///
+    /// # Errors
+    /// [`ApplyError`] when the result cannot be added.
+    pub fn apply_ai_result(
+        &mut self,
+        request: &AiRequest,
+        texts: &[String],
+    ) -> Result<SlotId, ApplyError> {
+        if self.text().get(request.range()) != Some(request.selection()) {
+            return Err(ApplyError::Stale);
+        }
+        let slots = self.slots();
+        let existing = slots.iter().rev().find(|slot| slot.range == request.range);
+        let mut known: Vec<&str> = existing.map_or_else(
+            || vec![request.selection()],
+            |slot| slot.variants.iter().map(Variant::text).collect(),
+        );
+        let mut new = Vec::new();
+        for text in texts {
+            if !text.trim().is_empty() && !known.contains(&text.as_str()) {
+                known.push(text);
+                new.push(text.as_str());
+            }
+        }
+        if new.is_empty() {
+            return Err(ApplyError::NoVariants);
+        }
+        let texts = new;
+        let existing = existing.map(|slot| slot.id);
+        let Some(id) = existing else {
+            return Ok(self.create_slot_with(
+                request.range(),
+                request.level,
+                &texts,
+                Provenance::Ai,
+            )?);
+        };
+        self.add_variants(id, &texts, Provenance::Ai)?;
+        Ok(id)
+    }
+}
