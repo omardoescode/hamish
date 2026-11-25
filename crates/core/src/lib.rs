@@ -8,6 +8,7 @@ mod ghost;
 mod lab;
 mod overflow;
 mod slot;
+mod storage;
 mod trim;
 
 pub use ai::{AiAdapter, AiError, AiRequest, ApplyError, ClaudeBackend};
@@ -17,4 +18,5 @@ pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
 pub use overflow::{Overflow, OverflowError};
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Variant};
+pub use storage::{Dropped, Opened, StorageError, sidecar_path};
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};

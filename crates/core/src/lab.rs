@@ -1,10 +1,13 @@
 use std::fmt;
 use std::ops::Range;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{Document, RangeError};
 
 /// A Lab check: a rule the AI marks matching text for (FR-51).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LabCheck {
     /// Fix punctuation and typos: marks carry a proposed fix (FR-53).
     PunctuationTypos,
@@ -59,7 +62,7 @@ pub struct LabFinding {
 
 /// Stable name of a Lab mark for the life of its Document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LabMarkId(u64);
+pub struct LabMarkId(pub(crate) u64);
 
 impl LabMarkId {
     pub(crate) fn next(self) -> Self {

@@ -2,11 +2,14 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Range;
 
+use serde::{Deserialize, Serialize};
+
 use crate::ghost;
 use crate::{GhostError, RangeError};
 
 /// The granularity of a Slot. Word also covers short phrases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Level {
     Word,
     Sentence,
@@ -14,7 +17,8 @@ pub enum Level {
 }
 
 /// Who wrote a Variant. Mixed: an AI Variant the writer edited.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Provenance {
     Writer,
     Ai,
@@ -30,7 +34,7 @@ pub enum Cycle {
 
 /// Stable name of a Slot for the life of its Document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SlotId(u64);
+pub struct SlotId(pub(crate) u64);
 
 impl SlotId {
     pub(crate) fn next(self) -> Self {
@@ -47,10 +51,10 @@ impl Default for SlotId {
 /// One candidate text for a Slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variant {
-    text: String,
-    provenance: Provenance,
-    slots: Vec<SlotNode>,
-    ghosts: Vec<Range<usize>>,
+    pub(crate) text: String,
+    pub(crate) provenance: Provenance,
+    pub(crate) slots: Vec<SlotNode>,
+    pub(crate) ghosts: Vec<Range<usize>>,
 }
 
 impl Variant {
@@ -294,6 +298,18 @@ impl SlotNode {
         let error = self.no_variant(self.active);
         self.variants.get_mut(self.active).ok_or(error)
     }
+}
+
+/// The highest Slot id in `slots`, in all their Variants at any depth. 0 when there is none.
+pub(crate) fn max_id(slots: &[SlotNode]) -> u64 {
+    slots
+        .iter()
+        .map(|node| {
+            let nested = node.variants.iter().map(|variant| max_id(&variant.slots));
+            nested.fold(node.id.0, u64::max)
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// Appends the Slots in `slots` and their visible descendants, parents first.
@@ -566,7 +582,7 @@ fn inside(inner: &Range<usize>, outer: &Range<usize>) -> bool {
     outer.start <= inner.start && inner.end <= outer.end && !on_edge
 }
 
-fn disjoint(a: &Range<usize>, b: &Range<usize>) -> bool {
+pub(crate) fn disjoint(a: &Range<usize>, b: &Range<usize>) -> bool {
     a.end <= b.start || b.end <= a.start
 }
 
