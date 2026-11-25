@@ -137,3 +137,23 @@ fn editing_the_active_variant_and_ending_the_slot_also_agree() {
     assert_eq!(document.text(), "an apple");
     assert!(document.slot(id).is_none());
 }
+
+#[test]
+fn an_initialism_takes_the_article_of_its_first_letter_name() {
+    let examples = [
+        ("a", "FBI", "an FBI"),
+        ("a", "MP3", "an MP3"),
+        ("an", "UFO", "a UFO"),
+        ("an", "BBC", "a BBC"),
+    ];
+    for (article, variant, expected) in examples {
+        let text = format!("{article} word");
+        let start = article.len() + 1;
+        let mut document = Document::new(&text);
+        let id = document
+            .create_slot(start..text.len(), Level::Word, variant, Provenance::Writer)
+            .unwrap();
+        document.set_active(id, 1).unwrap();
+        assert_eq!(document.text(), expected, "{variant}");
+    }
+}
