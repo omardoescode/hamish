@@ -1,9 +1,10 @@
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    Modifiers, Render, Subscription, Window, div, prelude::*, px,
+    Modifiers, Render, Subscription, Window, canvas, div, prelude::*, px,
 };
 use ka_teb_core::{AiError, AiRequest, Level, Provenance, SlotId};
 
@@ -12,6 +13,7 @@ use crate::actions::{
     SelectPreviousVariant,
 };
 use crate::editor::{Spotlight, paragraph_around};
+use crate::effects::{self, Effect, EffectKind, Playing};
 use crate::{Ai, Editor, Theme};
 use crate::{context_menu, loading};
 
@@ -57,6 +59,8 @@ pub struct AlternativesPanel {
     draft: String,
     /// The text of the selected Variant while the writer edits it (FR-26).
     editing: Option<String>,
+    /// FR-80: the row that a delete blows up, and its explosion.
+    explosion: Option<(usize, Playing)>,
     ai: AiStatus,
     _editor_changes: Subscription,
 }
@@ -71,6 +75,7 @@ impl AlternativesPanel {
             row: 0,
             draft: String::new(),
             editing: None,
+            explosion: None,
             ai: AiStatus::Idle,
             _editor_changes: editor_changes,
         };
@@ -134,6 +139,13 @@ impl AlternativesPanel {
             Target::Text { level, .. } => Some(*level),
             Target::Nothing => None,
         }
+    }
+
+    /// The row where a delete explosion plays now (FR-80). The next row has moved up into it.
+    #[must_use]
+    pub fn exploding_row(&self) -> Option<usize> {
+        let (row, playing) = self.explosion.as_ref()?;
+        playing.progress(Instant::now()).map(|_| *row)
     }
 
     /// The Variants in order, the Original first (FR-22).
@@ -397,8 +409,8 @@ impl AlternativesPanel {
         cx.notify();
     }
 
-    /// FR-26: deletes the selected Variant; the Original stays. A Slot left with one Variant
-    /// ends (FR-18); the panel then shows its text with no Slot.
+    /// FR-26, FR-80: deletes the selected Variant (the Original too) with an explosion on its
+    /// row. A Slot left with one Variant ends (FR-18); the panel then shows its text with no Slot.
     fn delete_variant(&mut self, _: &DeleteVariant, _: &mut Window, cx: &mut Context<Self>) {
         let Target::Slot(id) = self.target else {
             return;
@@ -407,23 +419,30 @@ impl AlternativesPanel {
             return;
         };
         let row = self.row;
-        if row == 0 || row >= slot.variants.len() {
+        if row >= slot.variants.len() {
             return;
         }
         let level = slot.level;
+        let range = slot.range.clone();
         let start = slot.range.start;
         let kept = (slot.variants.len() == 2).then(|| {
-            let shown = if slot.active == row { 0 } else { slot.active };
+            let other = usize::from(row == 0);
             slot.variants
-                .get(shown)
+                .get(other)
                 .map_or_default(|variant| variant.text().to_owned())
         });
-        let deleted = self.editor.update(cx, |editor, cx| {
-            editor.change_document(|document| document.delete_variant(id, row), cx)
-        });
+        let deleted = self
+            .editor
+            .update(cx, |editor, cx| editor.delete_variant(id, row, cx));
         if deleted.is_err() {
             return;
         }
+        let effect = Effect {
+            kind: EffectKind::Explosion,
+            range,
+        };
+        let seed = u64::try_from(row).unwrap_or_default().wrapping_add(0x5eed);
+        self.explosion = effects::plays(cx).then(|| (row, Playing::new(effect, seed)));
         if let Some(kept) = kept {
             let text = self.editor.read(cx).document().text();
             let target = ended_slot_text(text, start, &kept)
@@ -566,6 +585,31 @@ impl AlternativesPanel {
             }))
     }
 
+    /// FR-80: the explosion over row `index` while it plays. It only paints, so it never
+    /// blocks input.
+    fn explosion_at(&self, index: usize, theme: &Theme) -> Option<impl IntoElement> {
+        let (_, playing) = self
+            .explosion
+            .as_ref()
+            .filter(|_| self.exploding_row() == Some(index))?;
+        let playing = playing.clone();
+        let background = theme.panel_background;
+        let paint = move |bounds, (), window: &mut Window, _: &mut App| {
+            let Some(progress) = playing.progress(Instant::now()) else {
+                return;
+            };
+            playing.paint(&[bounds], px(23.), progress, background, window);
+            window.request_animation_frame();
+        };
+        Some(
+            canvas(|_, _, _| (), paint)
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+        )
+    }
+
     fn render_rows(&self, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.rows(cx);
         let last = rows.len();
@@ -583,6 +627,7 @@ impl AlternativesPanel {
             };
             let text = editing.map_or(row.text, |text| format!("{text}\u{258f}"));
             row_box(theme, index == self.row)
+                .children(self.explosion_at(index, theme))
                 .id(("alternatives-row", index))
                 .debug_selector(move || format!("alternatives-row-{index}"))
                 .cursor_pointer()
@@ -592,6 +637,7 @@ impl AlternativesPanel {
         });
         let has_target = self.target != Target::Nothing;
         let new_row = row_box(theme, self.row == last)
+            .children(self.explosion_at(last, theme))
             .id(("alternatives-row", last))
             .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))
             .child(provenance_marker(Provenance::Writer, theme.text_faint))
@@ -648,6 +694,7 @@ impl AlternativesPanel {
 /// A list row: about 23 px apart (spec); the selected row has the hover background.
 fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
     div()
+        .relative()
         .flex()
         .items_start()
         .gap(px(8.))

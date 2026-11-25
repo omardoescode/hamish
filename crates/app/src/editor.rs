@@ -12,19 +12,21 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, Effect, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotId, TrimError,
+    Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError, SlotId,
+    TrimError,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
 use crate::actions::{
-    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
-    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
-    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
-    ToggleGhost, Undo,
+    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, DeleteActiveVariant, MoveDown,
+    MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste,
+    Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart,
+    SelectUp, Stash, ToggleGhost, Undo,
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::edit_history::{EditHistory, EditKind};
+use crate::effects::{self, Effect, EffectKind, Playing};
 use crate::settings_modal;
 
 /// How a Slot shows that it has Variants (FR-12).
@@ -91,6 +93,9 @@ pub struct Editor {
     saved: Option<u64>,
     /// The Slot whose Active variant last changed, and when (FR-81).
     fade_in: Option<(SlotId, Instant)>,
+    /// FR-78, FR-79: effects that play over the text.
+    effects: Vec<Playing>,
+    effect_seed: u64,
 }
 
 /// What the open Alternatives panel shows: its paragraph stays bright, the rest dims (FR-27).
@@ -105,6 +110,11 @@ pub(crate) enum Spotlight {
 pub(crate) enum EditorEvent {
     /// A click on the text of a visible Slot (FR-21).
     SlotClicked(SlotId),
+    /// A Variant of the Slot was deleted; its explosion plays (FR-78). The explosion sound
+    /// hooks here (#27).
+    VariantDeleted(SlotId),
+    /// An undo put a deleted Variant of the Slot back; its burst plays (FR-79).
+    VariantRestored(SlotId),
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -142,6 +152,8 @@ impl Editor {
             spotlight: None,
             saved: None,
             fade_in: None,
+            effects: Vec::new(),
+            effect_seed: 0,
         }
     }
 
@@ -188,6 +200,62 @@ impl Editor {
     #[must_use]
     pub fn markers(&self) -> &[Marker] {
         &self.markers
+    }
+
+    /// The effects that play now, oldest first (FR-78, FR-79).
+    #[must_use]
+    pub fn effects(&self) -> Vec<Effect> {
+        self.effects
+            .iter()
+            .map(|playing| playing.effect.clone())
+            .collect()
+    }
+
+    fn play(&mut self, kind: EffectKind, range: Range<usize>, cx: &App) {
+        if !effects::plays(cx) {
+            return;
+        }
+        self.effect_seed = self.effect_seed.wrapping_add(1);
+        self.effects
+            .push(Playing::new(Effect { kind, range }, self.effect_seed));
+    }
+
+    /// FR-77, FR-80: deletes Variant `index` of Slot `id` as one undo step, with an
+    /// explosion at the span (FR-78).
+    pub(crate) fn delete_variant(
+        &mut self,
+        id: SlotId,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SlotError> {
+        let range = self.document.slot(id).ok_or(SlotError::NoSlot(id))?.range;
+        self.change_document(|document| document.delete_variant(id, index), cx)?;
+        let len = self.document.text().len();
+        self.play(
+            EffectKind::Explosion,
+            range.start.min(len)..range.end.min(len),
+            cx,
+        );
+        cx.emit(EditorEvent::VariantDeleted(id));
+        Ok(())
+    }
+
+    /// FR-77: with the caret in a Slot span, deletes its Active variant.
+    fn delete_active_variant(
+        &mut self,
+        _: &DeleteActiveVariant,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(slot) = self
+            .document
+            .slot_at(self.cursor())
+            .and_then(|id| self.document.slot(id))
+        else {
+            return;
+        };
+        let (id, active) = (slot.id, slot.active);
+        self.delete_variant(id, active, cx).ok();
     }
 
     /// The centre line of the underline of `slot` as last painted (window coordinates), row
@@ -406,10 +474,16 @@ impl Editor {
         }
     }
 
-    /// FR-14: Up/Down over a Slot cycle its Active variant in place, as one undo step.
-    /// `false` when no Slot is under the pointer.
+    /// FR-14: Up/Down over a Slot, or with the caret in a Slot span, cycle its Active variant
+    /// in place, as one undo step. `false` when there is no such Slot.
     fn cycle_hovered(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
-        let Some(id) = self.hovered else {
+        let at_caret = || {
+            self.selection
+                .is_empty()
+                .then(|| self.document.slot_at(self.cursor()))
+                .flatten()
+        };
+        let Some(id) = self.hovered.or_else(at_caret) else {
             return false;
         };
         if self
@@ -452,7 +526,8 @@ impl Editor {
             .background_executor()
             .now()
             .saturating_duration_since(started);
-        let progress = Effect::VariantFadeIn.progress(elapsed, settings_modal::reduced_motion(cx));
+        let progress = ka_teb_core::Effect::VariantFadeIn
+            .progress(elapsed, settings_modal::reduced_motion(cx));
         (progress < 1.).then_some((
             slot,
             FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,
@@ -662,8 +737,17 @@ impl Editor {
             return;
         };
         let shown = self.shown_variants();
+        let mut restored = Vec::new();
         for _ in 0..group.steps {
+            restored.extend(self.document.undo_restores_variant());
             self.document.undo();
+        }
+        for id in restored {
+            let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
+                continue;
+            };
+            self.play(EffectKind::Burst, range, cx);
+            cx.emit(EditorEvent::VariantRestored(id));
         }
         self.fade_in_changed(&shown, cx);
         self.selection = group.before;
@@ -1217,6 +1301,26 @@ impl PaintedText {
     }
 
     /// Quads that cover `range` (window coordinates), one per visual row.
+    /// The effects that still play at `now`, each with its progress and the rows of its span.
+    fn effect_frames(
+        &self,
+        effects: &[Playing],
+        now: Instant,
+    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+        effects
+            .iter()
+            .filter_map(|playing| {
+                let progress = playing.progress(now)?;
+                let rows = self
+                    .selection_quads(&playing.effect.range, Hsla::default())
+                    .into_iter()
+                    .map(|quad| quad.bounds)
+                    .collect();
+                Some((playing.clone(), progress, rows))
+            })
+            .collect()
+    }
+
     pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
             (self.position_for(range.start), self.position_for(range.end))
@@ -1378,6 +1482,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::stash))
             .on_action(cx.listener(Self::close_menu))
+            .on_action(cx.listener(Self::delete_active_variant))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -1416,6 +1521,8 @@ struct EditorElement {
 
 struct EditorPrepaint {
     lines: Vec<PaintedLine>,
+    /// Each playing effect, its progress, and the rows of its span.
+    effects: Vec<(Playing, f32, Vec<Bounds<Pixels>>)>,
     hover: Vec<PaintQuad>,
     lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
@@ -1425,6 +1532,29 @@ struct EditorPrepaint {
 }
 
 impl EditorElement {
+    /// The effects that play now, each with its progress and the rows of its span. Ended
+    /// effects drop; while one plays or a Variant fades in, the next frame comes (FR-78,
+    /// FR-79, FR-81).
+    fn effect_frames(
+        &self,
+        painted: &PaintedText,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+        let now = Instant::now();
+        let effects = painted.effect_frames(&self.editor.read(cx).effects, now);
+        self.editor.update(cx, |editor, _| {
+            editor
+                .effects
+                .retain(|playing| playing.progress(now).is_some());
+        });
+        let fading = self.editor.read(cx).fading_in(cx).is_some();
+        if fading || !effects.is_empty() {
+            window.request_animation_frame();
+        }
+        effects
+    }
+
     /// Text runs and the heading lines with their font size. The title line is bold in the
     /// title color (FR-5) unless it is a Markdown heading, which uses the heading style.
     /// Ghost text dims (FR-37), Trim cuts fade (FR-55), and so does text outside the bright
@@ -1788,9 +1918,6 @@ impl Element for EditorElement {
                     theme.accent,
                 )
             });
-        if editor.fading_in(cx).is_some() {
-            window.request_animation_frame();
-        }
         if editor.autoscroll {
             scroll_into_view(
                 &editor.scroll_handle,
@@ -1804,8 +1931,10 @@ impl Element for EditorElement {
             editor.markers = markers;
             editor.underlines.clone_from(&underlines);
         });
+        let effects = self.effect_frames(&painted, window, cx);
         EditorPrepaint {
             lines: painted.lines,
+            effects,
             hover,
             lab_marks,
             selection,
@@ -1848,6 +1977,10 @@ impl Element for EditorElement {
                 .line
                 .paint(origin, line_height, gpui::TextAlign::Left, None, window, cx)
                 .ok();
+        }
+        let background = cx.global::<Theme>().background;
+        for (playing, progress, rows) in prepaint.effects.drain(..) {
+            playing.paint(&rows, line_height, progress, background, window);
         }
         for stroke in &prepaint.underlines {
             if let Some(path) = stroke.path() {

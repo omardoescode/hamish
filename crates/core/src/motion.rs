@@ -10,6 +10,8 @@ pub enum Effect {
     VariantFadeIn,
     /// Burst over a deleted Variant (FR-78; spec: 500 to 800 ms).
     Explosion,
+    /// Burst when an undo puts a deleted Variant back (FR-79); shorter than the explosion.
+    UndoBurst,
 }
 
 impl Effect {
@@ -19,6 +21,7 @@ impl Effect {
         match self {
             Self::VariantFadeIn => Duration::from_millis(150),
             Self::Explosion => Duration::from_millis(650),
+            Self::UndoBurst => Duration::from_millis(450),
         }
     }
 

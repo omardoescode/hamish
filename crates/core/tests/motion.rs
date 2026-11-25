@@ -24,7 +24,15 @@ fn the_explosion_runs_650_ms() {
 }
 
 #[test]
+fn the_undo_burst_runs_450_ms() {
+    let burst = Effect::UndoBurst;
+    assert_eq!(burst.duration(), ms(450));
+    assert!((burst.progress(ms(225), false) - 0.5).abs() < 1e-6);
+}
+
+#[test]
 fn with_reduced_motion_an_effect_is_done_at_once() {
     assert!((Effect::VariantFadeIn.progress(ms(0), true) - 1.0).abs() < 1e-6);
     assert!((Effect::Explosion.progress(ms(0), true) - 1.0).abs() < 1e-6);
+    assert!((Effect::UndoBurst.progress(ms(0), true) - 1.0).abs() < 1e-6);
 }

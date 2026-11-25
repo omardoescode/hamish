@@ -79,6 +79,22 @@ _Avoid_: Item, chunk
 Move (not copy) a selection from the Document to the end of Overflow.
 _Avoid_: Cut, park
 
+### Effects
+
+**Effect**:
+A timed visual change: Variant fade-in, Explosion, Undo burst, dance, focus zoom. It never blocks input. Its duration comes from one timing source (`Effect` in core).
+_Avoid_: Animation (in code), transition
+
+**Reduced motion**:
+The setting that makes every Effect instant: no fade, no particles. Off unless the writer turns it on (GPUI does not expose the OS setting).
+
+**Explosion**:
+The particle burst that plays at a span (or panel row) when a Variant is deleted.
+_Avoid_: Animation, boom
+
+**Undo burst**:
+The burst that plays at a span when an undo puts a deleted Variant back.
+
 ### Markdown
 
 **Markdown style**:
@@ -96,15 +112,6 @@ Live word and character count of the Document, or of the selection.
 **Settings**:
 The writer's choices for theme, UI scale, body font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
 _Avoid_: Preferences, config
-
-### Effects
-
-**Effect**:
-A timed visual change: Variant fade-in, explosion, dance, focus zoom. It never blocks input. Its duration comes from one timing source (`Effect` in core).
-_Avoid_: Animation (in code), transition
-
-**Reduced motion**:
-The setting that makes every Effect instant. Off unless the writer turns it on (GPUI does not expose the OS setting).
 
 ### Lab
 

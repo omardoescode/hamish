@@ -5,7 +5,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, TestAppContext,
     VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, Provenance};
+use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -196,13 +196,36 @@ fn ctrl_backspace_deletes_the_selected_variant_and_the_original_shows(cx: &mut T
 }
 
 #[gpui::test]
-fn the_original_cannot_be_deleted(cx: &mut TestAppContext) {
+fn the_original_can_be_deleted_and_the_next_variant_shows(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, slot_document());
 
     cx.simulate_keystrokes(INTO_CUSTOMER);
     cx.simulate_keystrokes("ctrl-shift-a up up up ctrl-backspace");
 
-    assert_eq!(rows(&workspace, cx).len(), 3);
+    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![row("client", true), row("patron", false)]
+    );
+}
+
+#[gpui::test]
+fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up up ctrl-backspace");
+
+    let panel = panel(&workspace, cx).expect("the panel is open");
+    assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), Some(1));
+    let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
+    assert_eq!(
+        effects,
+        vec![app::Effect {
+            kind: app::EffectKind::Explosion,
+            range: 10..16
+        }]
+    );
 }
 
 #[gpui::test]
@@ -373,4 +396,24 @@ fn one_undo_in_the_editor_removes_a_variant_the_panel_added(cx: &mut TestAppCont
             row("patron", false)
         ]
     );
+}
+#[gpui::test]
+fn with_reduced_motion_a_row_delete_plays_no_explosion(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+    let loaded = LoadedSettings {
+        settings: Settings {
+            reduced_motion: true,
+            ..Settings::default()
+        },
+        problem: None,
+    };
+    cx.update(|_, cx| app::use_settings(None, loaded, cx));
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up up ctrl-backspace");
+
+    let panel = panel(&workspace, cx).expect("the panel is open");
+    assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), None);
+    let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
+    assert_eq!(effects, Vec::new());
 }
