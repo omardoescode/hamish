@@ -228,6 +228,22 @@ fn escape_in_the_editor_closes_the_open_panel(cx: &mut TestAppContext) {
     assert!(panel(&workspace, cx).is_none());
 }
 
+#[gpui::test]
+fn the_panel_text_follows_editor_edits_before_it(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+
+    let title = point_at(&workspace, cx, 2);
+    cx.simulate_click(title, Modifiers::none());
+    cx.simulate_input("xy");
+    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
+
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
+}
+
 /// "Title\nThe customer waits." with a Word Slot on "customer": "customer", "client", "patron".
 #[expect(clippy::expect_used, reason = "test fixture")]
 fn slot_document() -> Document {
