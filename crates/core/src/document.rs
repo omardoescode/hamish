@@ -376,7 +376,11 @@ impl Document {
         inserted: &str,
         slots: Vec<SlotNode>,
     ) -> Result<(), RangeError> {
-        let marks = self.lab_marks.clone();
+        let marks = self
+            .lab_marks
+            .iter()
+            .filter_map(|mark| mark.clone().follow(&range, inserted.len()))
+            .collect();
         self.record(range, inserted, slots, marks)
     }
 

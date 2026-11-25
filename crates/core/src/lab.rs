@@ -84,6 +84,38 @@ pub struct LabMark {
     pub fix: Option<String>,
 }
 
+impl LabMark {
+    /// This mark after a text edit: `edit` was replaced by `inserted` bytes.
+    /// An insert at an edge goes outside the mark. `None` when the mark ends: all its
+    /// text was removed, or it has a proposed fix and its text changed (the fix is stale).
+    pub(crate) fn follow(mut self, edit: &Range<usize>, inserted: usize) -> Option<Self> {
+        let range = self.range.clone();
+        if edit.end <= range.start {
+            self.range = range.start + inserted - edit.len()..range.end + inserted - edit.len();
+            return Some(self);
+        }
+        if edit.start >= range.end {
+            return Some(self);
+        }
+        let covered = edit.start <= range.start && range.end <= edit.end;
+        if covered || self.fix.is_some() {
+            return None;
+        }
+        let start = if edit.start < range.start {
+            edit.start + inserted
+        } else {
+            range.start
+        };
+        let end = if edit.end < range.end {
+            range.end + inserted - edit.len()
+        } else {
+            edit.start
+        };
+        self.range = start..end;
+        Some(self)
+    }
+}
+
 /// Why a Lab operation was refused. A refused operation changes nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LabError {
@@ -165,5 +197,38 @@ impl Document {
         marks.sort_by_key(|mark| mark.range.start);
         self.commit_lab_marks(marks)?;
         Ok(ids)
+    }
+
+    /// Ends Lab mark `id` as one undoable step. The text stays.
+    ///
+    /// # Errors
+    /// [`LabError::NoMark`] when `id` is not an open mark.
+    pub fn dismiss_lab_mark(&mut self, id: LabMarkId) -> Result<(), LabError> {
+        if !self.lab_marks().iter().any(|mark| mark.id == id) {
+            return Err(LabError::NoMark(id));
+        }
+        let marks = self
+            .lab_marks()
+            .iter()
+            .filter(|mark| mark.id != id)
+            .cloned()
+            .collect();
+        Ok(self.commit_lab_marks(marks)?)
+    }
+
+    /// Puts the proposed fix of Lab mark `id` in place of its text, as one undoable writer
+    /// edit. The mark ends with its text.
+    ///
+    /// # Errors
+    /// [`LabError::NoMark`] when `id` is not an open mark, [`LabError::NoFix`] when it has
+    /// no proposed fix.
+    pub fn accept_lab_fix(&mut self, id: LabMarkId) -> Result<(), LabError> {
+        let mark = self
+            .lab_marks()
+            .iter()
+            .find(|mark| mark.id == id)
+            .ok_or(LabError::NoMark(id))?;
+        let fix = mark.fix.clone().ok_or(LabError::NoFix(id))?;
+        Ok(self.replace(mark.range.clone(), &fix)?)
     }
 }

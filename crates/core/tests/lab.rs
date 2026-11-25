@@ -228,3 +228,75 @@ fn undo_removes_a_lab_result_in_one_step_and_redo_brings_it_back() {
         ]
     );
 }
+
+#[test]
+fn dismiss_removes_the_mark_as_one_undo_step_and_keeps_the_text() {
+    let mut document = Document::new(TEXT);
+    let ids = run(
+        &mut document,
+        LabCheck::HedgesFiller,
+        vec![finding(0..7, None, None), finding(28..32, None, None)],
+    )
+    .unwrap();
+
+    document.dismiss_lab_mark(ids[0]).unwrap();
+
+    assert_eq!(document.text(), TEXT);
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::HedgesFiller, 28..32, None, None)]
+    );
+    assert_eq!(
+        document.dismiss_lab_mark(ids[0]),
+        Err(LabError::NoMark(ids[0]))
+    );
+    assert!(document.undo());
+    assert_eq!(document.lab_marks().len(), 2);
+}
+
+#[test]
+fn accept_puts_the_fix_in_place_as_one_undo_step_and_ends_the_mark() {
+    let mut document = Document::new("Teh cat sat ,then left.");
+    let ids = run(
+        &mut document,
+        LabCheck::PunctuationTypos,
+        vec![
+            finding(0..3, None, Some("The")),
+            finding(11..13, None, Some(", ")),
+        ],
+    )
+    .unwrap();
+
+    document.accept_lab_fix(ids[1]).unwrap();
+
+    assert_eq!(document.text(), "Teh cat sat, then left.");
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::PunctuationTypos, 0..3, None, Some("The"))]
+    );
+    assert!(document.undo());
+    assert_eq!(document.text(), "Teh cat sat ,then left.");
+    assert_eq!(document.lab_marks().len(), 2);
+    assert!(document.redo());
+    assert_eq!(document.text(), "Teh cat sat, then left.");
+}
+
+#[test]
+fn accept_of_a_mark_without_a_fix_is_refused_and_changes_nothing() {
+    let mut document = Document::new(TEXT);
+    let ids = run(
+        &mut document,
+        LabCheck::HedgesFiller,
+        vec![finding(0..7, None, None)],
+    )
+    .unwrap();
+
+    assert_eq!(
+        document.accept_lab_fix(ids[0]),
+        Err(LabError::NoFix(ids[0]))
+    );
+    assert_eq!(document.text(), TEXT);
+    assert_eq!(document.lab_marks().len(), 1);
+    assert!(document.undo());
+    assert!(!document.undo());
+}
