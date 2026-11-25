@@ -1,0 +1,93 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - run: cargo fmt --check
+
+  clippy:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GPUI build libraries (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev libasound2-dev
+          version: 1
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    env:
+      # 30+ test binaries with full debug info fill the runner disk
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v4
+      - name: Install GPUI build libraries (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libxkbcommon-x11-dev libwayland-dev libfontconfig-dev libfreetype-dev libasound2-dev
+          version: 1
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+      - name: unit tests
+        run: cargo test --workspace --lib --bins
+      - name: integration tests
+        # --test '*' fails when no integration test exists yet
+        run: if compgen -G 'crates/*/tests/*.rs' > /dev/null; then cargo test --workspace --test '*'; fi
+      - name: doc tests
+        run: cargo test --workspace --doc
+
+  guards:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.22.1,cargo-shear@1.14.1
+      # pedant ships no prebuilt binary (not on its GitHub releases, not in cargo-quickinstall),
+      # so it compiles once; rust-cache keeps it in ~/.cargo/bin after that.
+      - name: Install pedant
+        run: pedant --version 2>/dev/null | grep -qx 'pedant 0.31.1' || cargo install pedant --version 0.31.1 --locked
+      - run: cargo deny check
+      - run: cargo shear
+      - run: pedant check --format github crates

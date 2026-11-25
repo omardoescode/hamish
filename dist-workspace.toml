@@ -1,0 +1,26 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.34.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = []
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["x86_64-unknown-linux-gnu"]
+# Where to host releases
+hosting = "github"
+# Release workflow runs on version tags only (no PR runs; saves CI minutes)
+pr-run-mode = "skip"
+
+# GPUI build libraries (Linux): xkbcommon-x11, wayland-client, fontconfig, freetype;
+# ALSA for the cycle sounds (cpal)
+[dist.dependencies.apt]
+libxkbcommon-x11-dev = "*"
+libwayland-dev = "*"
+libfontconfig-dev = "*"
+libfreetype-dev = "*"
+libasound2-dev = "*"

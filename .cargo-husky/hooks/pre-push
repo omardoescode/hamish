@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+for tool in cargo-deny cargo-shear pedant; do
+  if ! command -v "$tool" > /dev/null; then
+    echo "pre-push: $tool is not installed (see CODING_STANDARDS.md)." >&2
+    exit 1
+  fi
+done
+cargo test
+cargo deny check
+cargo shear
+pedant check crates

@@ -11,6 +11,12 @@ For work that is a GitHub issue (skip for a small fix the user asks for directly
 - Changes to the sidecar JSON schema or the core document model are serialized: 1 in progress at a time.
 - If the task needs changes to >3 files outside its scope, stop and ask the user.
 
+## Project process
+- Repo: private GitHub `omardoescode/ka-teb`. Work merges through PRs.
+- Max 3 sub-agents at the same time (more in total is OK).
+- Agent worktrees: `.claude/hooks/worktree-create.sh` copies `target/` with btrfs reflink. WorktreeRemove does not fire for subagent worktrees: clean them with `git worktree remove` + `git branch -D`.
+- No AI attribution in commits or PRs (Claude settings `attribution` + commit-msg hook).
+
 ## Session rules
 - Code rules: read CODING_STANDARDS.md before you write code.
 - Domain names: use the glossary (CONTEXT.md, canonical) for types, modules, tests.

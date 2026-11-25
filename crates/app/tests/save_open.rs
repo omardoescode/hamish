@@ -1,0 +1,245 @@
+use std::fs;
+use std::path::Path;
+
+use app::{Notice, Workspace};
+use gpui::{Entity, TestAppContext, VisualTestContext};
+use ka_teb_core::{Document, Dropped, Level, Provenance, sidecar_path};
+use tempfile::TempDir;
+
+fn open(
+    cx: &mut TestAppContext,
+    document: Document,
+) -> (Entity<Workspace>, &mut VisualTestContext) {
+    assert!(cx.update(app::init).is_ok(), "bundled font loads");
+    let (workspace, cx) = cx.add_window_view(|window, cx| Workspace::new(document, window, cx));
+    cx.run_until_parked();
+    (workspace, cx)
+}
+
+fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
+    cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .document()
+            .text()
+            .to_owned()
+    })
+}
+
+fn unsaved(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).is_unsaved())
+}
+
+/// Saves through Ctrl+S and the Save As dialog to `path`.
+fn save_new(cx: &mut VisualTestContext, path: &Path) {
+    cx.simulate_keystrokes("ctrl-s");
+    let path = path.to_owned();
+    cx.simulate_new_path_selection(|_| Some(path));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn first_save_of_a_new_document_asks_for_a_path_and_writes_md_and_sidecar(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("draft.md");
+    let (_workspace, cx) = open(cx, Document::new("Title\nThe customer waits."));
+
+    cx.simulate_keystrokes("ctrl-s");
+    assert!(cx.did_prompt_for_new_path(), "Save As dialog is open");
+    cx.simulate_new_path_selection(|_| Some(path.clone()));
+    cx.run_until_parked();
+
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "Title\nThe customer waits."
+    );
+    assert!(sidecar_path(&path).exists());
+}
+
+#[gpui::test]
+fn an_edit_makes_the_document_unsaved_and_ctrl_s_saves_it_to_the_same_path(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("draft.md");
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    save_new(cx, &path);
+    assert!(!unsaved(&workspace, cx));
+
+    cx.simulate_keystrokes("end !");
+    assert!(unsaved(&workspace, cx));
+
+    cx.simulate_keystrokes("ctrl-s");
+    cx.run_until_parked();
+
+    assert!(
+        !cx.did_prompt_for_new_path(),
+        "no dialog after the first save"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "Title!");
+    assert!(!unsaved(&workspace, cx));
+}
+
+#[gpui::test]
+fn two_quick_saves_leave_the_last_text_on_disk(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("draft.md");
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    save_new(cx, &path);
+
+    cx.simulate_keystrokes("end ! ctrl-s ? ctrl-s");
+    cx.run_until_parked();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "Title!?");
+    assert!(!unsaved(&workspace, cx));
+}
+
+#[gpui::test]
+fn save_as_asks_for_a_path_every_time_and_moves_the_document_there(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let first = dir.path().join("first.md");
+    let second = dir.path().join("second.md");
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    save_new(cx, &first);
+
+    cx.simulate_keystrokes("ctrl-shift-s");
+    assert!(cx.did_prompt_for_new_path(), "Save As dialog is open");
+    cx.simulate_new_path_selection(|_| Some(second.clone()));
+    cx.run_until_parked();
+
+    assert_eq!(fs::read_to_string(&second).unwrap(), "Title");
+    let saved_at = cx.read(|cx| workspace.read(cx).document_path().map(Path::to_owned));
+    assert_eq!(saved_at, Some(second));
+}
+
+#[gpui::test]
+fn a_cancelled_save_dialog_writes_nothing_and_stays_unsaved(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    cx.simulate_keystrokes("end !");
+
+    cx.simulate_keystrokes("ctrl-s");
+    cx.simulate_new_path_selection(|_| None);
+    cx.run_until_parked();
+
+    assert!(unsaved(&workspace, cx));
+    assert_eq!(
+        cx.read(|cx| workspace.read(cx).document_path().map(Path::to_owned)),
+        None
+    );
+}
+
+#[gpui::test]
+fn a_failed_save_shows_the_error_and_stays_unsaved(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("missing").join("draft.md");
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    cx.simulate_keystrokes("end !");
+
+    save_new(cx, &missing);
+
+    let expected = format!(
+        "{}.saving: No such file or directory (os error 2)",
+        missing.display()
+    );
+    assert_eq!(
+        cx.read(|cx| workspace.read(cx).notice().cloned()),
+        Some(Notice::SaveFailed(expected))
+    );
+    assert!(unsaved(&workspace, cx));
+}
+
+fn open_path(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, path: &Path) {
+    let path = path.to_owned();
+    workspace.update(cx, |workspace, cx| workspace.open_path(path, cx));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn open_shows_the_saved_document_with_its_slots(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("draft.md");
+    let mut saved = Document::new("The quick fox.");
+    let slot = saved
+        .create_slot(4..9, Level::Word, "swift", Provenance::Writer)
+        .unwrap();
+    saved.set_active(slot, 1).unwrap();
+    saved.save(&path).unwrap();
+    let (workspace, cx) = open(cx, Document::new("Other"));
+
+    open_path(&workspace, cx, &path);
+
+    assert_eq!(text(&workspace, cx), "The swift fox.");
+    let slots = cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .document()
+            .slots()
+            .len()
+    });
+    assert_eq!(slots, 1);
+    assert!(!unsaved(&workspace, cx));
+    assert_eq!(cx.read(|cx| workspace.read(cx).notice().cloned()), None);
+    let opened_at = cx.read(|cx| workspace.read(cx).document_path().map(Path::to_owned));
+    assert_eq!(opened_at, Some(path));
+}
+
+#[gpui::test]
+fn open_after_an_outside_edit_shows_the_dropped_slot(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("draft.md");
+    let mut saved = Document::new("The quick fox.");
+    saved
+        .create_slot(4..9, Level::Word, "swift", Provenance::Writer)
+        .unwrap();
+    saved.save(&path).unwrap();
+    fs::write(&path, "The slow fox.").unwrap();
+    let (workspace, cx) = open(cx, Document::default());
+
+    open_path(&workspace, cx, &path);
+
+    assert_eq!(text(&workspace, cx), "The slow fox.");
+    assert_eq!(
+        cx.read(|cx| workspace.read(cx).notice().cloned()),
+        Some(Notice::Dropped(vec![Dropped::Slot {
+            level: Level::Word,
+            text: "quick".to_owned(),
+        }]))
+    );
+}
+
+#[gpui::test]
+fn a_failed_open_shows_the_error_and_keeps_the_document(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("missing.md");
+    let (workspace, cx) = open(cx, Document::new("Kept"));
+
+    open_path(&workspace, cx, &missing);
+
+    assert_eq!(text(&workspace, cx), "Kept");
+    let expected = format!(
+        "{}: No such file or directory (os error 2)",
+        missing.display()
+    );
+    assert_eq!(
+        cx.read(|cx| workspace.read(cx).notice().cloned()),
+        Some(Notice::OpenFailed(expected))
+    );
+}
+
+#[gpui::test]
+fn ctrl_o_with_unsaved_changes_asks_first_and_cancel_keeps_the_document(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    cx.simulate_keystrokes("end !");
+
+    cx.simulate_keystrokes("ctrl-o");
+    assert!(cx.has_pending_prompt(), "discard question is open");
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+
+    assert_eq!(text(&workspace, cx), "Title!");
+    assert!(unsaved(&workspace, cx));
+}

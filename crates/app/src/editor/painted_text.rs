@@ -1,0 +1,203 @@
+//! The text as last painted: its wrapped lines and their geometry (offsets, rows, quads).
+//! The Editor and Overflow shape, paint and hit-test their text through it.
+
+use std::ops::Range;
+
+use gpui::{
+    App, Bounds, Hsla, PaintQuad, Pixels, Point, SharedString, TextRun, Window, WrappedLine, fill,
+    point, px,
+};
+
+/// The text as last painted, for mouse and vertical caret moves.
+pub(crate) struct PaintedText {
+    pub(crate) bounds: Bounds<Pixels>,
+    pub(crate) line_height: Pixels,
+    pub(crate) lines: Vec<PaintedLine>,
+}
+
+pub(crate) struct PaintedLine {
+    pub(super) start: usize,
+    pub(super) top: Pixels,
+    pub(super) line: WrappedLine,
+}
+
+impl PaintedText {
+    /// Height of all lines.
+    pub(crate) fn height(&self) -> Pixels {
+        self.lines.last().map_or(self.line_height, |last| {
+            last.top + last.line.size(self.line_height).height
+        })
+    }
+
+    /// Paints the lines from the top left of `bounds`. A failed glyph paint leaves that line
+    /// blank; the next frame tries again.
+    pub(crate) fn paint(&self, window: &mut Window, cx: &mut App) {
+        for painted in &self.lines {
+            let origin = self.bounds.origin + point(px(0.), painted.top);
+            painted
+                .line
+                .paint(
+                    origin,
+                    self.line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
+        }
+    }
+
+    /// Position of `offset`, relative to the text origin.
+    pub(crate) fn position_for(&self, offset: usize) -> Option<Point<Pixels>> {
+        let painted = self.lines.iter().rev().find(|line| line.start <= offset)?;
+        let position = painted
+            .line
+            .position_for_index(offset - painted.start, self.line_height)?;
+        Some(point(position.x, painted.top + position.y))
+    }
+
+    /// Offset closest to `local` (relative to the text origin). Above the text is 0,
+    /// below it is `len`.
+    pub(crate) fn offset_for_local(&self, local: Point<Pixels>, len: usize) -> usize {
+        if local.y < px(0.) {
+            return 0;
+        }
+        let Some(painted) = self.lines.iter().rev().find(|line| line.top <= local.y) else {
+            return 0;
+        };
+        let height = painted.line.size(self.line_height).height;
+        if local.y >= painted.top + height {
+            return len;
+        }
+        let row_point = point(local.x.max(px(0.)), local.y - painted.top);
+        let index = match painted
+            .line
+            .closest_index_for_position(row_point, self.line_height)
+        {
+            Ok(index) | Err(index) => index,
+        };
+        painted.start + index
+    }
+
+    /// Offset of the glyph under `local` (relative to the text origin); `None` off the glyphs.
+    pub(super) fn glyph_at(&self, local: Point<Pixels>) -> Option<usize> {
+        let painted = self
+            .lines
+            .iter()
+            .rev()
+            .find(|line| line.top <= local.y && local.x >= px(0.))?;
+        let row_point = point(local.x, local.y - painted.top);
+        let index = painted
+            .line
+            .index_for_position(row_point, self.line_height)
+            .ok()?;
+        Some(painted.start + index)
+    }
+
+    /// Rows from the row of `range.start` to the row of `range.end` (local tops).
+    pub(super) fn rows(&self, range: &Range<usize>) -> Option<(Point<Pixels>, Point<Pixels>)> {
+        Some((
+            self.position_for(range.start)?,
+            self.position_for(range.end)?,
+        ))
+    }
+
+    /// Local y of the underline on the row at `top`: where gpui puts a text underline.
+    pub(super) fn underline_y(&self, top: Pixels) -> Pixels {
+        let Some(painted) = self.lines.iter().rev().find(|line| line.top <= top) else {
+            return top + self.line_height;
+        };
+        let (ascent, descent) = (painted.line.ascent(), painted.line.descent());
+        top + (self.line_height - ascent - descent) / 2. + ascent + descent * 0.618
+    }
+
+    /// Quads that cover `range` (window coordinates), one per visual row.
+    pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
+        let (Some(start), Some(end)) =
+            (self.position_for(range.start), self.position_for(range.end))
+        else {
+            return Vec::new();
+        };
+        let origin = self.bounds.origin;
+        let width = self.bounds.size.width;
+        let mut quads = Vec::new();
+        let mut top = start.y;
+        while top <= end.y {
+            let left = if top == start.y { start.x } else { px(0.) };
+            let right = if top == end.y { end.x } else { width };
+            quads.push(fill(
+                Bounds::from_corners(
+                    origin + point(left, top),
+                    origin + point(right, top + self.line_height),
+                ),
+                color,
+            ));
+            top += self.line_height;
+        }
+        quads
+    }
+}
+
+/// Shapes `text` into wrapped lines, each with its start offset and top.
+pub(crate) fn shape(
+    text: &SharedString,
+    runs: &[TextRun],
+    wrap_width: Option<Pixels>,
+    line_height: Pixels,
+    window: &Window,
+) -> Vec<PaintedLine> {
+    shape_sized(text, runs, &[], wrap_width, line_height, window)
+}
+
+/// Like [`shape`], but each line that starts at an offset in `sized_lines` takes that font
+/// size in place of the body size. All lines keep `line_height`.
+pub(super) fn shape_sized(
+    text: &SharedString,
+    runs: &[TextRun],
+    sized_lines: &[(usize, Pixels)],
+    wrap_width: Option<Pixels>,
+    line_height: Pixels,
+    window: &Window,
+) -> Vec<PaintedLine> {
+    let body_size = window.text_style().font_size.to_pixels(window.rem_size());
+    let mut start = 0;
+    let mut top = px(0.);
+    let mut lines = Vec::new();
+    for line_text in text.split('\n') {
+        let end = start + line_text.len();
+        let font_size = sized_lines
+            .iter()
+            .find(|(at, _)| *at == start)
+            .map_or(body_size, |&(_, size)| size);
+        let Ok(shaped) = window.text_system().shape_text(
+            SharedString::from(line_text.to_owned()),
+            font_size,
+            &runs_within(runs, &(start..end)),
+            wrap_width,
+            None,
+        ) else {
+            return Vec::new();
+        };
+        for line in shaped {
+            let height = line.size(line_height).height;
+            lines.push(PaintedLine { start, top, line });
+            top += height;
+        }
+        start = end + 1;
+    }
+    lines
+}
+
+/// The parts of `runs` (which cover the text from offset 0) inside byte `range`.
+fn runs_within(runs: &[TextRun], range: &Range<usize>) -> Vec<TextRun> {
+    let mut at = 0;
+    runs.iter()
+        .filter_map(|run| {
+            let run_start = at;
+            at += run.len;
+            let len = at.min(range.end).saturating_sub(run_start.max(range.start));
+            (len > 0).then(|| TextRun { len, ..run.clone() })
+        })
+        .collect()
+}

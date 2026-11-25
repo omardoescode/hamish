@@ -1,0 +1,17 @@
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true
+allow-print-in-tests = true
+
+disallowed-names = ["..", "data", "helper", "util", "utils", "manager", "handler", "stuff", "temp", "foo"]
+
+disallowed-types = [
+    { path = "serde_json::Value", reason = "untyped JSON: parse into a typed struct; only persistence/AI boundary parsing may use it, with a scoped #[expect(clippy::disallowed_types, reason = ...)]", allow-invalid = true },
+    { path = "std::any::Any", reason = "type erasure hides the domain type; only persistence/AI boundary parsing may use it, with a scoped #[expect(clippy::disallowed_types, reason = ...)]" },
+]
+
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "only the AI backend module may run processes, with a scoped #[expect(clippy::disallowed_methods, reason = ...)]" },
+]
