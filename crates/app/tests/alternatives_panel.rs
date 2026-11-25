@@ -524,3 +524,33 @@ fn with_reduced_motion_a_row_delete_plays_no_explosion(cx: &mut TestAppContext) 
     let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
     assert_eq!(effects, Vec::new());
 }
+
+#[gpui::test]
+fn a_long_variant_row_wraps_inside_the_panel(cx: &mut TestAppContext) {
+    let sentence = "The customer waits at the counter for a long time while the clerk counts every coin twice.";
+    let (_workspace, cx) = open(cx, Document::new(&format!("Title\n{sentence}")));
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let tab = cx
+        .debug_bounds("alternatives-tab-sentence")
+        .expect("the panel shows the Sentence tab");
+    cx.simulate_click(tab.center(), Modifiers::none());
+    cx.run_until_parked();
+
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let row = cx
+        .debug_bounds("alternatives-row-0")
+        .expect("the panel shows the Original");
+    let text = cx
+        .debug_bounds("alternatives-row-text-0")
+        .expect("the row shows its text");
+    assert!(row.right() <= panel.right(), "row {row:?} panel {panel:?}");
+    assert!(text.right() <= row.right(), "text {text:?} row {row:?}");
+    assert!(
+        row.size.height > px(46.),
+        "the row has more than one line: {row:?}"
+    );
+}

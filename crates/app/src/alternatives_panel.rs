@@ -783,7 +783,12 @@ impl AlternativesPanel {
                 .cursor_pointer()
                 .on_click(cx.listener(move |panel, _, _, cx| panel.select(index, cx)))
                 .child(provenance_marker(row.provenance, marker_color))
-                .child(div().text_color(color).child(text))
+                .child(
+                    row_text()
+                        .debug_selector(move || format!("alternatives-row-text-{index}"))
+                        .text_color(color)
+                        .child(text),
+                )
         });
         let has_target = self.target != Target::Nothing;
         let draft_marker = if self.draft.is_empty() {
@@ -798,7 +803,7 @@ impl AlternativesPanel {
             .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))
             .child(provenance_marker(Provenance::Writer, draft_marker))
             .child(
-                div()
+                row_text()
                     .text_color(theme.text)
                     .child(format!("{}\u{258f}", self.draft)),
             );
@@ -848,7 +853,7 @@ impl AlternativesPanel {
             AiStatus::Failed(reason) => Some(
                 row.child(provenance_marker(Provenance::Ai, theme.accent))
                     .child(
-                        div()
+                        row_text()
                             .text_color(theme.text)
                             .child(format!("No AI alternatives: {reason}")),
                     ),
@@ -869,6 +874,11 @@ fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
         .px(px(4.))
         .rounded(theme.elevated_radius)
         .when(selected, |row| row.bg(theme.elevated_row_hover))
+}
+
+/// Row text: it takes the width left of the marker and wraps in it.
+fn row_text() -> gpui::Div {
+    div().flex_1().min_w_0()
 }
 
 /// Bullet point (Writer), Bot point (AI), or the Mixed marker: a Bot point outline
@@ -897,6 +907,7 @@ impl Render for AlternativesPanel {
         let theme = cx.global::<Theme>().clone();
         div()
             .id("alternatives-panel")
+            .debug_selector(|| "alternatives-panel".to_owned())
             .key_context("AlternativesPanel")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
