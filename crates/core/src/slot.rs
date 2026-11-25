@@ -2,7 +2,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Range;
 
-use crate::RangeError;
+use crate::ghost;
+use crate::{GhostError, RangeError};
 
 /// The granularity of a Slot. Word also covers short phrases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +50,7 @@ pub struct Variant {
     text: String,
     provenance: Provenance,
     slots: Vec<SlotNode>,
+    ghosts: Vec<Range<usize>>,
 }
 
 impl Variant {
@@ -57,6 +59,7 @@ impl Variant {
             text: text.to_owned(),
             provenance,
             slots: Vec::new(),
+            ghosts: Vec::new(),
         }
     }
 
@@ -95,7 +98,7 @@ pub struct Slot<'a> {
 pub enum SlotError {
     Range(RangeError),
     EmptyRange,
-    /// The range partly overlaps another Slot (strict nesting, ADR 0006).
+    /// The range partly overlaps another Slot or a Ghost range (strict nesting, ADR 0006).
     PartialOverlap,
     NoSlot(SlotId),
     NoVariant {
@@ -109,7 +112,9 @@ impl fmt::Display for SlotError {
         match self {
             Self::Range(error) => error.fmt(f),
             Self::EmptyRange => f.write_str("a Slot needs a non-empty range"),
-            Self::PartialOverlap => f.write_str("the range partly overlaps another Slot"),
+            Self::PartialOverlap => {
+                f.write_str("the range partly overlaps another Slot or a Ghost range")
+            }
             Self::NoSlot(id) => write!(f, "no Slot {}", id.0),
             Self::NoVariant { slot, index } => write!(f, "Slot {} has no Variant {index}", slot.0),
         }
@@ -176,7 +181,7 @@ impl SlotNode {
         Ok(())
     }
 
-    /// A writer edit of Variant `index`. The Slots nested in it end.
+    /// A writer edit of Variant `index`. The Slots and Ghost ranges nested in it end.
     pub(crate) fn edit_variant(&mut self, index: usize, text: &str) -> Result<(), SlotError> {
         let error = self.no_variant(index);
         let variant = self.variants.get_mut(index).ok_or(error)?;
@@ -185,6 +190,7 @@ impl SlotNode {
         }
         text.clone_into(&mut variant.text);
         variant.slots.clear();
+        variant.ghosts.clear();
         variant.mark_edited();
         Ok(())
     }
@@ -223,8 +229,15 @@ impl SlotNode {
         except: Option<SlotId>,
     ) {
         let local = offset_back(edit, self.range.start);
-        if let Ok(children) = self.children_mut() {
-            shift(children, &local, inserted, writer_edit, except);
+        if let Ok(active) = self.active_mut() {
+            shift(
+                &mut active.slots,
+                &mut active.ghosts,
+                &local,
+                inserted,
+                writer_edit,
+                except,
+            );
         }
         self.range.end = self.range.end + inserted - edit.len();
         self.mark_edited(writer_edit);
@@ -232,8 +245,8 @@ impl SlotNode {
 
     fn lose_left(&mut self, edit: &Range<usize>, inserted: usize) {
         let lost = 0..edit.end - self.range.start;
-        if let Ok(children) = self.children_mut() {
-            shift(children, &lost, 0, true, None);
+        if let Ok(active) = self.active_mut() {
+            shift(&mut active.slots, &mut active.ghosts, &lost, 0, true, None);
         }
         self.range = edit.start + inserted..self.range.end + inserted - edit.len();
         self.mark_edited(true);
@@ -241,8 +254,8 @@ impl SlotNode {
 
     fn lose_right(&mut self, edit: &Range<usize>) {
         let lost = edit.start - self.range.start..self.range.end - self.range.start;
-        if let Ok(children) = self.children_mut() {
-            shift(children, &lost, 0, true, None);
+        if let Ok(active) = self.active_mut() {
+            shift(&mut active.slots, &mut active.ghosts, &lost, 0, true, None);
         }
         self.range.end = edit.start;
         self.mark_edited(true);
@@ -271,15 +284,15 @@ impl SlotNode {
             .map_or(&[], |variant| variant.slots.as_slice())
     }
 
-    fn children_mut(&mut self) -> Result<&mut Vec<SlotNode>, SlotError> {
-        let error = SlotError::NoVariant {
-            slot: self.id,
-            index: self.active,
-        };
+    fn ghosts(&self) -> &[Range<usize>] {
         self.variants
-            .get_mut(self.active)
-            .map(|variant| &mut variant.slots)
-            .ok_or(error)
+            .get(self.active)
+            .map_or(&[], |variant| variant.ghosts.as_slice())
+    }
+
+    fn active_mut(&mut self) -> Result<&mut Variant, SlotError> {
+        let error = self.no_variant(self.active);
+        self.variants.get_mut(self.active).ok_or(error)
     }
 }
 
@@ -298,18 +311,26 @@ pub(crate) fn collect<'a>(slots: &'a [SlotNode], base: usize, out: &mut Vec<Slot
     }
 }
 
-/// Puts `node` (range relative to the text that holds `slots`) into the tree.
-pub(crate) fn place(slots: &mut Vec<SlotNode>, mut node: SlotNode) -> Result<(), SlotError> {
+/// Puts `node` (range relative to the text that holds `slots` and `ghosts`) into the tree.
+/// Ghost ranges inside it move into its Original; a Ghost range with the same range stays
+/// outside, so it stays Ghost whichever Variant shows.
+pub(crate) fn place(
+    slots: &mut Vec<SlotNode>,
+    ghosts: &mut Vec<Range<usize>>,
+    mut node: SlotNode,
+) -> Result<(), SlotError> {
     if let Some(parent) = slots
         .iter_mut()
         .find(|slot| inside(&node.range, &slot.range))
     {
         node.range = offset_back(&node.range, parent.range.start);
-        return place(parent.children_mut()?, node);
+        let active = parent.active_mut()?;
+        return place(&mut active.slots, &mut active.ghosts, node);
     }
-    if slots
-        .iter()
-        .any(|slot| overlaps_partly(&slot.range, &node.range))
+    let overlaps = slots.iter().map(|slot| &slot.range).chain(ghosts.iter());
+    if overlaps
+        .into_iter()
+        .any(|range| overlaps_partly(range, &node.range))
     {
         return Err(SlotError::PartialOverlap);
     }
@@ -319,11 +340,81 @@ pub(crate) fn place(slots: &mut Vec<SlotNode>, mut node: SlotNode) -> Result<(),
     for child in &mut inner {
         child.range = offset_back(&child.range, node.range.start);
     }
-    *node.children_mut()? = inner;
+    let (inner_ghosts, outer_ghosts): (Vec<_>, Vec<_>) = std::mem::take(ghosts)
+        .into_iter()
+        .partition(|ghost| *ghost != node.range && inside(ghost, &node.range));
+    let start = node.range.start;
+    let active = node.active_mut()?;
+    active.slots = inner;
+    active.ghosts = inner_ghosts
+        .iter()
+        .map(|ghost| offset_back(ghost, start))
+        .collect();
     *slots = outer;
+    *ghosts = outer_ghosts;
     slots.push(node);
     slots.sort_by_key(|slot| slot.range.start);
     Ok(())
+}
+
+/// Ghosts `range` (relative to the text that holds `slots` and `ghosts`) in the
+/// Active variant of the deepest Slot that holds it. A Ghost range with the same range
+/// as a Slot stays outside it.
+pub(crate) fn place_ghost(
+    slots: &mut [SlotNode],
+    ghosts: &mut Vec<Range<usize>>,
+    range: Range<usize>,
+) -> Result<(), GhostError> {
+    if let Some(parent) = slots
+        .iter_mut()
+        .find(|slot| slot.range != range && inside(&range, &slot.range))
+    {
+        let local = offset_back(&range, parent.range.start);
+        let Ok(active) = parent.active_mut() else {
+            return Err(GhostError::PartialOverlap);
+        };
+        return place_ghost(&mut active.slots, &mut active.ghosts, local);
+    }
+    if slots
+        .iter()
+        .any(|slot| overlaps_partly(&slot.range, &range))
+    {
+        return Err(GhostError::PartialOverlap);
+    }
+    ghost::join(ghosts, range);
+    Ok(())
+}
+
+/// Revives the visible Ghost ranges that `range` touches, at any depth. Returns how many.
+pub(crate) fn revive(
+    slots: &mut [SlotNode],
+    ghosts: &mut Vec<Range<usize>>,
+    range: &Range<usize>,
+) -> usize {
+    let mut count = ghost::revive(ghosts, range);
+    for node in slots {
+        let start = node.range.start;
+        let local = range.start.saturating_sub(start)..range.end.saturating_sub(start);
+        let touches = range.start <= node.range.end && node.range.start <= range.end;
+        if let (true, Ok(active)) = (touches, node.active_mut()) {
+            count += revive(&mut active.slots, &mut active.ghosts, &local);
+        }
+    }
+    count
+}
+
+/// Appends the visible Ghost ranges nested in `slots`, at any depth, as ranges of the text
+/// that holds `slots`, plus `base`.
+pub(crate) fn collect_ghosts(slots: &[SlotNode], base: usize, out: &mut Vec<Range<usize>>) {
+    for node in slots {
+        let start = base + node.range.start;
+        out.extend(
+            node.ghosts()
+                .iter()
+                .map(|ghost| start + ghost.start..start + ghost.end),
+        );
+        collect_ghosts(node.children(), start, out);
+    }
 }
 
 /// Finds visible Slot `id`. Returns it and the start of the text that holds it.
@@ -338,9 +429,9 @@ pub(crate) fn find_mut(
         }
         let start = base + node.range.start;
         let found = node
-            .children_mut()
+            .active_mut()
             .ok()
-            .and_then(|children| find_mut(children, id, start));
+            .and_then(|active| find_mut(&mut active.slots, id, start));
         if found.is_some() {
             return found;
         }
@@ -348,42 +439,71 @@ pub(crate) fn find_mut(
     None
 }
 
-/// Ends visible Slot `id`: the Slots nested in its Active variant take its place.
-pub(crate) fn dissolve(slots: &mut Vec<SlotNode>, id: SlotId) {
+/// Ends visible Slot `id`: the Slots and Ghost ranges nested in its Active variant
+/// take its place.
+pub(crate) fn dissolve(slots: &mut Vec<SlotNode>, ghosts: &mut Vec<Range<usize>>, id: SlotId) {
     let Some(position) = slots.iter().position(|node| node.id == id) else {
         for node in slots.iter_mut() {
-            if let Ok(children) = node.children_mut() {
-                dissolve(children, id);
+            if let Ok(active) = node.active_mut() {
+                dissolve(&mut active.slots, &mut active.ghosts, id);
             }
         }
         return;
     };
     let mut node = slots.remove(position);
     let start = node.range.start;
-    let children = node.children_mut().map_or_default(std::mem::take);
+    let (children, inner_ghosts) = node.active_mut().map_or_default(|active| {
+        (
+            std::mem::take(&mut active.slots),
+            std::mem::take(&mut active.ghosts),
+        )
+    });
     slots.extend(children.into_iter().map(|mut child| {
         child.range = child.range.start + start..child.range.end + start;
         child
     }));
     slots.sort_by_key(|node| node.range.start);
+    for inner in inner_ghosts {
+        ghost::join(ghosts, inner.start + start..inner.end + start);
+    }
 }
 
 /// Moves, trims, or removes Slots for a text edit: `edit` (relative to the text that holds
 /// `slots`) was replaced by `inserted` bytes. `writer_edit`: the writer changed the text,
 /// so an AI Variant that holds the edit becomes Mixed.
 /// Slot `except` is left as it is. A Slot inside the removed text ends.
+/// The Ghost ranges in `ghosts` and nested in the Slots move with the edit too.
 pub(crate) fn shift(
     slots: &mut Vec<SlotNode>,
+    ghosts: &mut Vec<Range<usize>>,
     edit: &Range<usize>,
     inserted: usize,
     writer_edit: bool,
     except: Option<SlotId>,
 ) {
+    shift_ghosts(ghosts, edit, inserted);
     slots
         .retain(|node| Some(node.id) == except || relation(&node.range, edit) != Relation::Covered);
     for node in slots.iter_mut().filter(|node| Some(node.id) != except) {
         node.follow(edit, inserted, writer_edit, except);
     }
+}
+
+/// Moves, trims, or removes Ghost ranges for a text edit, as [`shift`] does for Slots.
+/// A Ghost range left empty ends.
+fn shift_ghosts(ghosts: &mut Vec<Range<usize>>, edit: &Range<usize>, inserted: usize) {
+    let removed = edit.len();
+    for ghost in ghosts.iter_mut() {
+        *ghost = match relation(ghost, edit) {
+            Relation::Before => ghost.start + inserted - removed..ghost.end + inserted - removed,
+            Relation::After => ghost.clone(),
+            Relation::Within => ghost.start..ghost.end + inserted - removed,
+            Relation::PartialLeft => edit.start + inserted..ghost.end + inserted - removed,
+            Relation::PartialRight => ghost.start..edit.start,
+            Relation::Covered => 0..0,
+        };
+    }
+    ghosts.retain(|ghost| !ghost.is_empty());
 }
 
 /// Where a text edit lies, seen from a Slot range.
@@ -430,8 +550,8 @@ pub(crate) fn sync(slots: &mut [SlotNode], text: &str, base: usize) {
         if let (Some(active_text), Some(variant)) = (active_text, node.variants.get_mut(active)) {
             variant.text = active_text;
         }
-        if let Ok(children) = node.children_mut() {
-            sync(children, text, start);
+        if let Ok(active) = node.active_mut() {
+            sync(&mut active.slots, text, start);
         }
     }
 }
