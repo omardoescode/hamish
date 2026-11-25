@@ -36,8 +36,8 @@ pub use actions::{
     SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome,
     ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
-pub use ai::{Ai, AiFailure};
-pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
+pub use ai::{Ai, AiFailure, AiStatus};
+pub use alternatives_panel::{AiAlternativesError, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;

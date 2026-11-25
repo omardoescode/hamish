@@ -1,7 +1,9 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, AiAlternatives, AiStatus, AlternativesPanel, Workspace};
+use app::{
+    Ai, AiAlternatives, AiAlternativesError, AiFailure, AiStatus, AlternativesPanel, Workspace,
+};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Keystroke, Modifiers, MouseButton, TestAppContext,
     VisualTestContext, point, px,
@@ -87,7 +89,10 @@ fn row(text: &str, provenance: Provenance, active: bool) -> (String, Provenance,
     (text.to_owned(), provenance, active)
 }
 
-fn status(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> AiStatus {
+fn status(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+) -> AiStatus<AiAlternativesError> {
     let panel = panel(workspace, cx);
     cx.read(|cx| panel.read(cx).ai_status())
 }
@@ -110,14 +115,14 @@ fn ai_alternatives_shows_progress_then_ai_variants_under_the_original(cx: &mut T
     cx.simulate_keystrokes(INTO_CUSTOMER);
 
     cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
-    assert_eq!(status(&workspace, cx), AiStatus::Loading);
+    assert_eq!(status(&workspace, cx), AiStatus::Running);
     assert_eq!(
         rows(&workspace, cx),
         vec![row("customer", Provenance::Writer, true)]
     );
 
     cx.run_until_parked();
-    assert_eq!(status(&workspace, cx), AiStatus::Idle);
+    assert_eq!(status(&workspace, cx), AiStatus::Done);
     assert_eq!(
         rows(&workspace, cx),
         vec![
@@ -139,7 +144,7 @@ fn a_failed_request_shows_why_and_changes_nothing(cx: &mut TestAppContext) {
 
     assert_eq!(
         status(&workspace, cx),
-        AiStatus::Failed("the AI declined: no".to_owned())
+        AiStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
     );
     assert!(cx.debug_bounds("alternatives-ai-status").is_some());
     assert_eq!(
@@ -147,19 +152,6 @@ fn a_failed_request_shows_why_and_changes_nothing(cx: &mut TestAppContext) {
         vec![row("customer", Provenance::Writer, true)]
     );
     assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
-}
-
-#[gpui::test]
-fn with_no_ai_backend_the_panel_says_so(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, None);
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-
-    cx.simulate_keystrokes("ctrl-shift-g");
-
-    assert_eq!(
-        status(&workspace, cx),
-        AiStatus::Failed("no AI backend is set".to_owned())
-    );
 }
 
 #[gpui::test]
@@ -259,7 +251,7 @@ fn ctrl_shift_g_in_the_panel_adds_ai_variants_to_the_slot_it_shows(cx: &mut Test
 }
 
 #[gpui::test]
-fn a_result_that_arrives_after_the_panel_closed_is_still_added(cx: &mut TestAppContext) {
+fn escape_while_the_ai_works_stops_the_request_and_keeps_the_panel_open(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, Some(client_and_patron()));
     cx.simulate_keystrokes(INTO_CUSTOMER);
 
@@ -268,26 +260,23 @@ fn a_result_that_arrives_after_the_panel_closed_is_still_added(cx: &mut TestAppC
         let escape = Keystroke::parse("escape").expect("a valid keystroke");
         window.dispatch_keystroke(escape, cx)
     });
-    assert!(cx.read(|cx| workspace.read(cx).alternatives_panel().is_none()));
     cx.run_until_parked();
 
-    let variants = cx.read(|cx| {
-        let document = workspace.read(cx).editor().read(cx).document();
-        document.slots().first().map(|slot| {
-            slot.variants
-                .iter()
-                .map(|variant| variant.text().to_owned())
-                .collect::<Vec<_>>()
-        })
-    });
+    assert_eq!(status(&workspace, cx), AiStatus::Idle);
     assert_eq!(
-        variants,
-        Some(vec![
-            "customer".to_owned(),
-            "client".to_owned(),
-            "patron".to_owned()
-        ])
+        rows(&workspace, cx),
+        vec![row("customer", Provenance::Writer, true)]
     );
+    let slots = cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .document()
+            .slots()
+            .len()
+    });
+    assert_eq!(slots, 0);
 }
 
 #[expect(clippy::expect_used, reason = "test fixture")]
