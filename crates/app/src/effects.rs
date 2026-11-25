@@ -9,7 +9,7 @@ use ka_teb_core::{Effect, Particle, ParticleArea};
 
 use crate::settings;
 
-/// Spec colors (estimate): core, flame, sparks.
+/// Explosion colors: core, flame, sparks.
 fn core_color() -> Hsla {
     rgb(0x00ff_f2c0).into()
 }

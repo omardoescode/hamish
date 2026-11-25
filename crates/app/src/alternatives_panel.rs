@@ -26,7 +26,7 @@ use crate::sounds;
 use crate::{Editor, Theme};
 use crate::{context_menu, loading, settings};
 
-/// Alternatives list text (spec: about 12 px).
+/// Alternatives list text size.
 const LIST_FONT_SIZE: f32 = 12.;
 
 /// The empty-row text that starts a quick fill.
@@ -857,7 +857,7 @@ impl AlternativesPanel {
     }
 }
 
-/// A list row: about 23 px apart (spec); the selected row has the hover background.
+/// A list row: about 23 px apart; the selected row has the hover background.
 fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
     div()
         .relative()

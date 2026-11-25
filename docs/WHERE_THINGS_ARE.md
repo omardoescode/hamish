@@ -64,7 +64,6 @@
 
 ## Docs
 
-- Spec: GitHub issue #1 and its sub-issues (`gh issue view 1`). Build decisions are in the sub-issue comments.
 - Glossary: [CONTEXT.md](../CONTEXT.md).
 - Decisions: [docs/adr/README.md](adr/README.md).
 - Code rules: [CODING_STANDARDS.md](../CODING_STANDARDS.md).

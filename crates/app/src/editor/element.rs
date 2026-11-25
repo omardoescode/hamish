@@ -21,7 +21,7 @@ use crate::effects::Particles;
 
 const DOT_SIZE: Pixels = px(4.);
 const DOT_GAP: Pixels = px(3.);
-/// Paragraph Marker: a line about 2 px wide, about 14 px left of the text (spec).
+/// Paragraph Marker: a line about 2 px wide, about 14 px left of the text.
 const MARGIN_LINE_WIDTH: Pixels = px(2.);
 const MARGIN_LINE_GAP: Pixels = px(14.);
 /// How far left each nesting level moves a Paragraph margin line.

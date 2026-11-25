@@ -69,7 +69,7 @@ impl AiAdapter for CancelWatch {
     }
 }
 
-/// The five results of the demo for "dominates" (spec use case 15).
+/// The five results of the demo for "dominates" .
 const DEMO: [&str; 5] = [
     "rules",
     "wins",

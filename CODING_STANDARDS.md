@@ -6,14 +6,14 @@
 - No `unwrap`/`expect` on user data or I/O outside tests (clippy `unwrap_used`, `expect_used` in non-test code).
 - No `as` casts (clippy `as_conversions`, denied). Use `From`/`TryFrom`. For a cast that is correct and has no `From`/`TryFrom`, use `#[expect(clippy::as_conversions, reason = "...")]` on the smallest item.
 - AI calls only through the AI adapter trait. The UI thread never waits on I/O (use the background executor).
-- AI never changes text without a writer action (spec NFR).
+- AI never changes text without a writer action.
 - Names come from the glossary (CONTEXT.md).
 - No Arabic text anywhere in the repo (code, tests, docs). For non-ASCII test text use other scripts (e.g. Greek).
 - Unit tests: `#[cfg(test)] mod tests` in the same file; they test private logic of one module. Run: `cargo test --workspace --lib --bins`.
 - Integration tests: `crates/<crate>/tests/*.rs`; public API only, at the agreed seams (Document API, persistence round trip, AI adapter, GPUI action dispatch). Run: `cargo test --workspace --test '*'`.
 - Doc tests: examples in doc comments. Run: `cargo test --workspace --doc`.
 - Architecture: crate boundaries only (`core` does not list gpui in Cargo.toml; `pub(crate)` inside a crate). No architecture tests or tools.
-- Tests: no tautological tests. Expected values come from the spec or hardcoded worked examples. Test at agreed seams only.
+- Tests: no tautological tests. Expected values come from hardcoded worked examples. Test at agreed seams only.
 - Commits: no Co-Authored-By.
 
 ## Comments
@@ -22,7 +22,7 @@
 - `//!`: each `src` module file starts with 1 or 2 lines: what the module owns. Not in `tests/*.rs`.
 - `///`: each `pub` item of `core`, and each other item whose contract (units, ranges, `None`, errors, panics) the signature does not show. Tell the contract, not the steps. `# Errors` on each `pub` fn that returns `Result`.
 - `//`: inline, only for a WHY that the code cannot show (a workaround, a number from a measurement, a GPUI limit). Put it above the line, not at the end.
-- No issue, PR, or FR numbers, no history ("now", "no longer", "old"), no TODO without an open issue. Git and the issue keep the history. The spec is not in the repo, so tell the rule itself, not its number. ADR links (`ADR 0004`) are allowed.
+- No issue, PR, or requirement numbers, no history ("now", "no longer", "old"), no TODO without an open issue. Git and the issue keep the history. Tell the rule itself, not its number. ADR links (`ADR 0004`) are allowed.
 - Doc tests: only for a `pub` `core` fn with a worked example that is not obvious. No doc tests in `app`.
 - Names in comments come from the glossary (CONTEXT.md), same as code.
 - Language: ASD-STE100 style. Short sentences (max 20 words), active voice, present tense, one statement per sentence.

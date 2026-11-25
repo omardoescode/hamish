@@ -26,7 +26,7 @@ mod actions {
 
 pub use actions::{CloseTrim, MakeTrimCuts, RunTrim, WalkCut, WalkKeep, WalkTrim};
 
-/// Width of the trim bar (spec estimate).
+/// Width of the trim bar.
 const BAR_WIDTH: gpui::Pixels = px(390.);
 
 /// What the trim bar shows.

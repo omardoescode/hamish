@@ -31,7 +31,7 @@ mod actions {
 
 pub use actions::{CloseLab, RunLabCheck, ToggleLab};
 
-/// Width of the Lab popover (spec estimate).
+/// Width of the Lab popover.
 const POPOVER_WIDTH: gpui::Pixels = px(270.);
 /// Width of the Lab mark card.
 const CARD_WIDTH: gpui::Pixels = px(320.);
