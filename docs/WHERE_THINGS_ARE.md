@@ -5,14 +5,15 @@
 | Path | What |
 |---|---|
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
-| `crates/app/` | Package `app`, binary `ka-teb`: thin GPUI views. |
+| `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
+| `crates/app/assets/fonts/` | Bundled body font IBM Plex Mono (Regular, Bold) and its license (`OFL.txt`). |
 | `Cargo.toml` | Workspace, pinned `gpui`, `[workspace.lints]`, `[profile.dist]`. |
 | `rust-toolchain.toml` | Pinned Rust version and components (local and CI). |
 | `rustfmt.toml`, `clippy.toml` | Format and lint config (panic family allowed in tests; banned names, types, methods). |
 | `deny.toml` | cargo-deny: banned crates, licenses, advisories, sources. |
 | `.pedant.toml` | pedant style checks (nesting, `dead_code` suppression). |
 | `.cargo-husky/hooks/` | Git hooks: pre-commit, commit-msg, pre-push. |
-| `crates/*/tests/` | Integration tests (public API, at the seams). |
+| `crates/*/tests/` | Integration tests (public API, at the seams; `crates/app/tests/`: GPUI action dispatch with the GPUI test context). |
 | `.claude/settings.json` | Claude Code project settings: attribution off, permissions, worktree hooks. |
 | `.claude/hooks/` | WorktreeCreate / WorktreeRemove scripts; PostToolUse pedant check. |
 | `.github/workflows/checks.yml` | CI: parallel jobs fmt, clippy, test (unit, integration, doc), guards (cargo-deny, cargo-shear, pedant). |
