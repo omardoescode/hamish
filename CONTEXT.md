@@ -83,7 +83,7 @@ The UI tools around the text: icons, buttons, counter.
 **Counter**:
 Live word and character count of the Document, or of the selection.
 
-### Lab (not in iteration 1)
+### Lab
 
 **Lab**:
 The AI editing popover with Lab checks and Trim levels.
