@@ -29,6 +29,47 @@ pub struct PlayingEffect {
     pub range: Range<usize>,
 }
 
+/// The particle Effects of one view: each play gets its own particles; ended Effects drop.
+#[derive(Debug, Default)]
+pub(crate) struct EffectPlayer {
+    playing: Vec<Particles>,
+    seed: u64,
+}
+
+impl EffectPlayer {
+    /// Starts `effect` over byte range `range`. With Reduced motion nothing plays.
+    pub(crate) fn play(&mut self, effect: Effect, range: Range<usize>, cx: &App) {
+        if !plays(cx) {
+            return;
+        }
+        let now = Instant::now();
+        self.playing
+            .retain(|particles| particles.progress(now).is_some());
+        self.seed = self.seed.wrapping_add(1);
+        self.playing.push(Particles {
+            playing: PlayingEffect { effect, range },
+            started: now,
+            seed: self.seed,
+        });
+    }
+
+    /// The Effects that play at `now`, oldest first, each with its progress.
+    pub(crate) fn frames(&self, now: Instant) -> Vec<(Particles, f32)> {
+        self.playing
+            .iter()
+            .filter_map(|particles| Some((particles.clone(), particles.progress(now)?)))
+            .collect()
+    }
+
+    /// The Effects that play now, oldest first.
+    pub(crate) fn playing(&self) -> Vec<PlayingEffect> {
+        self.frames(Instant::now())
+            .into_iter()
+            .map(|(particles, _)| particles.playing)
+            .collect()
+    }
+}
+
 /// A particle Effect that plays: when it started, and the seed of its particles.
 #[derive(Debug, Clone)]
 pub(crate) struct Particles {
@@ -38,14 +79,6 @@ pub(crate) struct Particles {
 }
 
 impl Particles {
-    pub(crate) fn new(playing: PlayingEffect, seed: u64) -> Self {
-        Self {
-            playing,
-            started: Instant::now(),
-            seed,
-        }
-    }
-
     /// 0.0 at the start, up to 1.0 at the end; `None` when it is over. With Reduced motion
     /// an Effect does not play (see [`plays`]).
     pub(crate) fn progress(&self, now: Instant) -> Option<f32> {
@@ -133,31 +166,85 @@ pub(crate) fn plays(cx: &App) -> bool {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use ka_teb_core::Effect;
+    use gpui::TestAppContext;
+    use ka_teb_core::{Effect, LoadedSettings, Settings};
 
-    use super::{Particles, PlayingEffect};
+    use super::{EffectPlayer, PlayingEffect};
 
-    fn particles(effect: Effect, age: Duration) -> Particles {
-        Particles {
-            playing: PlayingEffect {
-                effect,
-                range: 0..4,
-            },
-            started: Instant::now().checked_sub(age).unwrap(),
-            seed: 7,
+    fn playing(effect: Effect) -> PlayingEffect {
+        PlayingEffect {
+            effect,
+            range: 0..4,
         }
     }
 
-    #[test]
-    fn an_explosion_ends_after_650_ms_and_an_undo_burst_after_450_ms() {
-        let now = Instant::now();
-        let explosion = particles(Effect::Explosion, Duration::from_millis(600));
-        assert!(explosion.progress(now).is_some());
-        let explosion = particles(Effect::Explosion, Duration::from_millis(700));
-        assert_eq!(explosion.progress(now), None);
-        let burst = particles(Effect::UndoBurst, Duration::from_millis(400));
-        assert!(burst.progress(now).is_some());
-        let burst = particles(Effect::UndoBurst, Duration::from_millis(500));
-        assert_eq!(burst.progress(now), None);
+    fn progress_at(player: &EffectPlayer, after: Duration) -> Vec<(Effect, bool)> {
+        let now = Instant::now() + after;
+        player
+            .frames(now)
+            .into_iter()
+            .map(|(particles, progress)| (particles.playing.effect, progress < 1.))
+            .collect()
+    }
+
+    #[gpui::test]
+    fn an_explosion_plays_650_ms_and_an_undo_burst_450_ms(cx: &mut TestAppContext) {
+        let mut player = EffectPlayer::default();
+        cx.update(|cx| {
+            player.play(Effect::Explosion, 0..4, cx);
+            player.play(Effect::UndoBurst, 0..4, cx);
+        });
+
+        assert_eq!(
+            player.playing(),
+            vec![playing(Effect::Explosion), playing(Effect::UndoBurst)]
+        );
+        assert_eq!(
+            progress_at(&player, Duration::from_millis(400)),
+            vec![(Effect::Explosion, true), (Effect::UndoBurst, true)]
+        );
+        assert_eq!(
+            progress_at(&player, Duration::from_millis(600)),
+            vec![(Effect::Explosion, true)]
+        );
+        assert_eq!(progress_at(&player, Duration::from_millis(700)), vec![]);
+    }
+
+    #[gpui::test]
+    fn two_effects_get_different_particles(cx: &mut TestAppContext) {
+        let mut player = EffectPlayer::default();
+        cx.update(|cx| {
+            player.play(Effect::Explosion, 0..4, cx);
+            player.play(Effect::Explosion, 0..4, cx);
+        });
+
+        let seeds: Vec<u64> = player
+            .frames(Instant::now())
+            .into_iter()
+            .map(|(particles, _)| particles.seed)
+            .collect();
+        assert_eq!(seeds, vec![1, 2]);
+    }
+
+    #[gpui::test]
+    fn with_reduced_motion_nothing_plays(cx: &mut TestAppContext) {
+        let mut player = EffectPlayer::default();
+        cx.update(|cx| {
+            let settings = Settings {
+                reduced_motion: true,
+                ..Settings::default()
+            };
+            crate::settings::use_settings(
+                None,
+                LoadedSettings {
+                    settings,
+                    problem: None,
+                },
+                cx,
+            );
+            player.play(Effect::Explosion, 0..4, cx);
+        });
+
+        assert_eq!(player.playing(), vec![]);
     }
 }

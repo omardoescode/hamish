@@ -28,7 +28,7 @@ use crate::actions::{
     SelectUp, Stash, ToggleGhost, Undo,
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
-use crate::effects::{self, Particles, PlayingEffect};
+use crate::effects::{self, EffectPlayer, Particles, PlayingEffect};
 use crate::settings;
 use crate::sounds;
 
@@ -102,8 +102,7 @@ pub struct Editor {
     /// The Slot whose Active variant last changed, and when.
     fade_in: Option<(SlotId, Instant)>,
     /// Effects that play over the text.
-    effects: Vec<Particles>,
-    effect_seed: u64,
+    effects: EffectPlayer,
     focus_zoom: FocusZoom,
     /// The zoomed paragraphs as last painted.
     zooms: Vec<focus_zoom::Zoom>,
@@ -181,8 +180,7 @@ impl Editor {
             preview: None,
             saved: None,
             fade_in: None,
-            effects: Vec::new(),
-            effect_seed: 0,
+            effects: EffectPlayer::default(),
             focus_zoom: FocusZoom::default(),
             zooms: Vec::new(),
         }
@@ -236,21 +234,7 @@ impl Editor {
     /// The effects that play now, oldest first.
     #[must_use]
     pub fn effects(&self) -> Vec<PlayingEffect> {
-        self.effects
-            .iter()
-            .map(|particles| particles.playing.clone())
-            .collect()
-    }
-
-    fn play(&mut self, effect: Effect, range: Range<usize>, cx: &App) {
-        if !effects::plays(cx) {
-            return;
-        }
-        self.effect_seed = self.effect_seed.wrapping_add(1);
-        self.effects.push(Particles::new(
-            PlayingEffect { effect, range },
-            self.effect_seed,
-        ));
+        self.effects.playing()
     }
 
     /// Deletes Variant `index` of Slot `id` as one undo step, with an
@@ -264,7 +248,7 @@ impl Editor {
         let range = self.document.slot(id).ok_or(SlotError::NoSlot(id))?.range;
         self.change_document(|document| document.delete_variant(id, index), cx)?;
         let len = self.document.text().len();
-        self.play(
+        self.effects.play(
             Effect::Explosion,
             range.start.min(len)..range.end.min(len),
             cx,
@@ -833,7 +817,7 @@ impl Editor {
             let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
                 continue;
             };
-            self.play(Effect::UndoBurst, range, cx);
+            self.effects.play(Effect::UndoBurst, range, cx);
             cx.emit(EditorEvent::VariantRestored(id));
         }
         self.fade_in_changed(&shown, after_burst, cx);
@@ -1393,19 +1377,17 @@ impl PaintedText {
     /// The effects that still play at `now`, each with its progress and the rows of its span.
     fn effect_frames(
         &self,
-        effects: &[Particles],
-        now: Instant,
+        frames: Vec<(Particles, f32)>,
     ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
-        effects
-            .iter()
-            .filter_map(|playing| {
-                let progress = playing.progress(now)?;
+        frames
+            .into_iter()
+            .map(|(playing, progress)| {
                 let rows = self
                     .selection_quads(&playing.playing.range, Hsla::default())
                     .into_iter()
                     .map(|quad| quad.bounds)
                     .collect();
-                Some((playing.clone(), progress, rows))
+                (playing, progress, rows)
             })
             .collect()
     }
@@ -1622,21 +1604,16 @@ struct EditorPrepaint {
 }
 
 impl EditorElement {
-    /// The effects that play now, each with its progress and the rows of its span. Ended
-    /// effects drop; while one plays or a Variant fades in, the next frame comes.
+    /// The effects that play now, each with its progress and the rows of its span. While one
+    /// plays or a Variant fades in, the next frame comes.
     fn effect_frames(
         &self,
         painted: &PaintedText,
         window: &mut Window,
         cx: &mut App,
     ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
-        let now = Instant::now();
-        let effects = painted.effect_frames(&self.editor.read(cx).effects, now);
-        self.editor.update(cx, |editor, _| {
-            editor
-                .effects
-                .retain(|playing| playing.progress(now).is_some());
-        });
+        let frames = self.editor.read(cx).effects.frames(Instant::now());
+        let effects = painted.effect_frames(frames);
         let fading = self.editor.read(cx).fading_in(cx).is_some();
         if fading || !effects.is_empty() {
             window.request_animation_frame();

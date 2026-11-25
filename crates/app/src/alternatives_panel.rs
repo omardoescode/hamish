@@ -20,7 +20,7 @@ use crate::actions::{
     SelectPreviousVariant, Undo,
 };
 use crate::editor::Spotlight;
-use crate::effects::{self, Particles, PlayingEffect};
+use crate::effects::EffectPlayer;
 use crate::sounds;
 use crate::{Ai, Editor, Theme};
 use crate::{context_menu, loading, settings};
@@ -92,8 +92,9 @@ pub struct AlternativesPanel {
     draft: String,
     /// The text of the Variant in the selected row while the writer edits it.
     editing: Option<String>,
-    /// The row that a delete blows up, and its explosion.
-    explosion: Option<(usize, Particles)>,
+    /// The row that the last delete blew up.
+    explosion_row: usize,
+    explosions: EffectPlayer,
     ai: AiStatus,
     quick_fill: Option<QuickFill>,
     /// The last row is hidden after a quick fill, until the writer goes to it.
@@ -111,7 +112,8 @@ impl AlternativesPanel {
             row: 0,
             draft: String::new(),
             editing: None,
-            explosion: None,
+            explosion_row: 0,
+            explosions: EffectPlayer::default(),
             ai: AiStatus::Idle,
             quick_fill: None,
             new_row_hidden: false,
@@ -203,8 +205,7 @@ impl AlternativesPanel {
     /// The row where a delete explosion plays now. The next row has moved up into it.
     #[must_use]
     pub fn exploding_row(&self) -> Option<usize> {
-        let (row, playing) = self.explosion.as_ref()?;
-        playing.progress(Instant::now()).map(|_| *row)
+        (!self.explosions.playing().is_empty()).then_some(self.explosion_row)
     }
 
     /// The Variants in order, the Original first. Quick fill results not shown yet
@@ -659,12 +660,8 @@ impl AlternativesPanel {
         if deleted.is_err() {
             return;
         }
-        let playing = PlayingEffect {
-            effect: Effect::Explosion,
-            range,
-        };
-        let seed = u64::try_from(row).unwrap_or_default().wrapping_add(0x5eed);
-        self.explosion = effects::plays(cx).then(|| (row, Particles::new(playing, seed)));
+        self.explosion_row = row;
+        self.explosions.play(Effect::Explosion, range, cx);
         if let Some(kept) = kept {
             let text = self.editor.read(cx).document().text();
             let target = ended_slot_text(text, start, &kept)
@@ -844,18 +841,24 @@ impl AlternativesPanel {
     /// The explosion over row `index` while it plays. It only paints, so it never
     /// blocks input.
     fn explosion_at(&self, index: usize, theme: &Theme) -> Option<impl IntoElement> {
-        let (_, playing) = self
-            .explosion
-            .as_ref()
-            .filter(|_| self.exploding_row() == Some(index))?;
-        let playing = playing.clone();
+        if self.exploding_row() != Some(index) {
+            return None;
+        }
+        let playing: Vec<_> = self
+            .explosions
+            .frames(Instant::now())
+            .into_iter()
+            .map(|(particles, _)| particles)
+            .collect();
         let background = theme.panel_background;
         let paint = move |bounds, (), window: &mut Window, _: &mut App| {
-            let Some(progress) = playing.progress(Instant::now()) else {
-                return;
-            };
-            playing.paint(&[bounds], px(23.), progress, background, window);
-            window.request_animation_frame();
+            let now = Instant::now();
+            for particles in &playing {
+                if let Some(progress) = particles.progress(now) {
+                    particles.paint(&[bounds], px(23.), progress, background, window);
+                    window.request_animation_frame();
+                }
+            }
         };
         Some(
             canvas(|_, _, _| (), paint)
