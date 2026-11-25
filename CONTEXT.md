@@ -11,7 +11,7 @@ More than one candidate text for the same place in a Document; the writer switch
 _Avoid_: Version control, history
 
 **Document**:
-One piece of writing: its text, Slots, Ghost ranges, and Overflow. Saved as `.md` + sidecar JSON.
+One piece of writing: its text, Slots, Ghost ranges, and Overflow.
 _Avoid_: File, note
 
 ### Slots and variants
@@ -60,7 +60,7 @@ List marker (robot icon) of an AI Variant.
 ### Ghost and Overflow
 
 **Ghost**:
-A text range dimmed to about 10% opacity. It stays in the Document and is not counted.
+A text range the writer has dimmed back. It stays in the Document.
 _Avoid_: Hide, dim, comment out
 
 **Revive**:
