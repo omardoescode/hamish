@@ -65,6 +65,18 @@ pub struct TrimCut {
     pub kept: bool,
 }
 
+impl TrimCut {
+    /// An insert at an edge goes outside the cut. `None` when the edit changes its text.
+    fn follow(mut self, edit: &Range<usize>, inserted: usize) -> Option<Self> {
+        if edit.end <= self.range.start {
+            self.range =
+                self.range.start + inserted - edit.len()..self.range.end + inserted - edit.len();
+            return Some(self);
+        }
+        (edit.start >= self.range.end).then_some(self)
+    }
+}
+
 /// The ranges a Trim marks for cut, with word counts before and after (FR-57).
 /// The text does not change until the cuts are made. Its fades are not Ghost ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +121,20 @@ impl TrimProposal {
         }
         let change = 200 * (after - before);
         (change + change.signum() * before) / (2 * before)
+    }
+
+    /// This proposal after a text edit: `edit` was replaced by `inserted` bytes. Cuts after
+    /// the edit move; a cut whose text the edit changes leaves the proposal.
+    fn follow(mut self, edit: &Range<usize>, inserted: usize) -> Self {
+        if edit.is_empty() && inserted == 0 {
+            return self;
+        }
+        self.cuts = self
+            .cuts
+            .into_iter()
+            .filter_map(|cut| cut.follow(edit, inserted))
+            .collect();
+        self
     }
 
     fn open_ranges(&self) -> Vec<Range<usize>> {
@@ -263,6 +289,16 @@ impl Document {
                 Err(error.into())
             }
         }
+    }
+
+    /// The Trim proposal after a text edit: `edit` was replaced by `inserted` bytes.
+    pub(crate) fn follow_trim(&mut self, edit: &Range<usize>, inserted: usize) {
+        let Some(proposal) = self.trim.take() else {
+            return;
+        };
+        let mut proposal = proposal.follow(edit, inserted);
+        self.recount(&mut proposal);
+        self.trim = Some(proposal);
     }
 
     fn recount(&self, proposal: &mut TrimProposal) {

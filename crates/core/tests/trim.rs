@@ -43,6 +43,10 @@ fn run(
     Ok(document.apply_trim_result(&request, &cuts)?)
 }
 
+fn open_cut(range: Range<usize>) -> TrimCut {
+    TrimCut { range, kept: false }
+}
+
 fn open(ranges: &[Range<usize>]) -> Vec<TrimCut> {
     ranges
         .iter()
@@ -216,6 +220,43 @@ fn make_the_cuts_moves_slots_and_ghost_ranges_around_the_cuts() {
     assert_eq!(document.text(), "The cat sat. very good. The end.");
     assert_eq!(document.slot(slot).unwrap().range, 4..7);
     assert_eq!(document.ghost_ranges(), vec![28..31]);
+}
+
+#[test]
+fn cuts_move_with_edits_and_a_cut_whose_text_changes_leaves_the_proposal() {
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    run(&mut document, TrimLevel::TightenMore, vec![20..26, 37..45]).unwrap();
+
+    document.insert(0, "So ").unwrap();
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(proposal.cuts(), open(&[23..29, 40..48]));
+    assert_eq!(proposal.to_string(), "10 → 8 words · -20%");
+
+    document.delete(40..44).unwrap();
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(proposal.cuts(), [open_cut(23..29)]);
+    assert_eq!(proposal.to_string(), "10 → 9 words · -10%");
+
+    assert!(document.undo());
+    assert!(document.undo());
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(proposal.cuts(), [open_cut(20..26)]);
+    assert_eq!(proposal.to_string(), "10 → 9 words · -10%");
+}
+
+#[test]
+fn cuts_stay_when_a_ghost_or_slot_is_made_in_them() {
+    let mut document = Document::new("The cat sat. It was very, very good. The end.");
+    run(&mut document, TrimLevel::TightenMore, vec![20..26, 37..45]).unwrap();
+
+    document.ghost(41..44).unwrap();
+    document
+        .create_slot(37..40, Level::Word, "An", Provenance::Writer)
+        .unwrap();
+
+    let proposal = document.trim_proposal().unwrap();
+    assert_eq!(proposal.cuts(), open(&[20..26, 37..45]));
+    assert_eq!(proposal.to_string(), "10 → 7 words · -30%");
 }
 
 #[test]

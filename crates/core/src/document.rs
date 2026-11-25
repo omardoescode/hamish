@@ -531,7 +531,7 @@ impl Document {
     }
 
     /// Replaces `range` with `inserted` and sets the Slots, Ghost ranges, and Lab marks,
-    /// as one undoable step.
+    /// as one undoable step. The Trim proposal follows the edit.
     fn record(
         &mut self,
         range: Range<usize>,
@@ -562,6 +562,7 @@ impl Document {
         self.slots.clone_from(&tree.slots);
         self.ghosts.clone_from(&tree.ghosts);
         let marks_before = std::mem::replace(&mut self.lab_marks, marks);
+        self.follow_trim(&range, inserted.len());
         self.undo_steps.push(Step {
             at: range.start,
             removed,
@@ -602,6 +603,7 @@ impl Document {
         self.slots.clone_from(&step.before.slots);
         self.ghosts.clone_from(&step.before.ghosts);
         self.lab_marks.clone_from(&step.marks_before);
+        self.follow_trim(&(step.at..end), step.removed.len());
         step.inverse()
     }
 }
