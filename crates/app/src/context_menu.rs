@@ -7,6 +7,7 @@ use gpui::{
 
 use crate::Theme;
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleGhost};
+use crate::chrome::{clickable_row, popover_surface};
 
 /// One row of the context menu: its label and its shortcut.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,16 +75,13 @@ impl ContextMenu {
                 .zip(actions)
                 .enumerate()
                 .map(|(index, (item, action))| {
-                    div()
+                    clickable_row(theme)
                         .id(("context-menu-row", index))
                         .debug_selector(|| format!("context-menu-row-{index}"))
                         .flex()
                         .justify_between()
                         .gap(px(24.))
                         .px(px(12.))
-                        .rounded(theme.elevated_radius)
-                        .cursor_pointer()
-                        .hover(|row| row.bg(theme.elevated_row_hover))
                         .on_click(move |_, window, cx| {
                             window.dispatch_action(action.boxed_clone(), cx);
                         })
@@ -96,13 +94,10 @@ impl ContextMenu {
                 .anchor(Corner::TopLeft)
                 .snap_to_window()
                 .child(
-                    div()
+                    popover_surface(theme)
                         .id("context-menu")
                         .occlude()
                         .p(px(4.))
-                        .bg(theme.elevated_background)
-                        .rounded(theme.elevated_radius)
-                        .shadow_md()
                         .on_mouse_down_out(dismiss)
                         .children(rows),
                 ),

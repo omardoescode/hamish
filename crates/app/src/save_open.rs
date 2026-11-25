@@ -10,6 +10,7 @@ use gpui::{
 use ka_teb_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
 
 use crate::actions::{NewDocument, Open, Save, SaveAs};
+use crate::chrome::elevated_surface;
 use crate::{Theme, Workspace};
 
 /// What the writer must know after a save or an open.
@@ -310,15 +311,13 @@ impl Workspace {
             cx.notify();
         });
         Some(
-            div()
+            elevated_surface(theme)
                 .id("notice")
                 .absolute()
                 .bottom(crate::workspace::chrome_bar_height(cx) + px(16.))
                 .left(px(24.))
                 .max_w(theme.column_width)
                 .p(px(10.))
-                .rounded(theme.elevated_radius)
-                .bg(theme.elevated_background)
                 .text_size(theme.font_size_hint)
                 .text_color(theme.text)
                 .cursor_pointer()

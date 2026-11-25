@@ -11,6 +11,7 @@ use ka_teb_core::{Caret, CaretEdit};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
 use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
+use crate::chrome::elevated_surface;
 use crate::editor::{PaintedText, shape};
 use crate::{Editor, Theme};
 
@@ -254,12 +255,10 @@ struct DraggedBlock {
 impl Render for DraggedBlock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>();
-        div()
+        elevated_surface(theme)
             .max_w(theme.panel_width)
             .px(px(8.))
             .py(px(4.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
             .font_family(theme.text_font.clone())
             .text_size(theme.font_size_overflow)
             .line_height(theme.line_height_overflow)
@@ -460,11 +459,9 @@ struct Tooltip {
 impl Render for Tooltip {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>();
-        div()
+        elevated_surface(theme)
             .px(px(6.))
             .py(px(2.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
             .text_size(theme.font_size_hint)
             .text_color(theme.text_muted)
             .child(self.text.clone())

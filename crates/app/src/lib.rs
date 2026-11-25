@@ -8,6 +8,7 @@ mod actions;
 mod ai;
 mod alternatives_panel;
 mod caret;
+mod chrome;
 mod context_menu;
 mod editor;
 mod effects;

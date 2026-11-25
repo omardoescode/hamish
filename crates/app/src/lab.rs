@@ -11,6 +11,7 @@ use ka_teb_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
 
 use crate::actions::{Redo, Undo};
 use crate::ai::{AiFailure, AiRun, AiStatus};
+use crate::chrome::{clickable_row, popover_surface, text_button};
 use crate::{Editor, Theme};
 
 #[expect(
@@ -279,16 +280,13 @@ impl Lab {
                     row.guide.map(str::to_owned)
                 }
             };
-            div()
+            clickable_row(theme)
                 .id(("lab-check", index))
                 .debug_selector(move || format!("lab-check-{index}"))
                 .px(px(12.))
                 .py(px(2.))
                 .border_1()
                 .border_color(border)
-                .rounded(theme.elevated_radius)
-                .cursor_pointer()
-                .hover(|row| row.bg(theme.elevated_row_hover))
                 .on_click(move |_, window, cx| {
                     window.dispatch_action(Box::new(RunLabCheck(check)), cx);
                 })
@@ -321,7 +319,7 @@ impl Lab {
                         .child(detail)
                 }))
         });
-        div()
+        popover_surface(theme)
             .id("lab-popover")
             .key_context("Lab")
             .track_focus(&self.focus_handle)
@@ -333,11 +331,8 @@ impl Lab {
             .occlude()
             .w(POPOVER_WIDTH)
             .pb(px(4.))
-            .bg(theme.elevated_background)
             .border_1()
             .border_color(theme.panel_border)
-            .rounded(theme.elevated_radius)
-            .shadow_md()
             .text_size(theme.font_size_hint)
             .child(header)
             .children(rows)
@@ -356,15 +351,10 @@ impl Lab {
             .unwrap_or_default()
             .to_owned();
         let button = |name: &'static str, caption: &'static str| {
-            div()
+            text_button(theme, theme.panel_border)
                 .id(name)
                 .debug_selector(move || name.to_owned())
                 .px(px(8.))
-                .border_1()
-                .border_color(theme.text_muted)
-                .rounded(px(3.))
-                .cursor_pointer()
-                .hover(|button| button.bg(theme.elevated_row_hover))
                 .child(caption)
         };
         let accept = mark.fix.as_ref().map(|_| {
@@ -382,7 +372,7 @@ impl Lab {
             .note
             .as_ref()
             .map(|note| div().text_color(theme.text_muted).child(note.clone()));
-        div()
+        popover_surface(theme)
             .id("lab-mark-card")
             .debug_selector(|| "lab-mark-card".to_owned())
             .occlude()
@@ -391,9 +381,6 @@ impl Lab {
             .flex()
             .flex_col()
             .gap(px(4.))
-            .bg(theme.elevated_background)
-            .rounded(theme.elevated_radius)
-            .shadow_md()
             .text_size(theme.font_size_hint)
             .child(div().text_color(theme.accent).child(label(mark.check)))
             .children(fix)
@@ -477,7 +464,7 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
                 .border_1()
                 .border_dashed()
                 .border_color(color)
-                .rounded(px(3.))
+                .rounded(theme.elevated_radius)
                 .text_size(theme.font_size_hint)
                 .text_color(color)
                 .cursor_pointer()
@@ -493,7 +480,7 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
 /// An AI bar above the Lab popover: `name` in bold, then `detail` in accent. A Trim and
 /// each running Lab check show one.
 pub(crate) fn ai_bar(theme: &Theme, name: &'static str, detail: SharedString) -> gpui::Div {
-    div()
+    popover_surface(theme)
         .debug_selector(|| "ai-bar".to_owned())
         .occlude()
         .w(BAR_WIDTH)
@@ -501,9 +488,6 @@ pub(crate) fn ai_bar(theme: &Theme, name: &'static str, detail: SharedString) ->
         .flex()
         .flex_col()
         .gap(px(4.))
-        .bg(theme.elevated_background)
-        .rounded(theme.elevated_radius)
-        .shadow_md()
         .text_size(theme.font_size_hint)
         .child(
             div()
