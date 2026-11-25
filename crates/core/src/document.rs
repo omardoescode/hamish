@@ -5,11 +5,11 @@ use crate::article;
 use crate::ghost;
 use crate::slot::{self, SlotNode};
 use crate::{
-    Counter, Cycle, GhostError, Level, Overflow, OverflowError, Provenance, Slot, SlotError,
-    SlotId, Variant,
+    Counter, Cycle, GhostError, LabMark, LabMarkId, Level, Overflow, OverflowError, Provenance,
+    Slot, SlotError, SlotId, Variant,
 };
 
-/// One piece of writing: its text, Slots, Ghost ranges, Overflow, and edit history.
+/// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, and edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
@@ -17,6 +17,8 @@ pub struct Document {
     ghosts: Vec<Range<usize>>,
     overflow: Overflow,
     next_slot: SlotId,
+    lab_marks: Vec<LabMark>,
+    next_lab_mark: LabMarkId,
     undo_steps: Vec<Step>,
     redo_steps: Vec<Step>,
 }
@@ -30,7 +32,7 @@ enum SlotChange {
 }
 
 /// One undoable change: `removed` at `at` was swapped for `inserted`,
-/// and the Slots, Ghost ranges, and Overflow went from `before` to `after`.
+/// the Slots, Ghost ranges, and Overflow went from `before` to `after`, the Lab marks likewise.
 #[derive(Debug, Clone)]
 struct Step {
     at: usize,
@@ -38,6 +40,8 @@ struct Step {
     inserted: String,
     before: Tree,
     after: Tree,
+    marks_before: Vec<LabMark>,
+    marks_after: Vec<LabMark>,
 }
 
 /// The Slots, top-level Ghost ranges (ADR 0006), and Overflow of the Document at one time.
@@ -56,6 +60,8 @@ impl Step {
             inserted: self.removed,
             before: self.after,
             after: self.before,
+            marks_before: self.marks_after,
+            marks_after: self.marks_before,
         }
     }
 }
@@ -454,13 +460,48 @@ impl Document {
         self.commit(range, text, self.tree(slots, ghosts))
     }
 
+    /// The open Lab marks in document order.
+    #[must_use]
+    pub fn lab_marks(&self) -> &[LabMark] {
+        &self.lab_marks
+    }
+
+    pub(crate) fn new_lab_mark_id(&mut self) -> LabMarkId {
+        let id = self.next_lab_mark;
+        self.next_lab_mark = id.next();
+        id
+    }
+
+    /// Sets the Lab marks to `marks` as one undoable step. The text stays.
+    pub(crate) fn commit_lab_marks(&mut self, marks: Vec<LabMark>) -> Result<(), RangeError> {
+        let tree = self.tree(self.slots.clone(), self.ghosts.clone());
+        self.record(0..0, "", tree, marks)
+    }
+
     /// Replaces `range` with `inserted` and sets the Slots and Ghost ranges to `tree`,
-    /// as one undoable step.
+    /// as one undoable step. The Lab marks follow the edit.
     fn commit(
         &mut self,
         range: Range<usize>,
         inserted: &str,
+        tree: Tree,
+    ) -> Result<(), RangeError> {
+        let marks = self
+            .lab_marks
+            .iter()
+            .filter_map(|mark| mark.clone().follow(&range, inserted.len()))
+            .collect();
+        self.record(range, inserted, tree, marks)
+    }
+
+    /// Replaces `range` with `inserted` and sets the Slots, Ghost ranges, and Lab marks,
+    /// as one undoable step.
+    fn record(
+        &mut self,
+        range: Range<usize>,
+        inserted: &str,
         mut tree: Tree,
+        marks: Vec<LabMark>,
     ) -> Result<(), RangeError> {
         let removed = self
             .text
@@ -477,18 +518,21 @@ impl Document {
             ghosts: std::mem::take(&mut self.ghosts),
             overflow: std::mem::take(&mut self.overflow),
         };
-        if text == self.text && tree == before {
+        if text == self.text && tree == before && marks == self.lab_marks {
             self.set_tree(before);
             return Ok(());
         }
         self.text = text;
         self.set_tree(tree.clone());
+        let marks_before = std::mem::replace(&mut self.lab_marks, marks);
         self.undo_steps.push(Step {
             at: range.start,
             removed,
             inserted: inserted.to_owned(),
             before,
             after: tree,
+            marks_before,
+            marks_after: self.lab_marks.clone(),
         });
         self.redo_steps.clear();
         Ok(())
@@ -585,6 +629,7 @@ impl Document {
         let end = step.at + step.inserted.len();
         self.text.replace_range(step.at..end, &step.removed);
         self.set_tree(step.before.clone());
+        self.lab_marks.clone_from(&step.marks_before);
         step.inverse()
     }
 
