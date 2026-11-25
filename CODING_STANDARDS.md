@@ -16,6 +16,17 @@
 - Tests: no tautological tests. Expected values come from the spec or hardcoded worked examples. Test at agreed seams only.
 - Commits: no Co-Authored-By.
 
+## Comments
+
+- Default: no comment. A good name and type come first. Never a WHAT comment that repeats the code.
+- `//!`: each `src` module file starts with 1 or 2 lines: what the module owns. Not in `tests/*.rs`.
+- `///`: each `pub` item of `core`, and each other item whose contract (units, ranges, `None`, errors, panics) the signature does not show. Tell the contract, not the steps. `# Errors` on each `pub` fn that returns `Result`.
+- `//`: inline, only for a WHY that the code cannot show (a workaround, a number from a measurement, a GPUI limit). Put it above the line, not at the end.
+- No issue, PR, or FR numbers, no history ("now", "no longer", "old"), no TODO without an open issue. Git and the issue keep the history. The spec is not in the repo, so tell the rule itself, not its number. ADR links (`ADR 0004`) are allowed.
+- Doc tests: only for a `pub` `core` fn with a worked example that is not obvious. No doc tests in `app`.
+- Names in comments come from the glossary (CONTEXT.md), same as code.
+- Language: ASD-STE100 style. Short sentences (max 20 words), active voice, present tense, one statement per sentence.
+
 ## Anti-slop guards
 
 Each concern has one owner tool. When two tools can check the same thing, the first tool in this order owns it: rustfmt > clippy lints > clippy.toml > cargo-deny > cargo-shear > pedant. The other tool has that check off.
