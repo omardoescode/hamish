@@ -1,0 +1,37 @@
+# Text that scripts/source-guards.pl skips before it looks for _Avoid_ words of CONTEXT.md.
+# One entry per line: the exact text (case-sensitive, no spaces), then the reason.
+# Add an entry only when the word has a sense that is not the glossary term it stands in for.
+Option Rust std type.
+format Rust format! macro and text formats.
+cursor_pointer GPUI mouse pointer style.
+CursorStyle GPUI mouse pointer style.
+.cursor( GPUI mouse pointer style.
+animation_frame GPUI frame request.
+with_animation GPUI element animation.
+Animation GPUI animation type.
+click Mouse clicks and GPUI on_click. Not a Cycle sound.
+Click Mouse clicks and GPUI ClickEvent. Not a Cycle sound.
+cut Trim cuts of a Trim proposal. Not a Stash.
+Cut The clipboard Cut action and Trim cuts. Not a Stash.
+clipboard The OS clipboard. Not Overflow.
+Clipboard The OS clipboard. Not Overflow.
+file Files on disk (settings, .md, sidecar). Not the Document.
+File Files on disk. Not the Document.
+note The note of a Lab mark (CONTEXT.md, Lab mark).
+item List items, menu rows, sidecar records. Not an Overflow block.
+Item Iterator::Item and Markdown list items. Not an Overflow block.
+history The undo stack of EditHistory. Not Alternative control.
+History The undo stack of EditHistory. Not Alternative control.
+version The sidecar schema version. Not Alternative control.
+Version The sidecar schema version. Not Alternative control.
+VERSION The sidecar schema version. Not Alternative control.
+config The XDG config dir and cpal stream config. Not Settings.
+Config cpal StreamConfig. Not Settings.
+CONFIG The XDG_CONFIG_HOME variable. Not Settings.
+source Error::source, source_location, a timing source. Not Provenance.
+scope std::thread::scope. Not a Level.
+choice A choice button of a Settings field. Not a Slot.
+restore Open rebuilds the Document from the sidecar. Not Revive.
+Restore Open rebuilds the Document from the sidecar. Not Revive.
+dim The Alternatives panel dims the text (CONTEXT.md, Focus zoom). Not a Ghost.
+highlight Lab mark and Trim cut quads. Not Focus zoom.

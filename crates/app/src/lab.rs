@@ -1,5 +1,5 @@
 //! The Lab: the LAB button, the popover with the Lab checks and their progress, and the card
-//! that accepts or dismisses the Lab mark at the cursor. Checks run on the background executor.
+//! that accepts or dismisses the Lab mark at the caret. Checks run on the background executor.
 
 use std::collections::HashMap;
 
@@ -31,7 +31,7 @@ mod actions {
 
 pub use actions::{CloseLab, RunLabCheck, ToggleLab};
 
-/// Width of the Lab popover (spec estimate).
+/// Width of the Lab popover.
 const POPOVER_WIDTH: gpui::Pixels = px(270.);
 /// Width of the Lab mark card.
 const CARD_WIDTH: gpui::Pixels = px(320.);
@@ -160,10 +160,10 @@ impl Lab {
             .collect()
     }
 
-    /// The Lab mark at the cursor (see [`ka_teb_core::Document::lab_mark_at`]). `None` when
+    /// The Lab mark at the caret (see [`ka_teb_core::Document::lab_mark_at`]). `None` when
     /// text is selected.
     #[must_use]
-    pub fn mark_at_cursor(&self, cx: &App) -> Option<LabMark> {
+    pub fn mark_at_caret(&self, cx: &App) -> Option<LabMark> {
         let editor = self.editor.read(cx);
         let selection = editor.selection();
         if !selection.is_empty() {
@@ -400,14 +400,14 @@ impl Focusable for Lab {
 }
 
 impl Render for Lab {
-    /// The trim bar over the open popover, or over the card of the mark at the cursor while
+    /// The trim bar over the open popover, or over the card of the mark at the caret while
     /// the popover is closed.
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
         let below = if self.open {
             Some(self.popover(&theme, cx))
         } else {
-            self.mark_at_cursor(cx)
+            self.mark_at_caret(cx)
                 .map(|mark| self.mark_card(&mark, &theme, cx))
         };
         let bar = self.trim_bar_view(&theme, cx);

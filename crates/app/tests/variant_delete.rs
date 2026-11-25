@@ -26,7 +26,7 @@ fn slot_document() -> (Document, SlotId) {
     (document, slot)
 }
 
-/// Moves the cursor into "customer".
+/// Moves the caret into "customer".
 const INTO_CUSTOMER: &str = "down right right right right right";
 
 fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {

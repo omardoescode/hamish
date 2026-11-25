@@ -1,4 +1,9 @@
 #!/bin/sh
 set -e
+if ! command -v perl > /dev/null; then
+  echo "pre-commit: perl is not installed (see CODING_STANDARDS.md)." >&2
+  exit 1
+fi
+perl scripts/source-guards.pl
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings

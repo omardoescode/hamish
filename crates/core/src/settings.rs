@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// The two themes. Dark is the spec "Theme Mapping" table.
+/// The two themes. Dark is the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeName {
@@ -22,7 +22,7 @@ pub enum ThemeName {
 /// A numeric setting the writer steps up and down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Setting {
-    /// Scale of the Chrome and panels; 1.0 is the spec size.
+    /// Scale of the Chrome and panels; 1.0 is the default size.
     UiScale,
     /// Body font size in pixels.
     FontSize,
@@ -82,7 +82,7 @@ pub struct Settings {
 }
 
 impl Default for Settings {
-    /// The spec "Theme Mapping" values: 15 px body font on 27 px lines, a 585 px column.
+    /// 15 px body font on 27 px lines, a 585 px column.
     fn default() -> Self {
         Self {
             theme: ThemeName::Dark,
@@ -138,7 +138,7 @@ impl std::error::Error for SettingsError {
 }
 
 /// `$XDG_CONFIG_HOME/ka-teb/settings.json`; `~/.config` when `XDG_CONFIG_HOME` is not an
-/// absolute path (XDG Base Directory spec). `None` without either.
+/// absolute path (XDG Base Directory Specification). `None` without either.
 #[must_use]
 pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
     let config = xdg_config_home

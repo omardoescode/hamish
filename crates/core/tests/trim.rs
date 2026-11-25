@@ -70,7 +70,7 @@ fn open(ranges: &[Range<usize>]) -> Vec<TrimCut> {
 }
 
 #[test]
-fn the_trim_levels_are_the_spec_levels_with_their_targets() {
+fn the_trim_levels_and_their_targets_in_percent() {
     let targets: Vec<_> = TrimLevel::ALL
         .iter()
         .map(|level| (*level, level.target_percent()))

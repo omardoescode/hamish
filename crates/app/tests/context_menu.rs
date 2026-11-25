@@ -144,7 +144,7 @@ fn ctrl_slash_ghosts_the_selection_and_undo_brings_it_back(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn ctrl_slash_with_no_selection_ghosts_the_word_at_the_cursor(cx: &mut TestAppContext) {
+fn ctrl_slash_with_no_selection_ghosts_the_word_at_the_caret(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, customer_document());
 
     cx.simulate_keystrokes("down right right right right right ctrl-/");

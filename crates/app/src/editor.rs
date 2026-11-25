@@ -54,7 +54,7 @@ pub struct Marker {
     pub active: usize,
 }
 
-/// Opacity of new Active variant text when its fade-in starts (spec: "low opacity").
+/// Opacity of new Active variant text when its fade-in starts.
 const FADE_IN_START_OPACITY: f32 = 0.2;
 
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
@@ -481,7 +481,7 @@ impl Editor {
         true
     }
 
-    /// Ends the current undo group, so the next edit starts a new step.
+    /// Ends the current Undo step, so the next edit starts a new one.
     pub(crate) fn close_history(&mut self) {
         self.session.close_undo_step();
     }

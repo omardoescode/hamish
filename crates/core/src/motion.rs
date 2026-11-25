@@ -6,16 +6,15 @@ use std::time::Duration;
 /// A timed visual effect. Effects never block input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    /// New Active variant text fades in (spec: 100 to 200 ms).
+    /// New Active variant text fades in.
     VariantFadeIn,
-    /// Burst over a deleted Variant (spec: 500 to 800 ms).
+    /// Burst over a deleted Variant.
     Explosion,
     /// Burst when an undo puts a deleted Variant back; shorter than the explosion.
     UndoBurst,
     /// The paragraph with the caret zooms in, the one it left zooms out.
     FocusZoom,
-    /// One round of the "??" dance of a quick fill (spec: 2 to 4 pose changes per
-    /// second). It repeats while the AI works; with reduced motion the "??" stays still.
+    /// One round of the "??" dance of a quick fill. It repeats while the AI works; with reduced motion the "??" stays still.
     QuickFillDance,
 }
 

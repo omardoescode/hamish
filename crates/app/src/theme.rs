@@ -3,8 +3,7 @@
 use gpui::{Global, Hsla, Pixels, SharedString, hsla, px, rgb};
 use ka_teb_core::{Settings, ThemeName};
 
-/// Theme values. Dark is the spec "Theme Mapping" table (estimates); light uses the same
-/// roles on paper colors. Sizes come from [`Settings`].
+/// Theme values. Dark is the default; light uses the same roles on paper colors. Sizes come from [`Settings`].
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub background: Hsla,
