@@ -7,7 +7,7 @@ use gpui::{
     MouseUpEvent, PaintQuad, Pixels, Point, Render, ScrollHandle, SharedString, Size, Style,
     TextRun, UTF16Selection, Window, WrappedLine, div, fill, point, prelude::*, px, relative, size,
 };
-use ka_teb_core::Document;
+use ka_teb_core::{Cycle, Document, Level, SlotId};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
@@ -17,6 +17,9 @@ use crate::actions::{
     SelectToLineStart, SelectUp, Undo,
 };
 use crate::edit_history::{EditHistory, EditKind};
+
+/// Width left of the text that a Paragraph Marker and its hover area take.
+const PARAGRAPH_MARGIN: Pixels = px(32.);
 
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
 pub struct Editor {
@@ -30,6 +33,7 @@ pub struct Editor {
     painted: Option<PaintedText>,
     selecting: bool,
     autoscroll: bool,
+    hovered: Option<SlotId>,
 }
 
 /// The text as last painted, for mouse and vertical cursor moves.
@@ -58,6 +62,7 @@ impl Editor {
             painted: None,
             selecting: false,
             autoscroll: false,
+            hovered: None,
         }
     }
 
@@ -70,6 +75,12 @@ impl Editor {
     #[must_use]
     pub fn selection(&self) -> Range<usize> {
         self.selection.clone()
+    }
+
+    /// The Slot under the pointer, innermost first.
+    #[must_use]
+    pub fn hovered_slot(&self) -> Option<SlotId> {
+        self.hovered
     }
 
     /// Counter text: the Document, or the selection with "selected" (FR-3, FR-4).
@@ -200,11 +211,38 @@ impl Editor {
     }
 
     fn move_up(&mut self, _: &MoveUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.offset_rows_away(-1.), cx);
+        if !self.cycle_hovered(Cycle::Previous, cx) {
+            self.move_to(self.offset_rows_away(-1.), cx);
+        }
     }
 
     fn move_down(&mut self, _: &MoveDown, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.offset_rows_away(1.), cx);
+        if !self.cycle_hovered(Cycle::Next, cx) {
+            self.move_to(self.offset_rows_away(1.), cx);
+        }
+    }
+
+    /// FR-14: Up/Down over a Slot cycle its Active variant in place, as one undo step.
+    /// `false` when no Slot is under the pointer.
+    fn cycle_hovered(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
+        let Some(id) = self.hovered else {
+            return false;
+        };
+        let old_text = self.document.text().to_owned();
+        if self.document.cycle_active(id, cycle).is_err() {
+            self.hovered = None;
+            return false;
+        }
+        let new_text = self.document.text();
+        let before = self.selection.clone();
+        self.selection = follow_change(before.start, &old_text, new_text)
+            ..follow_change(before.end, &old_text, new_text);
+        self.history.close();
+        self.history
+            .record(EditKind::Other, before, self.selection.clone());
+        self.history.close();
+        cx.notify();
+        true
     }
 
     fn move_to_line_start(&mut self, _: &MoveToLineStart, _: &mut Window, cx: &mut Context<Self>) {
@@ -348,6 +386,23 @@ impl Editor {
         if self.selecting {
             self.select_to(self.offset_for_mouse(event.position), cx);
         }
+        let hovered = self.slot_at(event.position);
+        if hovered != self.hovered {
+            self.hovered = hovered;
+            cx.notify();
+        }
+    }
+
+    /// The innermost visible Slot whose text (or Paragraph margin) is under `position`.
+    fn slot_at(&self, position: Point<Pixels>) -> Option<SlotId> {
+        let painted = self.painted.as_ref()?;
+        let local = position - painted.bounds.origin;
+        let slots = self.document.slots();
+        slots
+            .iter()
+            .rev()
+            .find(|slot| painted.covers(&slot.range, slot.level, local))
+            .map(|slot| slot.id)
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -427,6 +482,37 @@ impl PaintedText {
             Ok(index) | Err(index) => index,
         };
         painted.start + index
+    }
+
+    /// Rows from the row of `range.start` to the row of `range.end` (local tops).
+    fn rows(&self, range: &Range<usize>) -> Option<(Point<Pixels>, Point<Pixels>)> {
+        Some((
+            self.position_for(range.start)?,
+            self.position_for(range.end)?,
+        ))
+    }
+
+    /// `local` lies on the text of `range`. A Paragraph also covers its full rows and
+    /// its left margin, where its Marker is.
+    fn covers(&self, range: &Range<usize>, level: Level, local: Point<Pixels>) -> bool {
+        let Some((start, end)) = self.rows(range) else {
+            return false;
+        };
+        if local.y < start.y || local.y >= end.y + self.line_height {
+            return false;
+        }
+        if level == Level::Paragraph {
+            return local.x >= -PARAGRAPH_MARGIN && local.x <= self.bounds.size.width;
+        }
+        let first_row = local.y < start.y + self.line_height;
+        let last_row = local.y >= end.y;
+        let left = if first_row { start.x } else { px(0.) };
+        let right = if last_row {
+            end.x
+        } else {
+            self.bounds.size.width
+        };
+        local.x >= left && local.x < right
     }
 
     /// Quads that cover `range` (window coordinates), one per visual row.
@@ -826,6 +912,34 @@ impl Element for EditorElement {
     }
 }
 
+/// Where `offset` in `old` lands in `new`, when one span of `old` changed into `new`.
+/// An offset inside the changed span goes to the end of the new span.
+fn follow_change(offset: usize, old: &str, new: &str) -> usize {
+    let prefix = old
+        .char_indices()
+        .zip(new.chars())
+        .find(|((_, a), b)| a != b)
+        .map_or(old.len().min(new.len()), |((index, _), _)| index);
+    let suffix = old
+        .get(prefix..)
+        .unwrap_or_default()
+        .chars()
+        .rev()
+        .zip(new.get(prefix..).unwrap_or_default().chars().rev())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a.len_utf8())
+        .sum::<usize>();
+    if offset <= prefix {
+        return offset;
+    }
+    let old_end = old.len() - suffix;
+    let new_end = new.len() - suffix;
+    if offset >= old_end {
+        return offset - old_end + new_end;
+    }
+    new_end
+}
+
 /// Scrolls the least amount that keeps the cursor out of the edge fade.
 fn scroll_into_view(scroll_handle: &ScrollHandle, cursor: Option<&PaintQuad>, margin: Pixels) {
     let Some(cursor) = cursor else {
@@ -843,4 +957,24 @@ fn scroll_into_view(scroll_handle: &ScrollHandle, cursor: Option<&PaintQuad>, ma
     }
     offset.y = offset.y.min(px(0.));
     scroll_handle.set_offset(offset);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::follow_change;
+
+    #[test]
+    fn an_offset_after_a_changed_span_moves_by_its_change_in_length() {
+        let old = "It is an eraser here.";
+        let new = "It is a thumbtack here.";
+        assert_eq!(follow_change(3, old, new), 3);
+        assert_eq!(follow_change(21, old, new), 23);
+        assert_eq!(follow_change(10, old, new), 17);
+    }
+
+    #[test]
+    fn a_shared_suffix_does_not_reach_into_the_shared_prefix() {
+        assert_eq!(follow_change(1, "aa", "a"), 1);
+        assert_eq!(follow_change(2, "aa", "a"), 1);
+    }
 }
