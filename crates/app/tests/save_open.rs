@@ -3,7 +3,7 @@ use std::path::Path;
 
 use app::{Notice, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Dropped, Level, Provenance, sidecar_path};
+use ka_teb_core::{Document, Dropped, Level, Provenance};
 use tempfile::TempDir;
 
 fn open(
@@ -41,7 +41,7 @@ fn save_new(cx: &mut VisualTestContext, path: &Path) {
 }
 
 #[gpui::test]
-fn first_save_of_a_new_document_asks_for_a_path_and_writes_md_and_sidecar(cx: &mut TestAppContext) {
+fn first_save_of_a_new_document_asks_for_a_path_and_writes_one_md_file(cx: &mut TestAppContext) {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("draft.md");
     let (_workspace, cx) = open(cx, Document::new("Title\nThe customer waits."));
@@ -51,11 +51,16 @@ fn first_save_of_a_new_document_asks_for_a_path_and_writes_md_and_sidecar(cx: &m
     cx.simulate_new_path_selection(|_| Some(path.clone()));
     cx.run_until_parked();
 
-    assert_eq!(
-        fs::read_to_string(&path).unwrap(),
-        "Title\nThe customer waits."
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .starts_with("Title\nThe customer waits.\n\n<!-- ka-teb\n")
     );
-    assert!(sidecar_path(&path).exists());
+    let names: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["draft.md"]);
 }
 
 #[gpui::test]
@@ -78,7 +83,7 @@ fn an_edit_makes_the_document_unsaved_and_ctrl_s_saves_it_to_the_same_path(
         !cx.did_prompt_for_new_path(),
         "no dialog after the first save"
     );
-    assert_eq!(fs::read_to_string(&path).unwrap(), "Title!");
+    assert_eq!(Document::open(&path).unwrap().document.text(), "Title!");
     assert!(!unsaved(&workspace, cx));
 }
 
@@ -92,7 +97,7 @@ fn two_quick_saves_leave_the_last_text_on_disk(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("end ! ctrl-s ? ctrl-s");
     cx.run_until_parked();
 
-    assert_eq!(fs::read_to_string(&path).unwrap(), "Title!?");
+    assert_eq!(Document::open(&path).unwrap().document.text(), "Title!?");
     assert!(!unsaved(&workspace, cx));
 }
 
@@ -109,7 +114,7 @@ fn save_as_asks_for_a_path_every_time_and_moves_the_document_there(cx: &mut Test
     cx.simulate_new_path_selection(|_| Some(second.clone()));
     cx.run_until_parked();
 
-    assert_eq!(fs::read_to_string(&second).unwrap(), "Title");
+    assert_eq!(Document::open(&second).unwrap().document.text(), "Title");
     let saved_at = cx.read(|cx| workspace.read(cx).document_path().map(Path::to_owned));
     assert_eq!(saved_at, Some(second));
 }
@@ -196,7 +201,8 @@ fn open_after_an_outside_edit_shows_the_dropped_slot(cx: &mut TestAppContext) {
         .create_slot(4..9, Level::Word, "swift", Provenance::Writer)
         .unwrap();
     saved.save(&path).unwrap();
-    fs::write(&path, "The slow fox.").unwrap();
+    let file = fs::read_to_string(&path).unwrap();
+    fs::write(&path, file.replace("The quick fox.", "The slow fox.")).unwrap();
     let (workspace, cx) = open(cx, Document::default());
 
     open_path(&workspace, cx, &path);

@@ -1,5 +1,5 @@
 //! Save and Open: file dialogs, the unsaved sign, and the notice that shows
-//! errors and what an open dropped (ADR 0003). File I/O runs on the background executor.
+//! errors and what an open dropped (ADR 0007). File I/O runs on the background executor.
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +17,7 @@ use crate::{Theme, Workspace};
 pub enum Notice {
     SaveFailed(String),
     OpenFailed(String),
-    /// The open could not put these items back on the `.md` text (ADR 0003).
+    /// The open could not put these items back on the Document text (ADR 0007).
     Dropped(Vec<Dropped>),
     /// The settings file did not load at start; the defaults are in use.
     SettingsNotLoaded(String),
@@ -31,7 +31,7 @@ pub(crate) struct SaveOpen {
     notice: Option<Notice>,
     saving: bool,
     /// A save asked for while one runs; it starts when that one ends, so two saves never
-    /// write the same files at once.
+    /// write the same file at once.
     queued: Option<PathBuf>,
 }
 
@@ -171,7 +171,7 @@ impl Workspace {
         .detach();
     }
 
-    /// Opens the `.md` file `path` and its sidecar in place of the Document. Unsaved
+    /// Opens the `.md` file `path` with its ka-teb comment in place of the Document. Unsaved
     /// changes are lost: [`Open`] asks first.
     pub fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let source = path.clone();

@@ -126,6 +126,12 @@ _Avoid_: Format, rich text
 The insertion point in the Document text or in Overflow, with the selection around it and the text an input method composes. One rule for both texts: a caret clamps to its text before it acts.
 _Avoid_: cursor
 
+### Storage
+
+**Ka-teb comment**:
+The HTML comment `<!-- ka-teb ... -->` at the end of a saved `.md` file. It holds all state except the active text (ADR 0007). It is never Document text.
+_Avoid_: Sidecar, metadata
+
 ### Chrome
 
 **Chrome**:

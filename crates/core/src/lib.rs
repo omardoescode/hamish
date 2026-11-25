@@ -43,7 +43,7 @@ pub use particles::{Particle, ParticleArea, ParticleLook};
 pub use settings::{LoadedSettings, Setting, Settings, SettingsError, Toggle, settings_path};
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};
 pub use sound::Sound;
-pub use storage::{Dropped, Opened, StorageError, sidecar_path};
+pub use storage::{Dropped, Opened, StorageError};
 pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
