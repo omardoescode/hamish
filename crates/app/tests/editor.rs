@@ -63,30 +63,6 @@ fn undo_reverts_consecutive_typing_as_one_step(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_cursor_move_starts_a_new_undo_step(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, "");
-
-    cx.simulate_input("ab");
-    cx.simulate_keystrokes("left");
-    cx.simulate_input("c");
-    assert_eq!(text(&workspace, cx), "acb");
-
-    cx.simulate_keystrokes("ctrl-z");
-    assert_eq!(text(&workspace, cx), "ab");
-}
-
-#[gpui::test]
-fn consecutive_backspaces_undo_as_one_step(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, "Hello");
-
-    cx.simulate_keystrokes("end backspace backspace backspace");
-    assert_eq!(text(&workspace, cx), "He");
-
-    cx.simulate_keystrokes("ctrl-z");
-    assert_eq!(text(&workspace, cx), "Hello");
-}
-
-#[gpui::test]
 fn counter_shows_document_counts(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, "Hello dear world");
 

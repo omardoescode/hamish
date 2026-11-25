@@ -104,6 +104,10 @@ _Avoid_: Magnify, highlight
 The particle burst that plays at a span (or panel row) when a Variant is deleted.
 _Avoid_: Animation, boom
 
+**Undo step**:
+One writer action as one undo: a change from any view, or typing (or deleting) in a row at the cursor. Undo puts the text and the selection back as they were before it.
+_Avoid_: History entry, undo group
+
 **Undo burst**:
 The burst that plays at a span when an undo puts a deleted Variant back.
 

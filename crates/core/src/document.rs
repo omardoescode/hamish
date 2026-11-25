@@ -684,6 +684,11 @@ impl Document {
         Ok(())
     }
 
+    /// How many core undo steps there are.
+    pub(crate) fn undo_depth(&self) -> usize {
+        self.undo_steps.len()
+    }
+
     /// Reverts the last step. `false` when there is nothing to undo.
     pub fn undo(&mut self) -> bool {
         let Some(step) = self.undo_steps.pop() else {
