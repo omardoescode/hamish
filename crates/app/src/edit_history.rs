@@ -5,6 +5,8 @@ use std::ops::Range;
 pub(crate) enum EditKind {
     Typing,
     Deleting,
+    OverflowTyping,
+    OverflowDeleting,
     Other,
 }
 
