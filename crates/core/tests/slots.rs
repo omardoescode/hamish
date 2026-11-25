@@ -126,7 +126,21 @@ fn delete_an_inactive_variant_keeps_the_active_one() {
 }
 
 #[test]
-fn delete_the_active_variant_shows_the_original() {
+fn delete_the_active_variant_shows_the_next_one() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    document.set_active(id, 1).unwrap();
+    document.delete_variant(id, 1).unwrap();
+    assert_eq!(variant_texts(&document, id), ["cat", "fox"]);
+    assert_eq!(document.slot(id).unwrap().active, 1);
+    assert_eq!(document.text(), "The fox sat.");
+}
+
+#[test]
+fn delete_the_active_last_variant_wraps_to_the_original() {
     let mut document = Document::new("The cat sat.");
     let id = document
         .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
@@ -136,6 +150,19 @@ fn delete_the_active_variant_shows_the_original() {
     document.delete_variant(id, 2).unwrap();
     assert_eq!(document.slot(id).unwrap().active, 0);
     assert_eq!(document.text(), "The cat sat.");
+}
+
+#[test]
+fn delete_the_active_original_shows_the_next_variant() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    document.delete_variant(id, 0).unwrap();
+    assert_eq!(variant_texts(&document, id), ["dog", "fox"]);
+    assert_eq!(document.slot(id).unwrap().active, 0);
+    assert_eq!(document.text(), "The dog sat.");
 }
 
 #[test]
@@ -316,9 +343,9 @@ fn deleting_a_variant_ends_the_slots_nested_in_it() {
         .add_variant(paragraph, "Rain.", Provenance::Writer)
         .unwrap();
     document.delete_variant(paragraph, 1).unwrap();
-    assert_eq!(document.text(), "The cat sat.");
-    document.set_active(paragraph, 1).unwrap();
     assert_eq!(document.text(), "Rain.");
+    document.set_active(paragraph, 0).unwrap();
+    assert_eq!(document.text(), "The cat sat.");
     assert_eq!(document.slot(word), None);
     assert_eq!(document.slots().len(), 1);
 }

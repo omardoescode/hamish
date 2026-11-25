@@ -325,7 +325,8 @@ impl Document {
         self.set_active(id, index)
     }
 
-    /// Deletes Variant `index` of Slot `id`. When it was active, the Original shows.
+    /// Deletes Variant `index` of Slot `id`; any Variant can go, the Original too. When it
+    /// was active, the next Variant shows; after the last one, the first (FR-77).
     /// A Slot left with fewer than two Variants ends; its active text stays (FR-18).
     ///
     /// # Errors
