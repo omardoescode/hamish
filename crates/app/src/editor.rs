@@ -72,13 +72,13 @@ pub struct Editor {
 }
 
 /// The text as last painted, for mouse and vertical cursor moves.
-struct PaintedText {
-    bounds: Bounds<Pixels>,
-    line_height: Pixels,
-    lines: Vec<PaintedLine>,
+pub(crate) struct PaintedText {
+    pub(crate) bounds: Bounds<Pixels>,
+    pub(crate) line_height: Pixels,
+    pub(crate) lines: Vec<PaintedLine>,
 }
 
-struct PaintedLine {
+pub(crate) struct PaintedLine {
     start: usize,
     top: Pixels,
     line: WrappedLine,
@@ -420,6 +420,15 @@ impl Editor {
     }
 
     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        self.undo_step(cx);
+    }
+
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        self.redo_step(cx);
+    }
+
+    /// Reverts the last editor undo step: text edits and Overflow edits share one history.
+    pub(crate) fn undo_step(&mut self, cx: &mut Context<Self>) {
         let Some(group) = self.history.undo() else {
             return;
         };
@@ -432,7 +441,7 @@ impl Editor {
         cx.notify();
     }
 
-    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn redo_step(&mut self, cx: &mut Context<Self>) {
         let Some(group) = self.history.redo() else {
             return;
         };
@@ -443,6 +452,66 @@ impl Editor {
         self.reversed = false;
         self.autoscroll = true;
         cx.notify();
+    }
+
+    /// FR-46: replaces `range` of the Overflow text with `text`. `false` when refused.
+    pub(crate) fn edit_overflow(
+        &mut self,
+        range: Range<usize>,
+        text: &str,
+        kind: EditKind,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if range.is_empty() && text.is_empty() {
+            return false;
+        }
+        if self.document.edit_overflow(range, text).is_err() {
+            return false;
+        }
+        self.history
+            .record(kind, self.selection.clone(), self.selection.clone());
+        cx.notify();
+        true
+    }
+
+    /// Ends the current undo group, so the next edit starts a new step.
+    pub(crate) fn close_history(&mut self) {
+        self.history.close();
+    }
+
+    /// FR-47: Ctrl+Return puts the Overflow block at Overflow offset `caret` at the cursor.
+    pub(crate) fn use_overflow_block(&mut self, caret: usize, cx: &mut Context<Self>) -> bool {
+        self.insert_overflow_block(caret, self.cursor(), cx)
+    }
+
+    /// FR-47: a block dragged into the page goes in at the drop point.
+    pub(crate) fn drop_overflow_block(
+        &mut self,
+        caret: usize,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.insert_overflow_block(caret, self.offset_for_mouse(position), cx)
+    }
+
+    /// Inserts a copy of the block at Overflow offset `caret` at `at`, as one undo step;
+    /// the cursor goes after it.
+    fn insert_overflow_block(&mut self, caret: usize, at: usize, cx: &mut Context<Self>) -> bool {
+        let len = self.document.text().len();
+        if self.document.use_block(caret, at).is_err() {
+            return false;
+        }
+        let before = self.selection.clone();
+        let cursor = at + self.document.text().len() - len;
+        self.selection = cursor..cursor;
+        self.reversed = false;
+        self.history.close();
+        self.history
+            .record(EditKind::Other, before, self.selection.clone());
+        self.history.close();
+        self.autoscroll = true;
+        cx.notify();
+        true
     }
 
     fn on_mouse_down(
@@ -558,8 +627,8 @@ impl Editor {
         self.history.close();
     }
 
-    /// Menu actions that later tickets build (Alternatives panel, AI alternatives,
-    /// Overflow): close the menu and let a view up the tree handle the action.
+    /// Menu actions that later tickets build (Alternatives panel, AI alternatives):
+    /// close the menu and let a view up the tree handle the action.
     fn pass_on(&mut self, cx: &mut Context<Self>) {
         self.context_menu = None;
         cx.notify();
@@ -574,8 +643,24 @@ impl Editor {
         self.pass_on(cx);
     }
 
+    /// FR-45: moves the target to the end of Overflow as one undo step, then lets the
+    /// workspace show Overflow.
     fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
-        self.pass_on(cx);
+        self.context_menu = None;
+        cx.notify();
+        let target = self.target();
+        if self.document.stash(target.clone()).is_err() {
+            return;
+        }
+        let before = self.selection.clone();
+        self.selection = target.start..target.start;
+        self.reversed = false;
+        self.history.close();
+        self.history
+            .record(EditKind::Other, before, self.selection.clone());
+        self.history.close();
+        self.autoscroll = true;
+        cx.propagate();
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -625,8 +710,34 @@ impl Editor {
 }
 
 impl PaintedText {
+    /// Height of all lines.
+    pub(crate) fn height(&self) -> Pixels {
+        self.lines.last().map_or(self.line_height, |last| {
+            last.top + last.line.size(self.line_height).height
+        })
+    }
+
+    /// Paints the lines from the top left of `bounds`. A failed glyph paint leaves that line
+    /// blank; the next frame tries again.
+    pub(crate) fn paint(&self, window: &mut Window, cx: &mut App) {
+        for painted in &self.lines {
+            let origin = self.bounds.origin + point(px(0.), painted.top);
+            painted
+                .line
+                .paint(
+                    origin,
+                    self.line_height,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
+        }
+    }
+
     /// Position of `offset`, relative to the text origin.
-    fn position_for(&self, offset: usize) -> Option<Point<Pixels>> {
+    pub(crate) fn position_for(&self, offset: usize) -> Option<Point<Pixels>> {
         let painted = self.lines.iter().rev().find(|line| line.start <= offset)?;
         let position = painted
             .line
@@ -636,7 +747,7 @@ impl PaintedText {
 
     /// Offset closest to `local` (relative to the text origin). Above the text is 0,
     /// below it is `len`.
-    fn offset_for_local(&self, local: Point<Pixels>, len: usize) -> usize {
+    pub(crate) fn offset_for_local(&self, local: Point<Pixels>, len: usize) -> usize {
         if local.y < px(0.) {
             return 0;
         }
@@ -777,7 +888,7 @@ impl PaintedText {
     }
 
     /// Quads that cover `range` (window coordinates), one per visual row.
-    fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
+    pub(crate) fn selection_quads(&self, range: &Range<usize>, color: Hsla) -> Vec<PaintQuad> {
         let (Some(start), Some(end)) =
             (self.position_for(range.start), self.position_for(range.end))
         else {
@@ -1041,34 +1152,35 @@ impl EditorElement {
         }
         runs
     }
+}
 
-    fn shape(
-        text: &SharedString,
-        runs: &[TextRun],
-        wrap_width: Option<Pixels>,
-        line_height: Pixels,
-        window: &Window,
-    ) -> Vec<PaintedLine> {
-        let font_size = window.text_style().font_size.to_pixels(window.rem_size());
-        let Ok(shaped) =
-            window
-                .text_system()
-                .shape_text(text.clone(), font_size, runs, wrap_width, None)
-        else {
-            return Vec::new();
-        };
-        let mut start = 0;
-        let mut top = px(0.);
-        let mut lines = Vec::new();
-        for line in shaped {
-            let height = line.size(line_height).height;
-            let len = line.len();
-            lines.push(PaintedLine { start, top, line });
-            start += len + 1;
-            top += height;
-        }
-        lines
+/// Shapes `text` into wrapped lines, each with its start offset and top.
+pub(crate) fn shape(
+    text: &SharedString,
+    runs: &[TextRun],
+    wrap_width: Option<Pixels>,
+    line_height: Pixels,
+    window: &Window,
+) -> Vec<PaintedLine> {
+    let font_size = window.text_style().font_size.to_pixels(window.rem_size());
+    let Ok(shaped) =
+        window
+            .text_system()
+            .shape_text(text.clone(), font_size, runs, wrap_width, None)
+    else {
+        return Vec::new();
+    };
+    let mut start = 0;
+    let mut top = px(0.);
+    let mut lines = Vec::new();
+    for line in shaped {
+        let height = line.size(line_height).height;
+        let len = line.len();
+        lines.push(PaintedLine { start, top, line });
+        start += len + 1;
+        top += height;
     }
+    lines
 }
 
 impl IntoElement for EditorElement {
@@ -1109,7 +1221,7 @@ impl Element for EditorElement {
                     gpui::AvailableSpace::Definite(width) => Some(width),
                     gpui::AvailableSpace::MinContent | gpui::AvailableSpace::MaxContent => None,
                 });
-                let lines = Self::shape(&text, &runs, wrap_width, line_height, window);
+                let lines = shape(&text, &runs, wrap_width, line_height, window);
                 let height = lines.last().map_or(line_height, |last| {
                     last.top + last.line.size(line_height).height
                 });
@@ -1133,7 +1245,7 @@ impl Element for EditorElement {
         let text: SharedString = self.editor.read(cx).document.text().to_owned().into();
         let runs = self.runs(window, cx);
         let line_height = window.line_height();
-        let lines = Self::shape(&text, &runs, Some(bounds.size.width), line_height, window);
+        let lines = shape(&text, &runs, Some(bounds.size.width), line_height, window);
         let painted = PaintedText {
             bounds,
             line_height,
@@ -1303,7 +1415,7 @@ fn as_factor(count: usize) -> f32 {
 
 /// Where `offset` in `old` lands in `new`, when one span of `old` changed into `new`.
 /// An offset inside the changed span goes to the end of the new span.
-fn follow_change(offset: usize, old: &str, new: &str) -> usize {
+pub(crate) fn follow_change(offset: usize, old: &str, new: &str) -> usize {
     let prefix = old
         .char_indices()
         .zip(new.chars())
@@ -1330,7 +1442,11 @@ fn follow_change(offset: usize, old: &str, new: &str) -> usize {
 }
 
 /// Scrolls the least amount that keeps the cursor out of the edge fade.
-fn scroll_into_view(scroll_handle: &ScrollHandle, cursor: Option<&PaintQuad>, margin: Pixels) {
+pub(crate) fn scroll_into_view(
+    scroll_handle: &ScrollHandle,
+    cursor: Option<&PaintQuad>,
+    margin: Pixels,
+) {
     let Some(cursor) = cursor else {
         return;
     };

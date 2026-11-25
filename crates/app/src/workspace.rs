@@ -4,7 +4,8 @@ use gpui::{
 };
 use ka_teb_core::Document;
 
-use crate::actions::ToggleChrome;
+use crate::actions::{Stash, ToggleChrome, ToggleOverflow};
+use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::save_open::SaveOpen;
 use crate::{Editor, Theme};
 
@@ -12,7 +13,9 @@ use crate::{Editor, Theme};
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
+    overflow_panel: Entity<OverflowPanel>,
     chrome_visible: bool,
+    overflow_open: bool,
     _editor_changes: Subscription,
 }
 
@@ -21,10 +24,13 @@ impl Workspace {
         let editor = cx.new(|cx| Editor::new(document, cx));
         window.focus(&editor.focus_handle(cx));
         let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        let overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
         Self {
             editor,
+            overflow_panel,
             save_open: SaveOpen::default(),
             chrome_visible: false,
+            overflow_open: false,
             _editor_changes: editor_changes,
         }
     }
@@ -38,6 +44,44 @@ impl Workspace {
     #[must_use]
     pub fn chrome_visible(&self) -> bool {
         self.chrome_visible
+    }
+
+    /// FR-43: the Overflow panel is open.
+    #[must_use]
+    pub fn overflow_open(&self) -> bool {
+        self.overflow_open
+    }
+
+    #[must_use]
+    pub fn overflow_panel(&self) -> &Entity<OverflowPanel> {
+        &self.overflow_panel
+    }
+
+    /// Opening gives Overflow the keyboard; closing gives it back to the Document.
+    fn toggle_overflow(&mut self, _: &ToggleOverflow, window: &mut Window, cx: &mut Context<Self>) {
+        self.overflow_open = !self.overflow_open;
+        let focus = if self.overflow_open {
+            self.overflow_panel.focus_handle(cx)
+        } else {
+            self.editor.focus_handle(cx)
+        };
+        window.focus(&focus);
+        cx.notify();
+    }
+
+    /// FR-45: after a Stash, Overflow shows where the text went. The Document keeps the keyboard.
+    fn show_stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
+        self.overflow_open = true;
+        cx.notify();
+    }
+
+    /// FR-47: a block dragged from Overflow goes into the Document at the drop point.
+    fn drop_block(&mut self, _: &OverflowBlockDrag, window: &mut Window, cx: &mut Context<Self>) {
+        let caret = self.overflow_panel.read(cx).caret();
+        let position = window.mouse_position();
+        self.editor.update(cx, |editor, cx| {
+            editor.drop_overflow_block(caret, position, cx);
+        });
     }
 
     fn toggle_chrome(&mut self, _: &ToggleChrome, _: &mut Window, cx: &mut Context<Self>) {
@@ -62,11 +106,19 @@ impl Render for Workspace {
             .relative()
             .bg(theme.background)
             .font_family(theme.font_family)
+            .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
+            .on_action(cx.listener(Self::toggle_overflow))
+            .on_action(cx.listener(Self::show_stash))
+            .child(
+                div()
+                    .size_full()
+                    .on_drop(cx.listener(Self::drop_block))
+                    .child(self.editor.clone()),
+            )
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
-            .child(self.editor.clone())
             .child(
                 div()
                     .absolute()
@@ -85,6 +137,9 @@ impl Render for Workspace {
                     .h(theme.edge_fade_height)
                     .bg(fade(0.)),
             )
+            .when(self.overflow_open, |workspace| {
+                workspace.child(self.overflow_panel.clone())
+            })
             .child(
                 div()
                     .id("counter")
@@ -108,7 +163,8 @@ impl Render for Workspace {
                         .h(px(16.))
                         .flex()
                         .justify_between()
-                        .child(self.save_open_icons(&theme, cx)),
+                        .child(self.save_open_icons(&theme, cx))
+                        .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
                 )
             })
             .children(self.notice_view(&theme, cx))
