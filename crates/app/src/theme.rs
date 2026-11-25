@@ -28,6 +28,8 @@ pub struct Theme {
     /// Background of Lab marks (mark style inferred, FR-52).
     pub lab_mark: Hsla,
     pub ghost_opacity: f32,
+    /// Text of the cuts of a Trim proposal.
+    pub trim_fade_opacity: f32,
     /// Text outside the current paragraph while the Alternatives panel is open.
     pub panel_open_dim_opacity: f32,
     pub edge_fade_height: Pixels,
@@ -67,6 +69,7 @@ impl Default for Theme {
             selection: rgb(0x0026_2a54).into(),
             lab_mark: hsla(0.68, 0.4, 0.66, 0.18),
             ghost_opacity: 0.10,
+            trim_fade_opacity: 0.22,
             panel_open_dim_opacity: 0.40,
             edge_fade_height: px(30.),
             font_family: "IBM Plex Mono",
