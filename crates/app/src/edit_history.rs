@@ -5,12 +5,15 @@ use std::ops::Range;
 pub(crate) enum EditKind {
     Typing,
     Deleting,
+    OverflowTyping,
+    OverflowDeleting,
     Other,
 }
 
 /// One undo step of the editor: `steps` core undo steps, and the selection around them.
 #[derive(Debug, Clone)]
 pub(crate) struct EditGroup {
+    id: u64,
     kind: EditKind,
     pub(crate) steps: usize,
     pub(crate) before: Range<usize>,
@@ -24,6 +27,7 @@ pub(crate) struct EditHistory {
     undo: Vec<EditGroup>,
     redo: Vec<EditGroup>,
     open: bool,
+    next_id: u64,
 }
 
 impl EditHistory {
@@ -38,13 +42,21 @@ impl EditHistory {
             group.after = after;
             return;
         }
+        self.next_id += 1;
         self.undo.push(EditGroup {
+            id: self.next_id,
             kind,
             steps: 1,
             before,
             after,
         });
         self.open = true;
+    }
+
+    /// The id of the last undo step; `None` when there is none. Equal ids: the same
+    /// Document state, so a save can mark it.
+    pub(crate) fn top(&self) -> Option<u64> {
+        self.undo.last().map(|group| group.id)
     }
 
     /// Ends the current group: the next edit starts a new undo step.

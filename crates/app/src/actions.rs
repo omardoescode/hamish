@@ -32,8 +32,6 @@ gpui::actions!(
     ]
 );
 
-gpui::actions!(workspace, [ToggleChrome]);
-
 gpui::actions!(
     alternatives_panel,
     [
@@ -45,3 +43,10 @@ gpui::actions!(
         DeleteVariant,
     ]
 );
+
+gpui::actions!(
+    workspace,
+    [ToggleChrome, ToggleOverflow, Save, SaveAs, Open]
+);
+
+gpui::actions!(overflow, [UseOverflowBlock, LeaveOverflow]);

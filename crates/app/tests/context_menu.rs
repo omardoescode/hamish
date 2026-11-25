@@ -224,7 +224,7 @@ fn a_menu_action_not_built_yet_closes_the_menu_and_keeps_the_text(cx: &mut TestA
     let (workspace, cx) = open(cx, customer_document());
 
     right_click(&workspace, cx, 13);
-    cx.simulate_keystrokes("ctrl-shift-x");
+    cx.simulate_keystrokes("ctrl-shift-g");
 
     assert_eq!(menu(&workspace, cx), None);
     let text = cx.read(|cx| {

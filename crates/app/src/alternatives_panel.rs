@@ -14,8 +14,6 @@ use crate::context_menu;
 use crate::editor::{Spotlight, paragraph_around};
 use crate::{Editor, Theme};
 
-/// Width of the left Alternatives panel (spec "Theme Mapping": about 205 px).
-const PANEL_WIDTH: f32 = 205.;
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
 
@@ -583,8 +581,8 @@ impl Render for AlternativesPanel {
             .top_0()
             .bottom_0()
             .left_0()
-            .w(px(PANEL_WIDTH))
-            .pt(px(22.))
+            .w(theme.panel_width)
+            .pt(px(56.))
             .px(px(16.))
             .bg(theme.panel_background)
             .border_r_1()

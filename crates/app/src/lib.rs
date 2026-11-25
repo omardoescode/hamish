@@ -9,6 +9,8 @@ mod alternatives_panel;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod overflow_panel;
+mod save_open;
 mod theme;
 mod workspace;
 
@@ -21,14 +23,17 @@ use actions::{
 use gpui::{App, KeyBinding};
 
 pub use actions::{
-    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, MoveDown, MoveLeft, MoveRight,
-    MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo, SelectAll,
-    SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash,
-    ToggleChrome, ToggleGhost, Undo,
+    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, LeaveOverflow, MoveDown, MoveLeft,
+    MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, Open, OpenAlternatives, Paste,
+    Redo, Save, SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
+    SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo,
+    UseOverflowBlock,
 };
 pub use alternatives_panel::{AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use overflow_panel::OverflowPanel;
+pub use save_open::Notice;
 pub use theme::Theme;
 pub use workspace::Workspace;
 
@@ -42,34 +47,46 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         Cow::Borrowed(include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf")),
     ])?;
     cx.set_global(Theme::default());
+    for context in ["Editor", "OverflowPanel"] {
+        let context = Some(context);
+        cx.bind_keys([
+            KeyBinding::new("left", MoveLeft, context),
+            KeyBinding::new("right", MoveRight, context),
+            KeyBinding::new("up", MoveUp, context),
+            KeyBinding::new("down", MoveDown, context),
+            KeyBinding::new("home", MoveToLineStart, context),
+            KeyBinding::new("end", MoveToLineEnd, context),
+            KeyBinding::new("shift-left", SelectLeft, context),
+            KeyBinding::new("shift-right", SelectRight, context),
+            KeyBinding::new("shift-up", SelectUp, context),
+            KeyBinding::new("shift-down", SelectDown, context),
+            KeyBinding::new("shift-home", SelectToLineStart, context),
+            KeyBinding::new("shift-end", SelectToLineEnd, context),
+            KeyBinding::new("ctrl-a", SelectAll, context),
+            KeyBinding::new("backspace", Backspace, context),
+            KeyBinding::new("delete", Delete, context),
+            KeyBinding::new("enter", Newline, context),
+            KeyBinding::new("ctrl-c", Copy, context),
+            KeyBinding::new("ctrl-x", Cut, context),
+            KeyBinding::new("ctrl-v", Paste, context),
+            KeyBinding::new("ctrl-z", Undo, context),
+            KeyBinding::new("ctrl-shift-z", Redo, context),
+        ]);
+    }
     let editor = Some("Editor");
+    let overflow = Some("OverflowPanel");
     cx.bind_keys([
-        KeyBinding::new("left", MoveLeft, editor),
-        KeyBinding::new("right", MoveRight, editor),
-        KeyBinding::new("up", MoveUp, editor),
-        KeyBinding::new("down", MoveDown, editor),
-        KeyBinding::new("home", MoveToLineStart, editor),
-        KeyBinding::new("end", MoveToLineEnd, editor),
-        KeyBinding::new("shift-left", SelectLeft, editor),
-        KeyBinding::new("shift-right", SelectRight, editor),
-        KeyBinding::new("shift-up", SelectUp, editor),
-        KeyBinding::new("shift-down", SelectDown, editor),
-        KeyBinding::new("shift-home", SelectToLineStart, editor),
-        KeyBinding::new("shift-end", SelectToLineEnd, editor),
-        KeyBinding::new("ctrl-a", SelectAll, editor),
-        KeyBinding::new("backspace", Backspace, editor),
-        KeyBinding::new("delete", Delete, editor),
-        KeyBinding::new("enter", Newline, editor),
-        KeyBinding::new("ctrl-c", Copy, editor),
-        KeyBinding::new("ctrl-x", Cut, editor),
-        KeyBinding::new("ctrl-v", Paste, editor),
-        KeyBinding::new("ctrl-z", Undo, editor),
-        KeyBinding::new("ctrl-shift-z", Redo, editor),
         KeyBinding::new("ctrl-shift-a", OpenAlternatives, editor),
         KeyBinding::new("ctrl-shift-g", AiAlternatives, editor),
         KeyBinding::new("ctrl-/", ToggleGhost, editor),
         KeyBinding::new("ctrl-shift-x", Stash, editor),
         KeyBinding::new("escape", CloseMenu, editor),
+        KeyBinding::new("ctrl-enter", UseOverflowBlock, overflow),
+        KeyBinding::new("escape", LeaveOverflow, overflow),
+        KeyBinding::new("ctrl-shift-o", ToggleOverflow, Some("Workspace")),
+        KeyBinding::new("ctrl-s", Save, None),
+        KeyBinding::new("ctrl-shift-s", SaveAs, None),
+        KeyBinding::new("ctrl-o", Open, None),
     ]);
     let panel = Some("AlternativesPanel");
     cx.bind_keys([
