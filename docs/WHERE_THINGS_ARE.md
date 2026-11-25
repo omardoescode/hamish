@@ -10,10 +10,12 @@
 | `crates/core/src/motion.rs` | `Effect`: the one animation timing source (durations, progress, Reduced motion; issue #31). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
 | `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |
-| `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest`, `AiError`; `Document::ai_request` / `apply_ai_result` (ADR 0004). |
+| `crates/core/src/ai.rs` | AI adapter trait `AiAdapter` (Variants, Lab checks, Trims), `AiRequest` (trigger: context menu or Quick fill; sentence, paragraph, existing Variants), `AiError`; `Document::ai_request` / `apply_ai_result` (ADR 0004). |
+| `crates/core/src/around.rs` | The sentence and paragraph around a text range. |
 | `crates/core/src/ai/claude.rs` | `ClaudeBackend`: runs `claude -p` with the API credentials removed from its environment. Tested with a stub `claude` on `PATH` (`crates/core/tests/claude_backend.rs`). |
 | `crates/app/src/ai.rs` | Global `Ai`: the adapter the app calls on the background executor. `main` sets `ClaudeBackend`; tests set a fake. |
-| `crates/app/src/loading.rs` | Loading dance (FR-34), reused by views that wait on the AI. |
+| `crates/app/src/loading.rs` | Loading dance (FR-34), reused by views that wait on the AI; the "??" dance of a Quick fill (FR-71). |
+| `crates/app/src/alternatives_panel.rs` | Alternatives panel: Variant rows, live preview of the empty row (FR-68), Quick fill (FR-69 to FR-73, FR-82). |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
 | `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, save on the background executor. |
 | `crates/app/src/sounds.rs` | `SoundSink` and the `Sounds` global; `play` (checks the "Cycle sounds" setting); `DeviceSounds`: cpal/ALSA output on its own thread, silent without a device. |

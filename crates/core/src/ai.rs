@@ -8,16 +8,29 @@ pub use claude::ClaudeBackend;
 
 use crate::{
     Document, LabFinding, LabRequest, Level, Provenance, RangeError, SlotError, SlotId,
-    TrimRequest, Variant,
+    TrimRequest, Variant, paragraph_around, sentence_around,
 };
 
-/// What the AI gets: the selected text and the text around it.
+/// How the writer asked for AI Variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiTrigger {
+    /// "AI alternatives" in the context menu, or its key (FR-32).
+    ContextMenu,
+    /// "??" typed in the empty row of the Alternatives panel (FR-69).
+    QuickFill,
+}
+
+/// What the AI gets: the selected text, its sentence and paragraph, and the Variants it
+/// has already (FR-75, FR-76).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiRequest {
     range: Range<usize>,
     level: Level,
+    trigger: AiTrigger,
     selection: String,
-    context: String,
+    sentence: String,
+    paragraph: String,
+    variants: Vec<String>,
 }
 
 impl AiRequest {
@@ -37,10 +50,28 @@ impl AiRequest {
         &self.selection
     }
 
-    /// The active text of the whole Document.
     #[must_use]
-    pub fn context(&self) -> &str {
-        &self.context
+    pub fn trigger(&self) -> AiTrigger {
+        self.trigger
+    }
+
+    /// The sentence that holds the selection.
+    #[must_use]
+    pub fn sentence(&self) -> &str {
+        &self.sentence
+    }
+
+    /// The paragraph that holds the selection.
+    #[must_use]
+    pub fn paragraph(&self) -> &str {
+        &self.paragraph
+    }
+
+    /// The texts the Slot over the selection has already, so the AI does not repeat them.
+    /// With no Slot there, the selection.
+    #[must_use]
+    pub fn variants(&self) -> &[String] {
+        &self.variants
     }
 }
 
@@ -133,23 +164,47 @@ impl From<SlotError> for ApplyError {
 }
 
 impl Document {
-    /// An AI request for the text in byte range `range`, with the whole active text as context.
+    /// An AI request for the text in byte range `range`, with its sentence, its paragraph,
+    /// and the Variants of the innermost Slot over exactly `range` as context.
     ///
     /// # Errors
     /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
-    pub fn ai_request(&self, range: Range<usize>, level: Level) -> Result<AiRequest, RangeError> {
-        let selection = self
-            .text()
+    pub fn ai_request(
+        &self,
+        range: Range<usize>,
+        level: Level,
+        trigger: AiTrigger,
+    ) -> Result<AiRequest, RangeError> {
+        let text = self.text();
+        let selection = text
             .get(range.clone())
             .ok_or(RangeError {
                 range: range.clone(),
             })?
             .to_owned();
+        let around = |span: Range<usize>| text.get(span).unwrap_or_default().to_owned();
+        let variants = self
+            .slots()
+            .iter()
+            .rev()
+            .find(|slot| slot.range == range)
+            .map_or_else(
+                || vec![selection.clone()],
+                |slot| {
+                    slot.variants
+                        .iter()
+                        .map(|variant| variant.text().to_owned())
+                        .collect()
+                },
+            );
         Ok(AiRequest {
+            sentence: around(sentence_around(text, &range)),
+            paragraph: around(paragraph_around(text, &range)),
             range,
             level,
+            trigger,
             selection,
-            context: self.text().to_owned(),
+            variants,
         })
     }
 

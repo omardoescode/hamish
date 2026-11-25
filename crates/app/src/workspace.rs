@@ -128,8 +128,10 @@ impl Workspace {
 
     fn close_alternatives(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.alternatives = None;
-        self.editor
-            .update(cx, |editor, cx| editor.set_spotlight(None, cx));
+        self.editor.update(cx, |editor, cx| {
+            editor.set_spotlight(None, cx);
+            editor.set_preview(None, cx);
+        });
         window.focus(&self.editor.focus_handle(cx));
         cx.notify();
     }

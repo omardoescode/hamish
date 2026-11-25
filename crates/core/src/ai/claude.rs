@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use super::{AiAdapter, AiError, AiRequest};
+use super::{AiAdapter, AiError, AiRequest, AiTrigger};
 use crate::{Counter, LabCheck, LabFinding, LabRequest, Level, TrimRequest};
 
 /// Asks for an object with a non-empty list of Variant texts.
@@ -317,12 +317,24 @@ fn prompt(request: &AiRequest) -> String {
         Level::Sentence => "sentence",
         Level::Paragraph => "paragraph",
     };
+    let count = match request.trigger() {
+        AiTrigger::ContextMenu => 3,
+        AiTrigger::QuickFill => 5,
+    };
+    let known: String = request
+        .variants()
+        .iter()
+        .map(|variant| ["<variant>", variant, "</variant>\n"].concat())
+        .collect();
     format!(
-        "You help a writer revise a draft. Write 3 alternatives for the selected {unit}. \
-         Each alternative must fit in place of the selection in the document, keep its meaning, \
-         and differ from it in wording. Answer only with the alternatives.\n\n\
-         <document>\n{}\n</document>\n\n<selection>\n{}\n</selection>\n",
-        request.context(),
+        "You help a writer revise a draft. Write {count} alternatives for the selected {unit}. \
+         Each alternative must fit in place of the selection in its sentence and paragraph, \
+         in grammar and meaning, and differ from it in wording. Phrases are fine. Repeat none \
+         of the known variants. Answer only with the alternatives.\n\n\
+         <paragraph>\n{}\n</paragraph>\n\n<sentence>\n{}\n</sentence>\n\n\
+         <selection>\n{}\n</selection>\n\n<known_variants>\n{known}</known_variants>\n",
+        request.paragraph(),
+        request.sentence(),
         request.selection()
     )
 }

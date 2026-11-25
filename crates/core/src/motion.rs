@@ -12,6 +12,9 @@ pub enum Effect {
     Explosion,
     /// Burst when an undo puts a deleted Variant back (FR-79); shorter than the explosion.
     UndoBurst,
+    /// One round of the "??" dance of a quick fill (FR-71; spec: 2 to 4 pose changes per
+    /// second). It repeats while the AI works; with reduced motion the "??" stays still.
+    QuickFillDance,
 }
 
 impl Effect {
@@ -22,6 +25,7 @@ impl Effect {
             Self::VariantFadeIn => Duration::from_millis(150),
             Self::Explosion => Duration::from_millis(650),
             Self::UndoBurst => Duration::from_millis(450),
+            Self::QuickFillDance => Duration::from_millis(1300),
         }
     }
 

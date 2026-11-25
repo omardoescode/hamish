@@ -1,25 +1,45 @@
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
-    Modifiers, Render, Subscription, Window, canvas, div, prelude::*, px,
+    Modifiers, Render, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
-use ka_teb_core::{AiError, AiRequest, Level, Provenance, SlotId};
+use ka_teb_core::{
+    AiError, AiRequest, AiTrigger, Level, Provenance, SlotId, paragraph_around, sentence_around,
+};
 
 use crate::actions::{
     ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
     SelectPreviousVariant,
 };
-use crate::editor::{Spotlight, paragraph_around};
+use crate::editor::Spotlight;
 use crate::effects::{self, Effect, EffectKind, Playing};
 use crate::sounds;
 use crate::{Ai, Editor, Theme};
-use crate::{context_menu, loading};
+use crate::{context_menu, loading, settings_modal};
 
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
+
+/// The empty-row text that starts a quick fill (FR-69).
+const QUICK_FILL: &str = "??";
+
+/// Quick fill results show this many at a time (FR-72: 2, then 4, then 5 in the demo).
+const QUICK_FILL_BATCH: usize = 2;
+
+/// Time between two quick fill batches.
+const QUICK_FILL_BATCH_GAP: Duration = Duration::from_millis(150);
+
+/// A quick fill in progress (FR-69 to FR-73). Dropping it cancels its work.
+struct QuickFill {
+    /// The AI request, then the batch reveal.
+    _work: Task<()>,
+    /// Added AI Variants at the end of the list not shown yet.
+    hidden: usize,
+}
 
 /// One Variant row of the Alternatives panel (FR-22, FR-23).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +83,9 @@ pub struct AlternativesPanel {
     /// FR-80: the row that a delete blows up, and its explosion.
     explosion: Option<(usize, Playing)>,
     ai: AiStatus,
+    quick_fill: Option<QuickFill>,
+    /// The last row is hidden after a quick fill, until the writer goes to it (FR-73).
+    new_row_hidden: bool,
     _editor_changes: Subscription,
 }
 
@@ -78,6 +101,8 @@ impl AlternativesPanel {
             editing: None,
             explosion: None,
             ai: AiStatus::Idle,
+            quick_fill: None,
+            new_row_hidden: false,
             _editor_changes: editor_changes,
         };
         let target = panel.target_at_editor(cx);
@@ -118,11 +143,32 @@ impl AlternativesPanel {
             .update(cx, |editor, cx| editor.set_spotlight(spotlight, cx));
     }
 
+    /// FR-68: the draft of the last row shows in the Document in place of the panel target,
+    /// while it has text.
+    fn sync_preview(&self, cx: &mut App) {
+        let range = match &self.target {
+            Target::Slot(id) => self
+                .editor
+                .read(cx)
+                .document()
+                .slot(*id)
+                .map(|slot| slot.range),
+            Target::Text { range, .. } => Some(range.clone()),
+            Target::Nothing => None,
+        };
+        let range = range.filter(|_| !self.draft.is_empty() && self.draft != QUICK_FILL);
+        let draft = self.draft.clone();
+        self.editor.update(cx, |editor, cx| {
+            editor.set_preview(range.map(|range| (range, draft.as_str())), cx);
+        });
+    }
+
     /// FR-21: shows Slot `id`, with the last row selected.
     pub(crate) fn show_slot(&mut self, id: SlotId, cx: &mut Context<Self>) {
         self.set_target(Target::Slot(id), cx);
         self.editing = None;
         self.draft.clear();
+        self.sync_preview(cx);
         self.row = self.rows(cx).len();
         cx.notify();
     }
@@ -149,9 +195,17 @@ impl AlternativesPanel {
         playing.progress(Instant::now()).map(|_| *row)
     }
 
-    /// The Variants in order, the Original first (FR-22).
+    /// The Variants in order, the Original first (FR-22). Quick fill results not shown yet
+    /// are left out (FR-72).
     #[must_use]
     pub fn rows(&self, cx: &App) -> Vec<VariantRow> {
+        let mut rows = self.all_rows(cx);
+        let hidden = self.quick_fill.as_ref().map_or(0, |fill| fill.hidden);
+        rows.truncate(rows.len().saturating_sub(hidden));
+        rows
+    }
+
+    fn all_rows(&self, cx: &App) -> Vec<VariantRow> {
         let document = self.editor.read(cx).document();
         match &self.target {
             Target::Slot(id) => document.slot(*id).map_or_default(|slot| {
@@ -192,7 +246,7 @@ impl AlternativesPanel {
         if self.ai == AiStatus::Loading {
             return;
         }
-        let request = self.ai_request(cx);
+        let request = self.ai_request(AiTrigger::ContextMenu, cx);
         let ai = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0));
         let (request, ai) = match (request, ai) {
             (Ok(request), Some(ai)) => (request, ai),
@@ -228,7 +282,7 @@ impl AlternativesPanel {
     }
 
     /// The request for the Slot or text the panel shows.
-    fn ai_request(&self, cx: &App) -> Result<AiRequest, String> {
+    fn ai_request(&self, trigger: AiTrigger, cx: &App) -> Result<AiRequest, String> {
         let document = self.editor.read(cx).document();
         let place = match &self.target {
             Target::Slot(id) => document.slot(*id).map(|slot| (slot.range, slot.level)),
@@ -237,12 +291,128 @@ impl AlternativesPanel {
         };
         let (range, level) = place.ok_or_else(|| "select text first".to_owned())?;
         document
-            .ai_request(range, level)
+            .ai_request(range, level, trigger)
             .map_err(|error| error.to_string())
     }
 
     fn ai_failed(&mut self, message: String, cx: &mut Context<Self>) {
         self.ai = AiStatus::Failed(message);
+        cx.notify();
+    }
+
+    /// FR-69, FR-70: "??" in the last row asks the AI for Variants of the panel target.
+    /// The row dances (FR-71); the preview stops and "??" never becomes a Variant.
+    fn start_quick_fill(&mut self, cx: &mut Context<Self>) {
+        if self.ai == AiStatus::Loading {
+            return;
+        }
+        self.sync_preview(cx);
+        let request = self.ai_request(AiTrigger::QuickFill, cx);
+        let ai = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0));
+        let (request, ai) = match (request, ai) {
+            (Ok(request), Some(ai)) => (request, ai),
+            (Err(message), _) => return self.quick_fill_failed(message, cx),
+            (Ok(_), None) => {
+                return self.quick_fill_failed("no AI backend is set".to_owned(), cx);
+            }
+        };
+        self.ai = AiStatus::Loading;
+        cx.notify();
+        let asking = cx.background_spawn(async move {
+            let answer = ai.variants(&request);
+            (request, answer)
+        });
+        let work = cx.spawn(async move |this, cx| {
+            let (request, answer) = asking.await;
+            this.update(cx, |panel, cx| {
+                panel.quick_fill_answered(&request, answer, cx);
+            })
+            .ok();
+        });
+        self.quick_fill = Some(QuickFill {
+            _work: work,
+            hidden: 0,
+        });
+    }
+
+    /// FR-72: adds the results as AI Variants in one undo step, then shows them in batches
+    /// under the Variants. The Active variant stays (FR-36).
+    fn quick_fill_answered(
+        &mut self,
+        request: &AiRequest,
+        answer: Result<Vec<String>, AiError>,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self.all_rows(cx).len();
+        let added = answer.map_err(|error| error.to_string()).and_then(|texts| {
+            self.editor
+                .update(cx, |editor, cx| {
+                    editor.change_document(|document| document.apply_ai_result(request, &texts), cx)
+                })
+                .map_err(|error| error.to_string())
+        });
+        let id = match added {
+            Ok(id) => id,
+            Err(message) => return self.quick_fill_failed(message, cx),
+        };
+        if matches!(self.target, Target::Text { .. }) {
+            self.set_target(Target::Slot(id), cx);
+        }
+        let hidden = self.all_rows(cx).len().saturating_sub(before.max(1));
+        let reveal = cx.spawn(async move |this, cx| {
+            loop {
+                let more = this.update(cx, AlternativesPanel::reveal_batch);
+                if !matches!(more, Ok(true)) {
+                    return;
+                }
+                cx.background_executor().timer(QUICK_FILL_BATCH_GAP).await;
+            }
+        });
+        self.quick_fill = Some(QuickFill {
+            _work: reveal,
+            hidden,
+        });
+        cx.notify();
+    }
+
+    /// Shows the next batch of quick fill results. `false` when none are left: the quick
+    /// fill is done.
+    fn reveal_batch(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(fill) = self.quick_fill.as_mut() else {
+            return false;
+        };
+        fill.hidden = fill.hidden.saturating_sub(QUICK_FILL_BATCH);
+        cx.notify();
+        if fill.hidden > 0 {
+            return true;
+        }
+        self.end_quick_fill(cx);
+        false
+    }
+
+    /// FR-73: the "??" row goes; the active Variant row is selected and the last row hides.
+    fn end_quick_fill(&mut self, cx: &mut Context<Self>) {
+        self.quick_fill = None;
+        self.ai = AiStatus::Idle;
+        self.draft.clear();
+        self.new_row_hidden = true;
+        let active = self.rows(cx).iter().position(|row| row.active);
+        self.row = active.unwrap_or_else(|| self.rows(cx).len());
+        cx.notify();
+    }
+
+    /// FR-82: the dance stops, the row is empty again, and the panel says why.
+    fn quick_fill_failed(&mut self, message: String, cx: &mut Context<Self>) {
+        self.quick_fill = None;
+        self.draft.clear();
+        self.ai_failed(message, cx);
+    }
+
+    /// FR-82: Esc while the row dances stops the quick fill. Results already added stay.
+    fn cancel_quick_fill(&mut self, cx: &mut Context<Self>) {
+        self.quick_fill = None;
+        self.ai = AiStatus::Idle;
+        self.draft.clear();
         cx.notify();
     }
 
@@ -286,6 +456,9 @@ impl AlternativesPanel {
     /// FR-24, FR-26: Return saves the edit in progress, starts an edit on a Variant row,
     /// or adds the draft of the last row as a Variant.
     fn confirm(&mut self, _: &ConfirmVariant, _: &mut Window, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            return;
+        }
         if let Some(text) = self.editing.take() {
             self.save_edit(&text, cx);
             return;
@@ -315,10 +488,10 @@ impl AlternativesPanel {
             .ok();
     }
 
-    /// FR-24: adds the draft as a Variant. With no Slot yet, it makes one over the target
-    /// text, the Original first. The Active variant stays.
+    /// FR-24: adds the draft as a Variant and makes it the Active variant, as one undo
+    /// step. With no Slot yet, it makes one over the target text, the Original first.
     fn add(&mut self, cx: &mut Context<Self>) {
-        if self.draft.is_empty() {
+        if self.draft.is_empty() || self.draft == QUICK_FILL {
             return;
         }
         let draft = self.draft.clone();
@@ -326,16 +499,28 @@ impl AlternativesPanel {
             Target::Slot(id) => self
                 .editor
                 .update(cx, |editor, cx| {
-                    editor.change_document(
-                        |document| document.add_variant(id, &draft, Provenance::Writer),
+                    editor.change_document_in_steps(
+                        2,
+                        |document| {
+                            document.add_variant(id, &draft, Provenance::Writer)?;
+                            let last = document
+                                .slot(id)
+                                .map_or(0, |slot| slot.variants.len().saturating_sub(1));
+                            document.set_active(id, last)
+                        },
                         cx,
                     )
                 })
                 .is_ok(),
             Target::Text { range, level } => {
                 let created = self.editor.update(cx, |editor, cx| {
-                    editor.change_document(
-                        |document| document.create_slot(range, level, &draft, Provenance::Writer),
+                    editor.change_document_in_steps(
+                        2,
+                        |document| {
+                            let id =
+                                document.create_slot(range, level, &draft, Provenance::Writer)?;
+                            document.set_active(id, 1).map(|_switch| id)
+                        },
                         cx,
                     )
                 });
@@ -347,6 +532,7 @@ impl AlternativesPanel {
         };
         if added {
             self.draft.clear();
+            self.sync_preview(cx);
             self.row = self.rows(cx).len();
             cx.notify();
         }
@@ -368,7 +554,11 @@ impl AlternativesPanel {
     /// FR-25: selects row `row`. A Variant row shows that Variant in the Document at once,
     /// as one undo step; the last row changes nothing.
     fn select(&mut self, row: usize, cx: &mut Context<Self>) {
-        let row = row.min(self.rows(cx).len());
+        let last = self.rows(cx).len();
+        let row = row.min(last);
+        if row == last {
+            self.new_row_hidden = false;
+        }
         self.row = row;
         self.editing = None;
         cx.notify();
@@ -395,6 +585,10 @@ impl AlternativesPanel {
     /// FR-24: Esc closes the panel.
     /// Esc while editing drops the edit.
     fn close(&mut self, _: &ClosePanel, _: &mut Window, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            self.cancel_quick_fill(cx);
+            return;
+        }
         if self.editing.take().is_some() {
             cx.notify();
             return;
@@ -403,11 +597,15 @@ impl AlternativesPanel {
     }
 
     fn delete_backward(&mut self, _: &DeleteBackward, _: &mut Window, cx: &mut Context<Self>) {
-        let text = match self.editing.as_mut() {
-            Some(text) => text,
-            None => &mut self.draft,
-        };
-        text.pop();
+        if self.quick_fill.is_some() {
+            return;
+        }
+        if let Some(text) = self.editing.as_mut() {
+            text.pop();
+        } else {
+            self.draft.pop();
+            self.sync_preview(cx);
+        }
         cx.notify();
     }
 
@@ -478,6 +676,9 @@ impl AlternativesPanel {
 
     /// Typed text goes into the edit in progress, else into the last row, which it selects.
     fn type_text(&mut self, typed: &str, cx: &mut Context<Self>) {
+        if self.quick_fill.is_some() {
+            return;
+        }
         let typed = typed.replace('\n', " ");
         cx.notify();
         if let Some(text) = self.editing.as_mut() {
@@ -485,7 +686,13 @@ impl AlternativesPanel {
             return;
         }
         self.row = self.rows(cx).len();
+        self.new_row_hidden = false;
         self.draft.push_str(&typed);
+        if self.draft == QUICK_FILL {
+            self.start_quick_fill(cx);
+            return;
+        }
+        self.sync_preview(cx);
     }
 }
 
@@ -555,6 +762,7 @@ impl AlternativesPanel {
             .map(|slot| slot.id);
         let target = slot.map_or(Target::Text { range, level }, Target::Slot);
         self.set_target(target, cx);
+        self.sync_preview(cx);
         self.editing = None;
         self.row = self.rows(cx).len();
         cx.notify();
@@ -622,7 +830,7 @@ impl AlternativesPanel {
             } else {
                 theme.text_muted
             };
-            let marker_color = if row.active {
+            let marker_color = if row.active && self.draft.is_empty() {
                 theme.accent
             } else {
                 theme.text_muted
@@ -638,11 +846,17 @@ impl AlternativesPanel {
                 .child(div().text_color(color).child(text))
         });
         let has_target = self.target != Target::Nothing;
+        let draft_marker = if self.draft.is_empty() {
+            theme.text_faint
+        } else {
+            theme.accent
+        };
         let new_row = row_box(theme, self.row == last)
             .children(self.explosion_at(last, theme))
             .id(("alternatives-row", last))
+            .debug_selector(move || format!("alternatives-row-{last}"))
             .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))
-            .child(provenance_marker(Provenance::Writer, theme.text_faint))
+            .child(provenance_marker(Provenance::Writer, draft_marker))
             .child(
                 div()
                     .text_color(theme.text)
@@ -654,7 +868,24 @@ impl AlternativesPanel {
             .flex_col()
             .children(variant_rows)
             .children(self.render_ai_status(theme))
-            .when(has_target, |list| list.child(new_row))
+            .when(self.quick_fill.is_some(), |list| {
+                let reduced_motion = settings_modal::reduced_motion(cx);
+                list.child(
+                    row_box(theme, true)
+                        .id("alternatives-quick-fill")
+                        .debug_selector(|| "alternatives-quick-fill".to_owned())
+                        .child(provenance_marker(Provenance::Writer, theme.accent))
+                        .child(loading::quick_fill_dance(
+                            "alternatives-quick-fill-dance",
+                            theme.accent,
+                            reduced_motion,
+                        )),
+                )
+            })
+            .when(
+                has_target && self.quick_fill.is_none() && !self.new_row_hidden,
+                |list| list.child(new_row),
+            )
             .when(!has_target, |list| {
                 list.child(
                     div()
@@ -671,6 +902,9 @@ impl AlternativesPanel {
         let row = row_box(theme, false)
             .id("alternatives-ai-status")
             .debug_selector(|| "alternatives-ai-status".to_owned());
+        if self.quick_fill.is_some() {
+            return None;
+        }
         match &self.ai {
             AiStatus::Idle => None,
             AiStatus::Loading => Some(
@@ -728,32 +962,6 @@ fn provenance_marker(provenance: Provenance, color: gpui::Hsla) -> gpui::Div {
     }
 }
 
-/// The sentence of `text` that holds `range`: from after the sentence end before it to the
-/// next sentence end, inside its paragraph.
-fn sentence_around(text: &str, range: &Range<usize>) -> Range<usize> {
-    let paragraph = paragraph_around(text, range);
-    let is_end = |c: char| matches!(c, '.' | '!' | '?');
-    let before = text.get(paragraph.start..range.start).unwrap_or_default();
-    let start = before
-        .rfind(is_end)
-        .map_or(paragraph.start, |end| paragraph.start + end + 1);
-    let start = start
-        + text
-            .get(start..range.start)
-            .map_or(0, |gap| gap.len() - gap.trim_start().len());
-    let ends_sentence = text
-        .get(..range.end)
-        .is_some_and(|head| head.ends_with(is_end));
-    if ends_sentence {
-        return start..range.end;
-    }
-    let after = text.get(range.end..paragraph.end).unwrap_or_default();
-    let end = after
-        .find(is_end)
-        .map_or(paragraph.end, |end| range.end + end + 1);
-    start..end
-}
-
 impl Render for AlternativesPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
@@ -799,7 +1007,7 @@ impl Render for AlternativesPanel {
 mod tests {
     use ka_teb_core::Level;
 
-    use super::{ended_slot_text, level_for, sentence_around};
+    use super::{ended_slot_text, level_for};
 
     const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
 
@@ -809,14 +1017,6 @@ mod tests {
         assert_eq!(ended_slot_text(text, 14, "eraser"), Some(15..21));
         assert_eq!(ended_slot_text(text, 15, "eraser"), Some(15..21));
         assert_eq!(ended_slot_text(text, 14, "thumbtack"), None);
-    }
-
-    #[test]
-    fn the_sentence_around_a_word_runs_from_the_last_sentence_end_to_the_next() {
-        assert_eq!(sentence_around(TEXT, &(10..18)), 6..25);
-        assert_eq!(sentence_around(TEXT, &(30..36)), 26..37);
-        assert_eq!(sentence_around(TEXT, &(6..25)), 6..25);
-        assert_eq!(sentence_around("Title\nno end here", &(9..12)), 6..17);
     }
 
     #[test]

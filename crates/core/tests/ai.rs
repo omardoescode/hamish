@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, ApplyError, Document, LabFinding, LabRequest, Level, Provenance,
-    SlotId, TrimRequest,
+    AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, Document, LabFinding, LabRequest, Level,
+    Provenance, SlotId, TrimRequest,
 };
 
 /// Returns fixed Variant texts, as an AI backend would.
@@ -41,9 +41,11 @@ fn owned(pairs: &[(&str, Provenance)]) -> Vec<(String, Provenance)> {
 #[test]
 fn ai_result_makes_a_slot_of_ai_variants_and_keeps_the_original_active() {
     let mut document = Document::new("The cat sat.");
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
     assert_eq!(request.selection(), "cat");
-    assert_eq!(request.context(), "The cat sat.");
+    assert_eq!(request.trigger(), AiTrigger::ContextMenu);
     let texts = FakeAdapter(vec!["dog", "fox"]).variants(&request).unwrap();
 
     let id = document.apply_ai_result(&request, &texts).unwrap();
@@ -70,7 +72,9 @@ fn ai_result_on_an_existing_slot_adds_variants_and_keeps_the_active_one() {
         .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
         .unwrap();
     document.set_active(id, 1).unwrap();
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
     let texts = FakeAdapter(vec!["fox", "owl"]).variants(&request).unwrap();
 
     assert_eq!(document.apply_ai_result(&request, &texts), Ok(id));
@@ -94,7 +98,9 @@ fn undo_removes_the_whole_ai_result_in_one_step() {
     let id = document
         .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
         .unwrap();
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
     document
         .apply_ai_result(&request, &["fox".to_owned(), "owl".to_owned()])
         .unwrap();
@@ -116,7 +122,9 @@ fn undo_removes_the_whole_ai_result_in_one_step() {
 #[test]
 fn undo_removes_a_slot_the_ai_result_made() {
     let mut document = Document::new("The cat sat.");
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
     document
         .apply_ai_result(&request, &["dog".to_owned(), "fox".to_owned()])
         .unwrap();
@@ -130,7 +138,9 @@ fn undo_removes_a_slot_the_ai_result_made() {
 #[test]
 fn ai_result_for_text_that_changed_since_the_request_is_refused() {
     let mut document = Document::new("The cat sat.");
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
     document.replace(4..7, "dog").unwrap();
 
     assert_eq!(
@@ -145,7 +155,9 @@ fn ai_result_for_text_that_changed_since_the_request_is_refused() {
 #[test]
 fn ai_texts_that_are_blank_or_repeat_a_variant_are_dropped() {
     let mut document = Document::new("The cat sat.");
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
     let texts = ["cat", "dog", "  ", "dog", "fox"].map(str::to_owned);
 
     let id = document.apply_ai_result(&request, &texts).unwrap();
@@ -163,7 +175,9 @@ fn ai_texts_that_are_blank_or_repeat_a_variant_are_dropped() {
 #[test]
 fn ai_result_with_no_new_text_is_refused_and_changes_nothing() {
     let mut document = Document::new("The cat sat.");
-    let request = document.ai_request(4..7, Level::Word).unwrap();
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
+        .unwrap();
 
     for texts in [vec![], vec!["cat".to_owned(), String::new()]] {
         assert_eq!(
@@ -173,4 +187,35 @@ fn ai_result_with_no_new_text_is_refused_and_changes_nothing() {
     }
     assert_eq!(document.slots(), []);
     assert!(!document.undo());
+}
+
+#[test]
+fn a_quick_fill_request_carries_the_sentence_the_paragraph_and_the_existing_variants() {
+    let mut document = Document::new("Title\nThe cat sat. It slept.\nNext one.");
+    document
+        .create_slot(22..27, Level::Word, "dozed", Provenance::Writer)
+        .unwrap();
+
+    let request = document
+        .ai_request(22..27, Level::Word, AiTrigger::QuickFill)
+        .unwrap();
+
+    assert_eq!(request.trigger(), AiTrigger::QuickFill);
+    assert_eq!(request.selection(), "slept");
+    assert_eq!(request.sentence(), "It slept.");
+    assert_eq!(request.paragraph(), "The cat sat. It slept.");
+    assert_eq!(request.variants(), ["slept", "dozed"]);
+}
+
+#[test]
+fn a_request_for_text_with_no_slot_has_the_text_as_its_only_variant() {
+    let document = Document::new("The cat sat. It slept.");
+
+    let request = document
+        .ai_request(4..7, Level::Word, AiTrigger::QuickFill)
+        .unwrap();
+
+    assert_eq!(request.sentence(), "The cat sat.");
+    assert_eq!(request.paragraph(), "The cat sat. It slept.");
+    assert_eq!(request.variants(), ["cat"]);
 }
