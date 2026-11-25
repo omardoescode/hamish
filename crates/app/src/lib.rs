@@ -11,6 +11,7 @@ mod context_menu;
 mod edit_history;
 mod editor;
 mod lab;
+mod loading;
 mod overflow_panel;
 mod save_open;
 mod settings_modal;
@@ -33,7 +34,7 @@ pub use actions::{
     ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::Ai;
-pub use alternatives_panel::{AlternativesPanel, VariantRow};
+pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
@@ -115,6 +116,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("escape", ClosePanel, panel),
         KeyBinding::new("backspace", DeleteBackward, panel),
         KeyBinding::new("ctrl-backspace", DeleteVariant, panel),
+        KeyBinding::new("ctrl-shift-g", AiAlternatives, panel),
         KeyBinding::new("ctrl-v", Paste, panel),
     ]);
     Ok(())
