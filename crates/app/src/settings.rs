@@ -35,6 +35,12 @@ pub(crate) fn is_on(cx: &App, pick: impl FnOnce(&Settings) -> bool) -> bool {
         .is_some_and(|store| pick(&store.settings))
 }
 
+/// The UI scale in use; 1 when no settings are set.
+pub(crate) fn ui_scale(cx: &App) -> f32 {
+    cx.try_global::<SettingsStore>()
+        .map_or(1., |store| store.settings.ui_scale)
+}
+
 /// The notice for a settings file that did not load at start; it shows one time.
 pub(crate) fn take_start_notice(cx: &mut App) -> Option<Notice> {
     let problem = cx

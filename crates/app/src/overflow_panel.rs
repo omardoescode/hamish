@@ -215,6 +215,7 @@ impl Render for OverflowPanel {
             )
             .child(
                 div()
+                    .debug_selector(|| "overflow-hint".to_owned())
                     .px(px(16.))
                     .pt(px(8.))
                     .pb(px(16.))

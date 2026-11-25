@@ -961,6 +961,7 @@ impl Render for AlternativesPanel {
             .child(self.render_rows(&theme, cx))
             .child(
                 div()
+                    .debug_selector(|| "alternatives-hint".to_owned())
                     .absolute()
                     .bottom(px(24.))
                     .left(px(16.))

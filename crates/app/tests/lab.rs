@@ -318,3 +318,38 @@ fn a_click_on_the_header_shows_what_each_check_does(cx: &mut TestAppContext) {
     );
     assert!(rows(&workspace, cx).iter().all(|row| row.guide.is_some()));
 }
+
+const TRIM_LEVEL_BUTTONS: [&str; 5] = [
+    "trim-level-0",
+    "trim-level-1",
+    "trim-level-2",
+    "trim-level-3",
+    "trim-level-4",
+];
+
+#[gpui::test]
+fn the_trim_level_buttons_fit_the_popover_and_do_not_overlap(cx: &mut TestAppContext) {
+    let (_, cx) = open(cx, None);
+    click(cx, "lab-button");
+
+    let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
+    let buttons: Vec<_> = TRIM_LEVEL_BUTTONS
+        .into_iter()
+        .map(|selector| {
+            cx.debug_bounds(selector)
+                .expect("the popover shows the button")
+        })
+        .collect();
+    for (index, button) in buttons.iter().enumerate() {
+        assert!(
+            popover.left() <= button.left() && button.right() <= popover.right(),
+            "trim-level-{index} {button:?} is outside the popover {popover:?}"
+        );
+        for (other_index, other) in buttons.iter().enumerate().skip(index + 1) {
+            assert!(
+                !button.intersects(other),
+                "trim-level-{index} {button:?} overlaps trim-level-{other_index} {other:?}"
+            );
+        }
+    }
+}
