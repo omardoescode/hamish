@@ -25,8 +25,8 @@ mod workspace;
 use std::borrow::Cow;
 
 use actions::{
-    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, SelectNextVariant,
-    SelectPreviousVariant,
+    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, MoveWordLeft, MoveWordRight,
+    SelectNextVariant, SelectPreviousVariant, SelectWordLeft, SelectWordRight,
 };
 use gpui::{App, KeyBinding};
 
@@ -77,12 +77,16 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         cx.bind_keys([
             KeyBinding::new("left", MoveLeft, context),
             KeyBinding::new("right", MoveRight, context),
+            KeyBinding::new("ctrl-left", MoveWordLeft, context),
+            KeyBinding::new("ctrl-right", MoveWordRight, context),
             KeyBinding::new("up", MoveUp, context),
             KeyBinding::new("down", MoveDown, context),
             KeyBinding::new("home", MoveToLineStart, context),
             KeyBinding::new("end", MoveToLineEnd, context),
             KeyBinding::new("shift-left", SelectLeft, context),
             KeyBinding::new("shift-right", SelectRight, context),
+            KeyBinding::new("ctrl-shift-left", SelectWordLeft, context),
+            KeyBinding::new("ctrl-shift-right", SelectWordRight, context),
             KeyBinding::new("shift-up", SelectUp, context),
             KeyBinding::new("shift-down", SelectDown, context),
             KeyBinding::new("shift-home", SelectToLineStart, context),

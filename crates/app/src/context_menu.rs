@@ -6,10 +6,11 @@ use gpui::{
     Action, App, Corner, IntoElement, MouseDownEvent, Pixels, Point, Window, anchored, deferred,
     div, prelude::*, px,
 };
-use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleGhost};
+
+pub(crate) use ka_teb_core::word_at;
 
 /// One row of the context menu: its label and its shortcut.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,14 +114,6 @@ impl ContextMenu {
     }
 }
 
-/// The word at `offset`: the run of word chars `offset` lies in or on an edge of.
-pub(crate) fn word_at(text: &str, offset: usize) -> Option<Range<usize>> {
-    text.split_word_bound_indices()
-        .filter(|(_, word)| word.chars().any(char::is_alphanumeric))
-        .map(|(start, word)| start..start + word.len())
-        .find(|word| word.start <= offset && offset <= word.end)
-}
-
 /// `target` touches a Ghost range: it overlaps one, or as a caret lies in or on an edge of one.
 pub(crate) fn touches_ghost(ghosts: &[Range<usize>], target: &Range<usize>) -> bool {
     ghosts.iter().any(|ghost| {
@@ -133,22 +126,7 @@ pub(crate) fn touches_ghost(ghosts: &[Range<usize>], target: &Range<usize>) -> b
 
 #[cfg(test)]
 mod tests {
-    use super::{touches_ghost, word_at};
-
-    #[test]
-    fn the_word_at_an_offset_includes_its_edges() {
-        let text = "The customer waits.";
-        assert_eq!(word_at(text, 7), Some(4..12));
-        assert_eq!(word_at(text, 4), Some(4..12));
-        assert_eq!(word_at(text, 12), Some(4..12));
-        assert_eq!(word_at(text, 0), Some(0..3));
-    }
-
-    #[test]
-    fn spaces_and_punctuation_are_no_word() {
-        assert_eq!(word_at("a  . b", 2), None);
-        assert_eq!(word_at("a  . b", 4), None);
-    }
+    use super::touches_ghost;
 
     #[test]
     fn a_caret_on_the_edge_of_a_ghost_touches_it_and_a_range_beside_it_does_not() {

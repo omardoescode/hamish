@@ -10,7 +10,7 @@ use gpui::{
 use ka_teb_core::{Caret, CaretEdit};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
-use crate::caret::{self, CaretView, caret_actions, caret_input_handler};
+use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
 use crate::editor::{PaintedText, shape};
 use crate::{Editor, Theme};
 
@@ -25,6 +25,7 @@ pub struct OverflowPanel {
     scroll_handle: ScrollHandle,
     painted: Option<PaintedText>,
     autoscroll: bool,
+    column: Option<Column>,
     _editor_changes: Subscription,
 }
 
@@ -38,6 +39,7 @@ impl OverflowPanel {
             scroll_handle: ScrollHandle::new(),
             painted: None,
             autoscroll: false,
+            column: None,
             _editor_changes: editor_changes,
         }
     }
@@ -99,7 +101,11 @@ impl OverflowPanel {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        caret::press(self, event.position, event.modifiers.shift, cx);
+        if event.click_count == 2 {
+            caret::select_word(self, event.position, cx);
+        } else {
+            caret::press(self, event.position, event.modifiers.shift, cx);
+        }
     }
 
     /// The text of the Overflow block at the caret, for the drag preview.
@@ -152,6 +158,10 @@ impl CaretView for OverflowPanel {
 
     fn painted(&self) -> Option<&PaintedText> {
         self.painted.as_ref()
+    }
+
+    fn column(&mut self) -> &mut Option<Column> {
+        &mut self.column
     }
 }
 

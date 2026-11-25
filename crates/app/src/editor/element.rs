@@ -189,16 +189,19 @@ impl Element for EditorElement {
             });
         let (markers, marker_quads) = slot_markers(&painted, &slots, &theme);
         let underlines = pen_strokes(&painted, editor, &slots, &theme);
-        let caret = editor
-            .selection()
-            .is_empty()
-            .then(|| {
-                let shown = editor
-                    .to_shown(&(editor.caret_offset()..editor.caret_offset()))
-                    .start;
-                caret::caret_quad(&painted, shown, theme.accent)
-            })
-            .flatten();
+        let caret = match editor.drop_target {
+            Some(at) => caret::caret_quad(&painted, editor.to_shown(&(at..at)).start, theme.accent),
+            None => editor
+                .selection()
+                .is_empty()
+                .then(|| {
+                    let shown = editor
+                        .to_shown(&(editor.caret_offset()..editor.caret_offset()))
+                        .start;
+                    caret::caret_quad(&painted, shown, theme.accent)
+                })
+                .flatten(),
+        };
         if editor.autoscroll {
             caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), cx);
             window.request_animation_frame();
@@ -233,6 +236,7 @@ impl Element for EditorElement {
         cx: &mut App,
     ) {
         let focus_handle = self.editor.read(cx).focus_handle.clone();
+        let dropping = self.editor.read(cx).drop_target.is_some();
         window.handle_input(
             &focus_handle,
             ElementInputHandler::new(bounds, self.editor.clone()),
@@ -275,7 +279,7 @@ impl Element for EditorElement {
                 window.paint_path(path, stroke.color);
             }
         }
-        if focus_handle.is_focused(window)
+        if (focus_handle.is_focused(window) || dropping)
             && let Some(caret) = prepaint.caret.take()
         {
             window.paint_quad(caret);

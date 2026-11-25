@@ -96,7 +96,6 @@ dependencies = [
  "gpui",
  "ka-teb-core",
  "tempfile",
- "unicode-segmentation",
 ]
 
 [[package]]
