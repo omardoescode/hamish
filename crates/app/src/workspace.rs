@@ -4,7 +4,7 @@ use gpui::{
 };
 use ka_teb_core::{Document, SlotId};
 
-use crate::actions::{OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
+use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
 use crate::lab::Lab;
@@ -102,6 +102,20 @@ impl Workspace {
         cx.notify();
     }
 
+    /// FR-32: asks the AI for Variants of the panel target. From the editor (key or context
+    /// menu), it first opens the panel on the editor target.
+    fn ai_alternatives(&mut self, _: &AiAlternatives, window: &mut Window, cx: &mut Context<Self>) {
+        let from_panel = self
+            .alternatives_panel()
+            .is_some_and(|panel| panel.focus_handle(cx).is_focused(window));
+        if !from_panel {
+            self.open_alternatives(&OpenAlternatives, window, cx);
+        }
+        if let Some(panel) = self.alternatives_panel() {
+            panel.update(cx, AlternativesPanel::request_ai);
+        }
+    }
+
     /// FR-21: a click on a Slot while the panel is open shows that Slot in the panel.
     fn show_slot(&mut self, slot: SlotId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(panel) = self.alternatives_panel() else {
@@ -182,6 +196,7 @@ impl Render for Workspace {
             .key_context("Workspace")
             .on_action(cx.listener(Self::toggle_chrome))
             .on_action(cx.listener(Self::open_alternatives))
+            .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
             .on_action(cx.listener(Self::show_stash))
             .on_action(cx.listener(Self::open_settings))
@@ -196,6 +211,12 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::toggle_lab))
+            .on_action(cx.listener(Self::run_trim))
+            .on_action(cx.listener(Self::make_trim_cuts))
+            .on_action(cx.listener(Self::walk_trim))
+            .on_action(cx.listener(Self::walk_keep))
+            .on_action(cx.listener(Self::walk_cut))
+            .on_action(cx.listener(Self::close_trim))
             .child(
                 div()
                     .absolute()

@@ -1,18 +1,19 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
     Modifiers, Render, Subscription, Window, div, prelude::*, px,
 };
-use ka_teb_core::{Level, Provenance, SlotId};
+use ka_teb_core::{AiError, AiRequest, Level, Provenance, SlotId};
 
 use crate::actions::{
     ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
     SelectPreviousVariant,
 };
-use crate::context_menu;
 use crate::editor::{Spotlight, paragraph_around};
-use crate::{Editor, Theme};
+use crate::{Ai, Editor, Theme};
+use crate::{context_menu, loading};
 
 /// Alternatives list text (spec: about 12 px).
 const LIST_FONT_SIZE: f32 = 12.;
@@ -24,6 +25,16 @@ pub struct VariantRow {
     pub provenance: Provenance,
     /// The Active variant: bright, with an accent marker.
     pub active: bool,
+}
+
+/// Where the AI request of the panel is (FR-34).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AiStatus {
+    Idle,
+    /// The AI works on a request.
+    Loading,
+    /// The last request added no Variant; the reason.
+    Failed(String),
 }
 
 /// What the panel shows: a Slot, or text with no Slot yet (its text is the Original).
@@ -46,6 +57,7 @@ pub struct AlternativesPanel {
     draft: String,
     /// The text of the selected Variant while the writer edits it (FR-26).
     editing: Option<String>,
+    ai: AiStatus,
     _editor_changes: Subscription,
 }
 
@@ -59,6 +71,7 @@ impl AlternativesPanel {
             row: 0,
             draft: String::new(),
             editing: None,
+            ai: AiStatus::Idle,
             _editor_changes: editor_changes,
         };
         let target = panel.target_at_editor(cx);
@@ -151,6 +164,108 @@ impl AlternativesPanel {
                 .collect(),
             Target::Nothing => Vec::new(),
         }
+    }
+}
+
+impl AlternativesPanel {
+    #[must_use]
+    pub fn ai_status(&self) -> AiStatus {
+        self.ai.clone()
+    }
+
+    /// FR-32, FR-34: asks the AI for Variants of the panel target on the background
+    /// executor. A request that runs already is not started again.
+    pub(crate) fn request_ai(&mut self, cx: &mut Context<Self>) {
+        if self.ai == AiStatus::Loading {
+            return;
+        }
+        let request = self.ai_request(cx);
+        let ai = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0));
+        let (request, ai) = match (request, ai) {
+            (Ok(request), Some(ai)) => (request, ai),
+            (Err(message), _) => return self.ai_failed(message, cx),
+            (Ok(_), None) => return self.ai_failed("no AI backend is set".to_owned(), cx),
+        };
+        self.ai = AiStatus::Loading;
+        cx.notify();
+        let asking = cx.background_spawn(async move {
+            let answer = ai.variants(&request);
+            (request, answer)
+        });
+        let editor = self.editor.downgrade();
+        cx.spawn(async move |this, cx| {
+            let (request, answer) = asking.await;
+            let shown = this.update(cx, |panel, cx| {
+                panel.ai_answered(&request, answer.clone(), cx);
+            });
+            if shown.is_ok() {
+                return;
+            }
+            let Ok(texts) = answer else {
+                return;
+            };
+            editor
+                .update(cx, |editor, cx| {
+                    editor
+                        .change_document(|document| document.apply_ai_result(&request, &texts), cx)
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// The request for the Slot or text the panel shows.
+    fn ai_request(&self, cx: &App) -> Result<AiRequest, String> {
+        let document = self.editor.read(cx).document();
+        let place = match &self.target {
+            Target::Slot(id) => document.slot(*id).map(|slot| (slot.range, slot.level)),
+            Target::Text { range, level } => Some((range.clone(), *level)),
+            Target::Nothing => None,
+        };
+        let (range, level) = place.ok_or_else(|| "select text first".to_owned())?;
+        document
+            .ai_request(range, level)
+            .map_err(|error| error.to_string())
+    }
+
+    fn ai_failed(&mut self, message: String, cx: &mut Context<Self>) {
+        self.ai = AiStatus::Failed(message);
+        cx.notify();
+    }
+
+    /// FR-33, FR-36: adds the AI texts as AI Variants in one undo step; the Active variant
+    /// stays. The panel then shows the Slot that got them.
+    fn ai_answered(
+        &mut self,
+        request: &AiRequest,
+        answer: Result<Vec<String>, AiError>,
+        cx: &mut Context<Self>,
+    ) {
+        let at_last_row = self.row >= self.rows(cx).len();
+        let added = answer.map_err(|error| error.to_string()).and_then(|texts| {
+            self.editor
+                .update(cx, |editor, cx| {
+                    editor.change_document(|document| document.apply_ai_result(request, &texts), cx)
+                })
+                .map_err(|error| error.to_string())
+        });
+        let id = match added {
+            Ok(id) => id,
+            Err(message) => return self.ai_failed(message, cx),
+        };
+        self.ai = AiStatus::Idle;
+        let showed_request = match &self.target {
+            Target::Text { range, .. } => *range == request.range(),
+            Target::Slot(shown) => *shown == id,
+            Target::Nothing => false,
+        };
+        if showed_request {
+            self.set_target(Target::Slot(id), cx);
+        }
+        if at_last_row {
+            self.row = self.rows(cx).len();
+        }
+        cx.notify();
     }
 }
 
@@ -490,6 +605,7 @@ impl AlternativesPanel {
             .flex()
             .flex_col()
             .children(variant_rows)
+            .children(self.render_ai_status(theme))
             .when(has_target, |list| list.child(new_row))
             .when(!has_target, |list| {
                 list.child(
@@ -498,6 +614,34 @@ impl AlternativesPanel {
                         .child("Select text, or put the cursor in a word."),
                 )
             })
+    }
+}
+
+impl AlternativesPanel {
+    /// FR-34: a Bot point row while the AI works; the reason when it failed.
+    fn render_ai_status(&self, theme: &Theme) -> Option<gpui::Stateful<gpui::Div>> {
+        let row = row_box(theme, false)
+            .id("alternatives-ai-status")
+            .debug_selector(|| "alternatives-ai-status".to_owned());
+        match &self.ai {
+            AiStatus::Idle => None,
+            AiStatus::Loading => Some(
+                row.child(provenance_marker(Provenance::Ai, theme.text_muted))
+                    .child(
+                        div()
+                            .mt(px(3.))
+                            .child(loading::dance("alternatives-ai-dance", theme.accent)),
+                    ),
+            ),
+            AiStatus::Failed(reason) => Some(
+                row.child(provenance_marker(Provenance::Ai, theme.accent))
+                    .child(
+                        div()
+                            .text_color(theme.text)
+                            .child(format!("No AI alternatives: {reason}")),
+                    ),
+            ),
+        }
     }
 }
 
