@@ -26,6 +26,8 @@ pub struct Theme {
     pub slot_hover_background: Hsla,
     pub selection: Hsla,
     pub ghost_opacity: f32,
+    /// Text outside the current paragraph while the Alternatives panel is open.
+    pub panel_open_dim_opacity: f32,
     pub edge_fade_height: Pixels,
     pub font_family: &'static str,
     pub font_size_body: Pixels,
@@ -62,6 +64,7 @@ impl Default for Theme {
             slot_hover_background: hsla(0., 0., 1., 0.04),
             selection: rgb(0x0026_2a54).into(),
             ghost_opacity: 0.10,
+            panel_open_dim_opacity: 0.40,
             edge_fade_height: px(30.),
             font_family: "IBM Plex Mono",
             font_size_body: px(15.),
