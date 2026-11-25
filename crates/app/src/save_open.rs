@@ -1,4 +1,4 @@
-//! Save and Open: file dialogs, the unsaved sign, and the notice that shows
+//! New, Save, and Open: file dialogs, the unsaved sign, and the notice that shows
 //! errors and what an open dropped (ADR 0007). File I/O runs on the background executor.
 
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use gpui::{
 };
 use ka_teb_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
 
-use crate::actions::{Open, Save, SaveAs};
+use crate::actions::{NewDocument, Open, Save, SaveAs};
 use crate::{Theme, Workspace};
 
 /// What the writer must know after a save or an open.
@@ -131,9 +131,13 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Ctrl+O: asks to discard unsaved changes, then for a `.md` file, then opens it.
-    pub(crate) fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
-        let discard = self.editor.read(cx).is_unsaved().then(|| {
+    /// Resolves `true` when the Document has no unsaved changes, or the writer discards them.
+    fn ask_discard(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl Future<Output = bool> + use<> {
+        let answer = self.editor.read(cx).is_unsaved().then(|| {
             window.prompt(
                 PromptLevel::Warning,
                 "Discard unsaved changes?",
@@ -142,10 +146,43 @@ impl Workspace {
                 cx,
             )
         });
+        async move {
+            match answer {
+                Some(answer) => answer.await == Ok(0),
+                None => true,
+            }
+        }
+    }
+
+    /// Ctrl+N: asks to discard unsaved changes, then shows an empty Untitled Document with no
+    /// path and no undo steps. The panels close as on app start.
+    pub(crate) fn new_document(
+        &mut self,
+        _: &NewDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let discard = self.ask_discard(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            if !discard.await {
+                return Ok(());
+            }
+            this.update_in(cx, |workspace, window, cx| {
+                workspace
+                    .editor
+                    .update(cx, |editor, cx| editor.load(Document::default(), cx));
+                workspace.save_open = SaveOpen::default();
+                workspace.reset_panels(window, cx);
+            })
+        })
+        .detach();
+    }
+
+    /// Ctrl+O: asks to discard unsaved changes, then for a `.md` file, then opens it.
+    pub(crate) fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
+        let discard = self.ask_discard(window, cx);
         cx.spawn(async move |this, cx| {
-            if let Some(answer) = discard
-                && answer.await != Ok(0)
-            {
+            if !discard.await {
                 return Ok(());
             }
             let chosen = cx.update(|cx| {
@@ -208,7 +245,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The Save and Open icons, bottom-left in the Chrome. Save is in the accent color
+    /// The New, Save, and Open icons, bottom-left in the Chrome. Save is in the accent color
     /// while the Document has unsaved changes.
     pub(crate) fn save_open_icons(&self, theme: &Theme, cx: &Context<Self>) -> impl IntoElement {
         let unsaved = self.editor.read(cx).is_unsaved();
@@ -221,6 +258,15 @@ impl Workspace {
             .flex()
             .gap(px(16.))
             .text_size(theme.font_size_hint)
+            .child(
+                div()
+                    .id("new")
+                    .debug_selector(|| "new".to_owned())
+                    .cursor_pointer()
+                    .text_color(theme.text_muted)
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewDocument), cx))
+                    .child("New"),
+            )
             .child(
                 div()
                     .id("save")

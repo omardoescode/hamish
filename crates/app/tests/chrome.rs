@@ -69,7 +69,13 @@ fn the_chrome_bar_holds_all_chrome_buttons(cx: &mut TestAppContext) {
 
     let bar = bounds(cx, "chrome-bar");
     assert_eq!(bar.left(), px(0.), "the bar spans the window");
-    for selector in ["save", "settings-button", "overflow-button", "lab-button"] {
+    for selector in [
+        "new",
+        "save",
+        "settings-button",
+        "overflow-button",
+        "lab-button",
+    ] {
         let button = bounds(cx, selector);
         assert!(
             bar.top() <= button.top() && button.bottom() <= bar.bottom(),
