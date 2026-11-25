@@ -166,6 +166,15 @@ impl Document {
         }
     }
 
+    /// The first open Lab mark that holds byte `offset` of the active text or has it at an
+    /// edge. `None` when no mark is there.
+    #[must_use]
+    pub fn lab_mark_at(&self, offset: usize) -> Option<&LabMark> {
+        self.lab_marks()
+            .iter()
+            .find(|mark| mark.range.start <= offset && offset <= mark.range.end)
+    }
+
     /// Marks the ranges of `findings` as one undoable step. The text stays.
     /// The open marks of the same check end. A finding with an empty range or one that is
     /// not a valid range of the text is dropped. Returns the new marks in `findings` order.
