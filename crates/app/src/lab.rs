@@ -262,7 +262,10 @@ impl Workspace {
         let marked = findings.map_err(AiFailure::Ai).and_then(|findings| {
             self.editor
                 .update(cx, |editor, cx| {
-                    editor.lab_step(|document| document.apply_lab_result(request, &findings), cx)
+                    editor.change_document(
+                        |document| document.apply_lab_result(request, &findings),
+                        cx,
+                    )
                 })
                 .map_err(AiFailure::Refused)
         });
@@ -277,7 +280,7 @@ impl Workspace {
     /// Puts the proposed fix of mark `id` in place, as one undo step.
     fn accept_lab_fix(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
         let accepted = self.editor.update(cx, |editor, cx| {
-            editor.lab_step(|document| document.accept_lab_fix(id), cx)
+            editor.change_document(|document| document.accept_lab_fix(id), cx)
         });
         if accepted.is_ok() {
             cx.notify();
@@ -287,7 +290,7 @@ impl Workspace {
     /// Ends mark `id`; the text stays.
     fn dismiss_lab_mark(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
         let dismissed = self.editor.update(cx, |editor, cx| {
-            editor.lab_step(|document| document.dismiss_lab_mark(id), cx)
+            editor.change_document(|document| document.dismiss_lab_mark(id), cx)
         });
         if dismissed.is_ok() {
             cx.notify();

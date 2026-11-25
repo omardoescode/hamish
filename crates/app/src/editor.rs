@@ -1,5 +1,5 @@
-//! The editor: our own GPUI text element over a core Document (ADR 0002). It owns the
-//! selection, the undo steps of the writer, Markers, and the Effects over the text.
+//! The editor: our own GPUI text element over a core `EditSession` (ADR 0002). It owns the
+//! view state: Markers, hover, scroll, and the Effects over the text.
 
 use std::f32::consts::TAU;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
@@ -15,8 +15,8 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, EditHistory, EditKind, Effect, FocusZoom, LabError, Level, MarkdownSpan,
-    MarkdownStyle, Slot, SlotError, SlotId, Sound, TrimError, paragraph_around,
+    Cycle, Document, EditKind, EditSession, Effect, FocusZoom, Level, MarkdownSpan, MarkdownStyle,
+    Slot, SlotError, SlotId, Sound, follow_change, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -79,11 +79,8 @@ const FADE_IN_START_OPACITY: f32 = 0.2;
 
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
 pub struct Editor {
-    document: Document,
-    selection: Range<usize>,
-    reversed: bool,
+    session: EditSession,
     marked: Option<Range<usize>>,
-    history: EditHistory,
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     painted: Option<PaintedText>,
@@ -97,8 +94,6 @@ pub struct Editor {
     /// The Document with the draft of the Alternatives panel in place; it is painted,
     /// never saved.
     preview: Option<Document>,
-    /// The undo step the last save wrote (see [`EditHistory::top`]).
-    saved: Option<u64>,
     /// The Slot whose Active variant last changed, and when.
     fade_in: Option<(SlotId, Instant)>,
     /// Effects that play over the text.
@@ -114,24 +109,6 @@ pub struct Editor {
 pub(crate) enum Spotlight {
     Slot(SlotId),
     Text(Range<usize>),
-}
-
-/// What shows of a Slot: its Active variant (index and text) and its Variant count.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ShownVariant {
-    slot: SlotId,
-    active: usize,
-    count: usize,
-    text: String,
-}
-
-impl ShownVariant {
-    /// A different Variant is active than in `old`. Typing in the Active variant changes
-    /// only its text; an added Variant changes only the count. Neither is a new Active variant.
-    fn replaces(&self, old: &Self) -> bool {
-        let moved = self.active != old.active || self.count != old.count;
-        moved && self.text != old.text
-    }
 }
 
 /// What the editor tells the views around it.
@@ -163,11 +140,8 @@ pub(crate) struct PaintedLine {
 impl Editor {
     pub fn new(document: Document, cx: &mut Context<Self>) -> Self {
         Self {
-            document,
-            selection: 0..0,
-            reversed: false,
+            session: EditSession::new(document),
             marked: None,
-            history: EditHistory::default(),
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             painted: None,
@@ -179,7 +153,6 @@ impl Editor {
             context_menu: None,
             spotlight: None,
             preview: None,
-            saved: None,
             fade_in: None,
             effects: Vec::new(),
             effect_seed: 0,
@@ -190,33 +163,31 @@ impl Editor {
 
     #[must_use]
     pub fn document(&self) -> &Document {
-        &self.document
+        self.session.document()
     }
 
     /// The Document has changes since the last save or open.
     #[must_use]
     pub fn is_unsaved(&self) -> bool {
-        self.history.top() != self.saved
+        self.session.is_unsaved()
     }
 
     /// A copy of the Document to save, and the undo step it is at. The next edit starts a
     /// new undo step, so it makes the Document unsaved again.
     pub(crate) fn snapshot(&mut self) -> (Document, Option<u64>) {
-        self.history.close();
-        (self.document.clone(), self.history.top())
+        self.session.snapshot()
     }
 
     pub(crate) fn mark_saved(&mut self, at: Option<u64>, cx: &mut Context<Self>) {
-        self.saved = at;
+        self.session.mark_saved(at);
         cx.notify();
     }
 
     /// Shows `document` in place of the current one, with no edit history.
     pub(crate) fn load(&mut self, document: Document, cx: &mut Context<Self>) {
         *self = Self {
-            document,
             focus_handle: self.focus_handle.clone(),
-            ..Self::new(Document::default(), cx)
+            ..Self::new(document, cx)
         };
         cx.notify();
     }
@@ -224,7 +195,7 @@ impl Editor {
     /// Byte range of the selection; empty at the cursor.
     #[must_use]
     pub fn selection(&self) -> Range<usize> {
-        self.selection.clone()
+        self.session.selection()
     }
 
     /// The Markers as last painted, in document order, each parent before the Slots in it.
@@ -261,9 +232,14 @@ impl Editor {
         index: usize,
         cx: &mut Context<Self>,
     ) -> Result<(), SlotError> {
-        let range = self.document.slot(id).ok_or(SlotError::NoSlot(id))?.range;
+        let range = self
+            .session
+            .document()
+            .slot(id)
+            .ok_or(SlotError::NoSlot(id))?
+            .range;
         self.change_document(|document| document.delete_variant(id, index), cx)?;
-        let len = self.document.text().len();
+        let len = self.session.document().text().len();
         self.play(
             Effect::Explosion,
             range.start.min(len)..range.end.min(len),
@@ -282,9 +258,10 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let Some(slot) = self
-            .document
+            .session
+            .document()
             .slot_at(self.cursor())
-            .and_then(|id| self.document.slot(id))
+            .and_then(|id| self.session.document().slot(id))
         else {
             return;
         };
@@ -352,7 +329,7 @@ impl Editor {
     /// text it is for, while there is one. Else the Document.
     #[must_use]
     pub fn shown_document(&self) -> &Document {
-        self.preview.as_ref().unwrap_or(&self.document)
+        self.preview.as_ref().unwrap_or(self.session.document())
     }
 
     /// Shows `text` in place of `range` until the next call; `None` shows the Document.
@@ -363,7 +340,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.preview = preview.and_then(|(range, text)| {
-            let mut shown = self.document.clone();
+            let mut shown = self.session.document().clone();
             shown.replace(range, text).ok().map(|()| shown)
         });
         cx.notify();
@@ -371,7 +348,7 @@ impl Editor {
 
     /// Where `range` of the Document lies in the shown Document.
     fn to_shown(&self, range: &Range<usize>) -> Range<usize> {
-        let (old, new) = (self.document.text(), self.shown_document().text());
+        let (old, new) = (self.session.document().text(), self.shown_document().text());
         follow_change(range.start, old, new)..follow_change(range.end, old, new)
     }
 
@@ -384,7 +361,8 @@ impl Editor {
 
     /// The ranges of the cuts still in the Trim proposal, which fade.
     fn trim_fades(&self) -> Vec<Range<usize>> {
-        self.document
+        self.session
+            .document()
             .trim_proposal()
             .map_or_else(Vec::new, |proposal| {
                 proposal
@@ -399,65 +377,58 @@ impl Editor {
     /// Counter text: the Document, or the selection with "selected".
     #[must_use]
     pub fn counter_label(&self) -> String {
-        if self.selection.is_empty() {
-            return self.document.counter().to_string();
+        if self.session.selection().is_empty() {
+            return self.session.document().counter().to_string();
         }
-        match self.document.selection_counter(self.selection.clone()) {
+        match self
+            .session
+            .document()
+            .selection_counter(self.session.selection())
+        {
             Ok(counter) => format!("{counter} selected"),
-            Err(_) => self.document.counter().to_string(),
+            Err(_) => self.session.document().counter().to_string(),
         }
     }
 
     fn cursor(&self) -> usize {
-        if self.reversed {
-            self.selection.start
-        } else {
-            self.selection.end
-        }
+        self.session.cursor()
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        self.selection = offset..offset;
-        self.reversed = false;
-        self.history.close();
+        self.session.select(offset..offset, false);
         self.autoscroll = true;
         cx.notify();
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        if self.reversed {
-            self.selection.start = offset;
+        let mut selection = self.session.selection();
+        let mut reversed = self.session.is_reversed();
+        if reversed {
+            selection.start = offset;
         } else {
-            self.selection.end = offset;
+            selection.end = offset;
         }
-        if self.selection.end < self.selection.start {
-            self.reversed = !self.reversed;
-            self.selection = self.selection.end..self.selection.start;
+        if selection.end < selection.start {
+            reversed = !reversed;
+            selection = selection.end..selection.start;
         }
-        self.history.close();
+        self.session.select(selection, reversed);
         self.autoscroll = true;
         cx.notify();
     }
 
     fn edit(&mut self, range: Range<usize>, text: &str, kind: EditKind, cx: &mut Context<Self>) {
-        if range.is_empty() && text.is_empty() {
-            return;
-        }
-        if self.document.replace(range.clone(), text).is_err() {
+        if !self.session.edit(range, text, kind) {
             return;
         }
         self.context_menu = None;
-        let before = self.selection.clone();
-        let cursor = range.start + text.len();
-        self.selection = cursor..cursor;
-        self.reversed = false;
-        self.history.record(kind, before, self.selection.clone());
         self.autoscroll = true;
         cx.notify();
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {
-        self.document
+        self.session
+            .document()
             .text()
             .grapheme_indices(true)
             .rev()
@@ -466,7 +437,7 @@ impl Editor {
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
-        let text = self.document.text();
+        let text = self.session.document().text();
         text.grapheme_indices(true)
             .find_map(|(index, _)| (index > offset).then_some(index))
             .unwrap_or(text.len())
@@ -482,7 +453,7 @@ impl Editor {
             return cursor;
         };
         let y = position.y + painted.line_height * (rows + 0.5);
-        painted.offset_for_local(point(position.x, y), self.document.text().len())
+        painted.offset_for_local(point(position.x, y), self.session.document().text().len())
     }
 
     /// The offset at the start (`x` = 0) or end (`x` = MAX) of the cursor's visual row.
@@ -495,7 +466,7 @@ impl Editor {
             return cursor;
         };
         let y = position.y + painted.line_height * 0.5;
-        painted.offset_for_local(point(x, y), self.document.text().len())
+        painted.offset_for_local(point(x, y), self.session.document().text().len())
     }
 
     fn offset_for_mouse(&self, position: Point<Pixels>) -> usize {
@@ -503,23 +474,23 @@ impl Editor {
             return self.cursor();
         };
         let local = self.unzoomed(position) - painted.bounds.origin;
-        painted.offset_for_local(local, self.document.text().len())
+        painted.offset_for_local(local, self.session.document().text().len())
     }
 
     fn move_left(&mut self, _: &MoveLeft, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = if self.selection.is_empty() {
+        let offset = if self.session.selection().is_empty() {
             self.previous_boundary(self.cursor())
         } else {
-            self.selection.start
+            self.session.selection().start
         };
         self.move_to(offset, cx);
     }
 
     fn move_right(&mut self, _: &MoveRight, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = if self.selection.is_empty() {
+        let offset = if self.session.selection().is_empty() {
             self.next_boundary(self.cursor())
         } else {
-            self.selection.end
+            self.session.selection().end
         };
         self.move_to(offset, cx);
     }
@@ -540,9 +511,10 @@ impl Editor {
     /// in place, as one undo step. `false` when there is no such Slot.
     fn cycle_hovered(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
         let at_caret = || {
-            self.selection
+            self.session
+                .selection()
                 .is_empty()
-                .then(|| self.document.slot_at(self.cursor()))
+                .then(|| self.session.document().slot_at(self.cursor()))
                 .flatten()
         };
         let Some(id) = self.hovered.or_else(at_caret) else {
@@ -557,33 +529,10 @@ impl Editor {
         true
     }
 
-    /// Each Slot with what shows of it: see [`ShownVariant`].
-    fn shown_variants(&self) -> Vec<ShownVariant> {
-        self.document
-            .slots()
-            .iter()
-            .map(|slot| ShownVariant {
-                slot: slot.id,
-                active: slot.active,
-                count: slot.variants.len(),
-                text: slot
-                    .variants
-                    .get(slot.active)
-                    .map_or_default(|variant| variant.text().to_owned()),
-            })
-            .collect()
-    }
-
-    /// Starts the fade-in of a Slot whose Active variant changed since `before` (cycle,
-    /// delete, undo, redo), `delay` from now. See [`ShownVariant::replaces`].
-    fn fade_in_changed(&mut self, before: &[ShownVariant], delay: Duration, cx: &App) {
-        let changed = self.shown_variants().into_iter().find(|shown| {
-            before
-                .iter()
-                .any(|old| old.slot == shown.slot && shown.replaces(old))
-        });
-        if let Some(shown) = changed {
-            self.fade_in = Some((shown.slot, cx.background_executor().now() + delay));
+    /// Starts the fade-in of `slot`, whose Active variant changed, `delay` from now.
+    fn fade_in(&mut self, slot: Option<SlotId>, delay: Duration, cx: &App) {
+        if let Some(slot) = slot {
+            self.fade_in = Some((slot, cx.background_executor().now() + delay));
         }
     }
 
@@ -606,85 +555,17 @@ impl Editor {
         ))
     }
 
-    /// Runs one Document API call that makes at most one core undo step, as one editor
-    /// undo step. The selection follows the text change.
+    /// Runs `change` on the Document as one undo step (see [`EditSession::change`]); a new
+    /// Active variant fades in.
     pub(crate) fn change_document<T, E>(
         &mut self,
         change: impl FnOnce(&mut Document) -> Result<T, E>,
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
-        self.change_document_in_steps(1, change, cx)
-    }
-
-    /// Like [`Self::change_document`], for a change of `steps` core undo steps.
-    pub(crate) fn change_document_in_steps<T, E>(
-        &mut self,
-        steps: usize,
-        change: impl FnOnce(&mut Document) -> Result<T, E>,
-        cx: &mut Context<Self>,
-    ) -> Result<T, E> {
-        let old_text = self.document.text().to_owned();
-        let shown = self.shown_variants();
-        let done = change(&mut self.document)?;
-        self.fade_in_changed(&shown, Duration::ZERO, cx);
-        let new_text = self.document.text();
-        let before = self.selection.clone();
-        self.selection = follow_change(before.start, &old_text, new_text)
-            ..follow_change(before.end, &old_text, new_text);
-        self.history
-            .record_steps(steps, before, self.selection.clone());
+        let (done, switched) = self.session.change(change)?;
+        self.fade_in(switched, Duration::ZERO, cx);
         cx.notify();
         Ok(done)
-    }
-
-    /// Runs a Lab `step` on the Document as one undo step; the selection follows a text
-    /// change. A step that changes nothing records no undo step.
-    pub(crate) fn lab_step<T>(
-        &mut self,
-        step: impl FnOnce(&mut Document) -> Result<T, LabError>,
-        cx: &mut Context<Self>,
-    ) -> Result<T, LabError> {
-        let old_text = self.document.text().to_owned();
-        let old_marks = self.document.lab_marks().to_vec();
-        let result = step(&mut self.document)?;
-        let new_text = self.document.text();
-        if new_text == old_text && self.document.lab_marks() == old_marks.as_slice() {
-            return Ok(result);
-        }
-        let before = self.selection.clone();
-        self.selection = follow_change(before.start, &old_text, new_text)
-            ..follow_change(before.end, &old_text, new_text);
-        self.reversed = false;
-        self.history.close();
-        self.history
-            .record(EditKind::Other, before, self.selection.clone());
-        self.history.close();
-        cx.notify();
-        Ok(result)
-    }
-
-    /// Runs a Trim `step` on the Document. A step that changes text is one undo step and
-    /// the selection follows it; a step that only changes the proposal records none.
-    pub(crate) fn trim_step<T>(
-        &mut self,
-        step: impl FnOnce(&mut Document) -> Result<T, TrimError>,
-        cx: &mut Context<Self>,
-    ) -> Result<T, TrimError> {
-        let old_text = self.document.text().to_owned();
-        let result = step(&mut self.document)?;
-        let new_text = self.document.text();
-        if new_text != old_text {
-            let before = self.selection.clone();
-            self.selection = follow_change(before.start, &old_text, new_text)
-                ..follow_change(before.end, &old_text, new_text);
-            self.reversed = false;
-            self.history.close();
-            self.history
-                .record(EditKind::Other, before, self.selection.clone());
-            self.history.close();
-        }
-        cx.notify();
-        Ok(result)
     }
 
     /// A click on a faded word keeps its cut. `false` when no open cut is there.
@@ -696,14 +577,18 @@ impl Editor {
         else {
             return false;
         };
-        let index = self.document.trim_proposal().and_then(|proposal| {
-            proposal
-                .cuts()
-                .iter()
-                .position(|cut| !cut.kept && cut.range.contains(&glyph))
-        });
+        let index = self
+            .session
+            .document()
+            .trim_proposal()
+            .and_then(|proposal| {
+                proposal
+                    .cuts()
+                    .iter()
+                    .position(|cut| !cut.kept && cut.range.contains(&glyph))
+            });
         index.is_some_and(|index| {
-            self.trim_step(|document| document.keep_trim_cut(index), cx)
+            self.change_document(|document| document.keep_trim_cut(index), cx)
                 .is_ok()
         })
     }
@@ -747,12 +632,12 @@ impl Editor {
 
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         self.move_to(0, cx);
-        self.select_to(self.document.text().len(), cx);
+        self.select_to(self.session.document().text().len(), cx);
     }
 
     fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selection.is_empty() {
-            self.edit(self.selection.clone(), "", EditKind::Other, cx);
+        if !self.session.selection().is_empty() {
+            self.edit(self.session.selection(), "", EditKind::Other, cx);
             return;
         }
         let cursor = self.cursor();
@@ -765,8 +650,8 @@ impl Editor {
     }
 
     fn delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selection.is_empty() {
-            self.edit(self.selection.clone(), "", EditKind::Other, cx);
+        if !self.session.selection().is_empty() {
+            self.edit(self.session.selection(), "", EditKind::Other, cx);
             return;
         }
         let cursor = self.cursor();
@@ -779,11 +664,11 @@ impl Editor {
     }
 
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
-        self.edit(self.selection.clone(), "\n", EditKind::Other, cx);
+        self.edit(self.session.selection(), "\n", EditKind::Other, cx);
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.document.text().get(self.selection.clone()) else {
+        let Some(text) = self.session.document().text().get(self.session.selection()) else {
             return;
         };
         if !text.is_empty() {
@@ -793,14 +678,14 @@ impl Editor {
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         self.copy(&Copy, window, cx);
-        self.edit(self.selection.clone(), "", EditKind::Other, cx);
+        self.edit(self.session.selection(), "", EditKind::Other, cx);
     }
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
         };
-        self.edit(self.selection.clone(), &text, EditKind::Other, cx);
+        self.edit(self.session.selection(), &text, EditKind::Other, cx);
     }
 
     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
@@ -814,31 +699,23 @@ impl Editor {
     /// Reverts the last editor undo step: text edits and Overflow edits share one history.
     /// Nothing happens with nothing to undo.
     pub(crate) fn undo_step(&mut self, cx: &mut Context<Self>) {
-        let Some(group) = self.history.undo() else {
+        let Some(changes) = self.session.undo() else {
             return;
         };
-        let shown = self.shown_variants();
-        let mut restored = Vec::new();
-        for _ in 0..group.steps {
-            restored.extend(self.document.undo_restores_variant());
-            self.document.undo();
-        }
         // The restored text fades in after its burst.
-        let after_burst = if restored.is_empty() || !effects::plays(cx) {
+        let after_burst = if changes.restored.is_empty() || !effects::plays(cx) {
             Duration::ZERO
         } else {
             Effect::UndoBurst.duration()
         };
-        for id in restored {
-            let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
+        for id in changes.restored {
+            let Some(range) = self.session.document().slot(id).map(|slot| slot.range) else {
                 continue;
             };
             self.play(Effect::UndoBurst, range, cx);
             cx.emit(EditorEvent::VariantRestored(id));
         }
-        self.fade_in_changed(&shown, after_burst, cx);
-        self.selection = group.before;
-        self.reversed = false;
+        self.fade_in(changes.switched, after_burst, cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -846,16 +723,10 @@ impl Editor {
     /// Puts back the last undone editor undo step; the selection goes where it ended.
     /// Nothing happens with nothing to redo.
     pub(crate) fn redo_step(&mut self, cx: &mut Context<Self>) {
-        let Some(group) = self.history.redo() else {
+        let Some(changes) = self.session.redo() else {
             return;
         };
-        let shown = self.shown_variants();
-        for _ in 0..group.steps {
-            self.document.redo();
-        }
-        self.fade_in_changed(&shown, Duration::ZERO, cx);
-        self.selection = group.after;
-        self.reversed = false;
+        self.fade_in(changes.switched, Duration::ZERO, cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -868,21 +739,16 @@ impl Editor {
         kind: EditKind,
         cx: &mut Context<Self>,
     ) -> bool {
-        if range.is_empty() && text.is_empty() {
+        if !self.session.edit_overflow(range, text, kind) {
             return false;
         }
-        if self.document.edit_overflow(range, text).is_err() {
-            return false;
-        }
-        self.history
-            .record(kind, self.selection.clone(), self.selection.clone());
         cx.notify();
         true
     }
 
     /// Ends the current undo group, so the next edit starts a new step.
     pub(crate) fn close_history(&mut self) {
-        self.history.close();
+        self.session.close_undo_step();
     }
 
     /// Ctrl+Return puts the Overflow block at Overflow offset `caret` at the cursor.
@@ -903,18 +769,16 @@ impl Editor {
     /// Inserts a copy of the block at Overflow offset `caret` at `at`, as one undo step;
     /// the cursor goes after it.
     fn insert_overflow_block(&mut self, caret: usize, at: usize, cx: &mut Context<Self>) -> bool {
-        let len = self.document.text().len();
-        if self.document.use_block(caret, at).is_err() {
+        let inserted = self.session.change_then_select(
+            |document| document.use_block(caret, at),
+            |old, new| {
+                let cursor = (at + new.text().len()).saturating_sub(old.len());
+                cursor..cursor
+            },
+        );
+        if inserted.is_err() {
             return false;
         }
-        let before = self.selection.clone();
-        let cursor = at + self.document.text().len() - len;
-        self.selection = cursor..cursor;
-        self.reversed = false;
-        self.history.close();
-        self.history
-            .record(EditKind::Other, before, self.selection.clone());
-        self.history.close();
         self.autoscroll = true;
         cx.notify();
         true
@@ -955,7 +819,7 @@ impl Editor {
     fn slot_at(&self, position: Point<Pixels>) -> Option<SlotId> {
         let painted = self.painted.as_ref()?;
         let local = self.unzoomed(position) - painted.bounds.origin;
-        let slots = self.document.slots();
+        let slots = self.session.document().slots();
         slots
             .iter()
             .rev()
@@ -966,11 +830,11 @@ impl Editor {
     /// What the menu actions act on: the selection, else the word at the cursor,
     /// else the cursor.
     pub(crate) fn target(&self) -> Range<usize> {
-        if !self.selection.is_empty() {
-            return self.selection.clone();
+        if !self.session.selection().is_empty() {
+            return self.session.selection();
         }
         let cursor = self.cursor();
-        context_menu::word_at(self.document.text(), cursor).unwrap_or(cursor..cursor)
+        context_menu::word_at(self.session.document().text(), cursor).unwrap_or(cursor..cursor)
     }
 
     /// A right-click opens the context menu. Outside the selection it moves the
@@ -983,20 +847,23 @@ impl Editor {
     ) {
         window.focus(&self.focus_handle);
         let offset = self.offset_for_mouse(event.position);
-        let in_selection = self.selection.start <= offset && offset <= self.selection.end;
-        if self.selection.is_empty() || !in_selection {
+        let in_selection =
+            self.session.selection().start <= offset && offset <= self.session.selection().end;
+        if self.session.selection().is_empty() || !in_selection {
             self.move_to(offset, cx);
         }
         let target = self.target();
-        let in_ghost = context_menu::touches_ghost(&self.document.ghost_ranges(), &target);
+        let in_ghost =
+            context_menu::touches_ghost(&self.session.document().ghost_ranges(), &target);
         if target.is_empty() && !in_ghost {
             self.context_menu = None;
             return;
         }
         let word = self
-            .selection
+            .session
+            .selection()
             .is_empty()
-            .then(|| self.document.text().get(target))
+            .then(|| self.session.document().text().get(target))
             .flatten()
             .filter(|word| !word.is_empty())
             .map(str::to_owned);
@@ -1019,22 +886,17 @@ impl Editor {
     fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
         let target = self.target();
-        let result = if context_menu::touches_ghost(&self.document.ghost_ranges(), &target) {
-            self.document.revive(target)
-        } else {
-            self.document.ghost(target)
-        };
+        let ghosted = context_menu::touches_ghost(&self.session.document().ghost_ranges(), &target);
+        self.session
+            .change(|document| {
+                if ghosted {
+                    document.revive(target)
+                } else {
+                    document.ghost(target)
+                }
+            })
+            .ok();
         cx.notify();
-        if result.is_err() {
-            return;
-        }
-        self.history.close();
-        self.history.record(
-            EditKind::Other,
-            self.selection.clone(),
-            self.selection.clone(),
-        );
-        self.history.close();
     }
 
     /// Menu actions that later tickets build (Alternatives panel, AI alternatives):
@@ -1059,16 +921,13 @@ impl Editor {
         self.context_menu = None;
         cx.notify();
         let target = self.target();
-        if self.document.stash(target.clone()).is_err() {
+        let stashed = self.session.change_then_select(
+            |document| document.stash(target.clone()),
+            |_, _| target.start..target.start,
+        );
+        if stashed.is_err() {
             return;
         }
-        let before = self.selection.clone();
-        self.selection = target.start..target.start;
-        self.reversed = false;
-        self.history.close();
-        self.history
-            .record(EditKind::Other, before, self.selection.clone());
-        self.history.close();
         self.autoscroll = true;
         cx.propagate();
     }
@@ -1080,7 +939,7 @@ impl Editor {
     fn offset_from_utf16(&self, offset: usize) -> usize {
         let mut utf8_offset = 0;
         let mut utf16_count = 0;
-        for ch in self.document.text().chars() {
+        for ch in self.session.document().text().chars() {
             if utf16_count >= offset {
                 break;
             }
@@ -1093,7 +952,7 @@ impl Editor {
     fn offset_to_utf16(&self, offset: usize) -> usize {
         let mut utf16_offset = 0;
         let mut utf8_count = 0;
-        for ch in self.document.text().chars() {
+        for ch in self.session.document().text().chars() {
             if utf8_count >= offset {
                 break;
             }
@@ -1115,7 +974,7 @@ impl Editor {
         range_utf16
             .map(|range| self.range_from_utf16(range))
             .or_else(|| self.marked.clone())
-            .unwrap_or_else(|| self.selection.clone())
+            .unwrap_or_else(|| self.session.selection())
     }
 }
 
@@ -1446,7 +1305,7 @@ impl EntityInputHandler for Editor {
     ) -> Option<String> {
         let range = self.range_from_utf16(&range_utf16);
         actual_range.replace(self.range_to_utf16(&range));
-        self.document.text().get(range).map(str::to_owned)
+        self.session.document().text().get(range).map(str::to_owned)
     }
 
     fn selected_text_range(
@@ -1456,8 +1315,8 @@ impl EntityInputHandler for Editor {
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
         Some(UTF16Selection {
-            range: self.range_to_utf16(&self.selection),
-            reversed: self.reversed,
+            range: self.range_to_utf16(&self.session.selection()),
+            reversed: self.session.is_reversed(),
         })
     }
 
@@ -1499,7 +1358,10 @@ impl EntityInputHandler for Editor {
         self.marked = (!text.is_empty()).then(|| range.start..range.start + text.len());
         if let Some(selected) = new_selected_range_utf16 {
             let selected = self.range_from_utf16(&selected);
-            self.selection = range.start + selected.start..range.start + selected.end;
+            self.session.select_in_edit(
+                range.start + selected.start..range.start + selected.end,
+                false,
+            );
         }
     }
 
@@ -1717,7 +1579,7 @@ impl EditorElement {
         .collect();
         let fading = editor
             .fading_in(cx)
-            .and_then(|(id, opacity)| editor.document.slot(id).map(|slot| (slot.range, opacity)));
+            .and_then(|(id, opacity)| editor.document().slot(id).map(|slot| (slot.range, opacity)));
         let runs = match fading {
             Some((range, opacity)) => faded_runs(&runs, &range, opacity),
             None => runs,
@@ -1964,7 +1826,7 @@ impl Element for EditorElement {
         let editor = self.editor.read(cx);
         let shown = editor.shown_document();
         let selection =
-            painted.selection_quads(&editor.to_shown(&editor.selection), theme.selection);
+            painted.selection_quads(&editor.to_shown(&editor.selection()), theme.selection);
         let lab_marks = lab_mark_quads(&painted, editor, &theme);
         let slots = shown.slots();
         let hover = editor
@@ -1999,7 +1861,7 @@ impl Element for EditorElement {
         }
         let underlines = pen_strokes(&painted, editor, &slots, &theme);
         let cursor = editor
-            .selection
+            .selection()
             .is_empty()
             .then(|| {
                 painted.position_for(editor.to_shown(&(editor.cursor()..editor.cursor())).start)
@@ -2234,13 +2096,13 @@ struct PenRow {
 
 /// The Lab marks and the Trim cut being walked through, as highlight quads.
 fn lab_mark_quads(painted: &PaintedText, editor: &Editor, theme: &Theme) -> Vec<PaintQuad> {
-    let walked = editor.document.trim_proposal().and_then(|proposal| {
+    let walked = editor.document().trim_proposal().and_then(|proposal| {
         proposal
             .current()
             .and_then(|current| proposal.cuts().get(current))
     });
     editor
-        .document
+        .document()
         .lab_marks()
         .iter()
         .map(|mark| &mark.range)
@@ -2294,34 +2156,6 @@ fn as_factor(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
 }
 
-/// Where `offset` in `old` lands in `new`, when one span of `old` changed into `new`.
-/// An offset inside the changed span goes to the end of the new span.
-pub(crate) fn follow_change(offset: usize, old: &str, new: &str) -> usize {
-    let prefix = old
-        .char_indices()
-        .zip(new.chars())
-        .find(|((_, a), b)| a != b)
-        .map_or(old.len().min(new.len()), |((index, _), _)| index);
-    let suffix = old
-        .get(prefix..)
-        .unwrap_or_default()
-        .chars()
-        .rev()
-        .zip(new.get(prefix..).unwrap_or_default().chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(a, _)| a.len_utf8())
-        .sum::<usize>();
-    if offset <= prefix {
-        return offset;
-    }
-    let old_end = old.len() - suffix;
-    let new_end = new.len() - suffix;
-    if offset >= old_end {
-        return offset - old_end + new_end;
-    }
-    new_end
-}
-
 /// Scrolls the least amount that keeps the cursor out of the edge fade.
 pub(crate) fn scroll_into_view(
     scroll_handle: &ScrollHandle,
@@ -2351,7 +2185,7 @@ mod tests {
 
     use gpui::{TextRun, font, hsla};
 
-    use super::{Span, faded_runs, follow_change, heading_lines, pen, spans};
+    use super::{Span, faded_runs, heading_lines, pen, spans};
 
     #[test]
     fn a_fade_splits_the_runs_at_its_range_and_dims_only_inside() {
@@ -2517,20 +2351,5 @@ mod tests {
                 (15..20, false, false),
             ]
         );
-    }
-
-    #[test]
-    fn an_offset_after_a_changed_span_moves_by_its_change_in_length() {
-        let old = "It is an eraser here.";
-        let new = "It is a thumbtack here.";
-        assert_eq!(follow_change(3, old, new), 3);
-        assert_eq!(follow_change(21, old, new), 23);
-        assert_eq!(follow_change(10, old, new), 17);
-    }
-
-    #[test]
-    fn a_shared_suffix_does_not_reach_into_the_shared_prefix() {
-        assert_eq!(follow_change(1, "aa", "a"), 1);
-        assert_eq!(follow_change(2, "aa", "a"), 1);
     }
 }

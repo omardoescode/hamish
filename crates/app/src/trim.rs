@@ -148,7 +148,8 @@ impl Workspace {
         let proposed = cuts.map_err(AiFailure::Ai).and_then(|cuts| {
             self.editor
                 .update(cx, |editor, cx| {
-                    editor.trim_step(|document| document.apply_trim_result(request, &cuts), cx)
+                    editor
+                        .change_document(|document| document.apply_trim_result(request, &cuts), cx)
                 })
                 .map_err(AiFailure::Refused)
         });
@@ -187,7 +188,7 @@ impl Workspace {
     ) {
         let done = self
             .editor
-            .update(cx, |editor, cx| editor.trim_step(step, cx));
+            .update(cx, |editor, cx| editor.change_document(step, cx));
         if done.is_ok() {
             cx.notify();
         }
