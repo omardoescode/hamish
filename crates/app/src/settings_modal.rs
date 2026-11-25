@@ -13,6 +13,9 @@ use gpui::{
 use ka_teb_core::{Setting, Settings, ThemeName, Toggle};
 
 use crate::actions::{CloseSettings, OpenSettings};
+use crate::chrome::{
+    clickable_row, elevated_surface, popover_surface, selectable_row, text_button,
+};
 use crate::settings::{self, SettingsStore};
 use crate::{Theme, Workspace};
 
@@ -111,7 +114,12 @@ impl SettingsModal {
         };
         let open = self.open_select == Some(select);
         let width = list_width(theme);
-        let button = div()
+        let outline = if open {
+            theme.accent_outline
+        } else {
+            theme.panel_border
+        };
+        let button = text_button(theme, outline)
             .id(button_id)
             .debug_selector(|| button_id.to_owned())
             .w(width)
@@ -120,15 +128,6 @@ impl SettingsModal {
             .items_center()
             .justify_between()
             .gap(px(8.))
-            .border_1()
-            .rounded(theme.elevated_radius)
-            .border_color(if open {
-                theme.accent_outline
-            } else {
-                theme.panel_border
-            })
-            .cursor_pointer()
-            .hover(|button| button.bg(theme.elevated_row_hover))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
                 modal.toggle_select(select, cx);
@@ -145,17 +144,14 @@ impl SettingsModal {
                     .anchor(Corner::TopLeft)
                     .snap_to_window_with_margin(px(8.))
                     .child(
-                        div()
+                        popover_surface(theme)
                             .id(list_id)
                             .occlude()
                             .mt(px(2.))
                             .w(width)
                             .p(px(4.))
-                            .bg(theme.elevated_background)
                             .border_1()
                             .border_color(theme.panel_border)
-                            .rounded(theme.elevated_radius)
-                            .shadow_md()
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .child(list()),
                     ),
@@ -246,7 +242,7 @@ impl SettingsModal {
         cx: &Context<Self>,
         change: impl Fn(&mut Settings) + 'static,
     ) -> Stateful<Div> {
-        div()
+        clickable_row(theme)
             .id(SharedString::from(id.clone()))
             .debug_selector(move || id.clone())
             .h(row_height(theme))
@@ -254,9 +250,6 @@ impl SettingsModal {
             .flex()
             .items_center()
             .gap(px(8.))
-            .rounded(theme.elevated_radius)
-            .cursor_pointer()
-            .hover(|row| row.bg(theme.elevated_row_hover))
             .text_color(if chosen { theme.accent } else { theme.text })
             .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| {
                 modal.open_select = None;
@@ -270,14 +263,12 @@ impl SettingsModal {
             Section::Editor => ("settings-section-editor", "Editor"),
         };
         let active = self.section == section;
-        div()
+        selectable_row(theme, active)
             .id(id)
             .debug_selector(|| id.to_owned())
             .px(px(8.))
             .py(px(4.))
-            .rounded(theme.elevated_radius)
             .cursor_pointer()
-            .when(active, |row| row.bg(theme.elevated_row_hover))
             .text_color(if active { theme.text } else { theme.text_muted })
             .on_click(cx.listener(move |modal, _: &ClickEvent, _, cx| modal.show(section, cx)))
             .child(label)
@@ -370,24 +361,21 @@ impl SettingsModal {
     /// A label and one button that shows "On" or "Off" and flips the setting.
     fn toggle(toggle: Toggle, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
         let on = settings.is_on(toggle);
+        let outline = if on {
+            theme.accent_outline
+        } else {
+            theme.panel_border
+        };
         let id = format!("settings-{}", toggle.slug());
         field(
             toggle.label(),
             theme,
             div().flex().child(
-                div()
+                text_button(theme, outline)
                     .id(SharedString::from(id.clone()))
                     .debug_selector(move || id.clone())
                     .px(px(8.))
-                    .border_1()
-                    .rounded(theme.elevated_radius)
-                    .border_color(if on {
-                        theme.accent_outline
-                    } else {
-                        theme.panel_border
-                    })
                     .text_color(if on { theme.accent } else { theme.text_muted })
-                    .cursor_pointer()
                     .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                         Self::change(cx, |settings| settings.flip(toggle));
                     }))
@@ -404,17 +392,12 @@ impl SettingsModal {
                 setting.slug(),
                 if up { "up" } else { "down" }
             );
-            div()
+            text_button(theme, theme.panel_border)
                 .id(SharedString::from(id.clone()))
                 .debug_selector(move || id.clone())
                 .w(px(20.))
                 .flex()
                 .justify_center()
-                .border_1()
-                .border_color(theme.panel_border)
-                .rounded(theme.elevated_radius)
-                .cursor_pointer()
-                .hover(|button| button.bg(theme.elevated_row_hover))
                 .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                     Self::change(cx, |settings| {
                         if up {
@@ -518,15 +501,13 @@ impl Render for SettingsModal {
                 window.dispatch_action(Box::new(CloseSettings), cx);
             })
             .child(
-                div()
+                elevated_surface(&theme)
                     .id("settings-modal")
                     .w(px(560.) * scale)
                     .h(px(440.) * scale)
                     .flex()
-                    .bg(theme.elevated_background)
                     .border_1()
                     .border_color(theme.panel_border)
-                    .rounded(theme.elevated_radius)
                     .text_size(theme.font_size_overflow)
                     .line_height(theme.line_height_overflow)
                     .text_color(theme.text)

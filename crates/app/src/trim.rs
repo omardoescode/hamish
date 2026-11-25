@@ -6,6 +6,7 @@ use gpui::{AnyElement, App, Context, IntoElement, SharedString, Window, div, pre
 use ka_teb_core::{TrimError, TrimLevel};
 
 use crate::ai::{AiRun, AiStatus};
+use crate::chrome::text_button;
 use crate::lab::ai_bar;
 use crate::{Lab, Theme};
 
@@ -192,7 +193,7 @@ impl Lab {
                     0 => "".into(),
                     target => format!("~{target}%").into(),
                 };
-                div()
+                text_button(theme, border)
                     .id(("trim-level", index))
                     .debug_selector(move || format!("trim-level-{index}"))
                     .flex_grow()
@@ -201,11 +202,6 @@ impl Lab {
                     .items_center()
                     .px(px(6.))
                     .py(px(2.))
-                    .border_1()
-                    .border_color(border)
-                    .rounded(px(3.))
-                    .cursor_pointer()
-                    .hover(|button| button.bg(theme.elevated_row_hover))
                     .on_click(move |_, window, cx| {
                         window.dispatch_action(Box::new(RunTrim(level)), cx);
                     })
@@ -236,15 +232,10 @@ impl Lab {
         let bar = self.trim_bar(cx)?;
         let proposed = matches!(self.trim.status(), AiStatus::Idle | AiStatus::Done);
         let button = |name: &'static str, caption: &'static str| {
-            div()
+            text_button(theme, theme.panel_border)
                 .id(name)
                 .debug_selector(move || name.to_owned())
                 .px(px(8.))
-                .border_1()
-                .border_color(theme.text_muted)
-                .rounded(px(3.))
-                .cursor_pointer()
-                .hover(|button| button.bg(theme.elevated_row_hover))
                 .child(caption)
         };
         let action = |name, caption, action: fn() -> Box<dyn gpui::Action>| {

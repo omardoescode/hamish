@@ -18,6 +18,7 @@ use crate::actions::{
     SelectPreviousVariant, Undo,
 };
 use crate::ai::{AiRun, AiStatus};
+use crate::chrome::selectable_row;
 use crate::editor::Spotlight;
 use crate::effects::EffectPlayer;
 use crate::sounds;
@@ -597,7 +598,7 @@ impl AlternativesPanel {
 
 /// A list row: about 23 px apart; the selected row has the hover background.
 fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
-    div()
+    selectable_row(theme, selected)
         .relative()
         .flex_none()
         .flex()
@@ -606,8 +607,6 @@ fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
         .min_h(px(23.))
         .py(px(3.))
         .px(px(4.))
-        .rounded(theme.elevated_radius)
-        .when(selected, |row| row.bg(theme.elevated_row_hover))
 }
 
 /// Row text: it takes the width left of the marker and wraps in it.
