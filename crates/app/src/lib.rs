@@ -36,12 +36,12 @@ pub use actions::{
     SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, Stash, ToggleChrome,
     ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
-pub use ai::Ai;
+pub use ai::{Ai, AiFailure};
 pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
-pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
+pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings::use_settings;

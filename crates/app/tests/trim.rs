@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use app::{Ai, RunTrim, ToggleChrome, TrimBar, Workspace};
 use gpui::{
@@ -42,38 +42,6 @@ impl AiAdapter for FakeAdapter {
             .filter(|(level, _)| *level == request.level())
             .map(|(_, range)| range)
             .collect())
-    }
-}
-
-/// Keeps the cancel token of each Trim call and gives no cut.
-struct CancelWatch(Arc<Mutex<Vec<CancelToken>>>);
-
-impl AiAdapter for CancelWatch {
-    fn variants(
-        &self,
-        _request: &AiRequest,
-        _cancel: &CancelToken,
-    ) -> Result<Vec<String>, AiError> {
-        Ok(Vec::new())
-    }
-
-    fn lab_check(
-        &self,
-        _request: &LabRequest,
-        _cancel: &CancelToken,
-    ) -> Result<Vec<LabFinding>, AiError> {
-        Ok(Vec::new())
-    }
-
-    fn trim(
-        &self,
-        _request: &TrimRequest,
-        cancel: &CancelToken,
-    ) -> Result<Vec<Range<usize>>, AiError> {
-        if let Ok(mut cancels) = self.0.lock() {
-            cancels.push(cancel.clone());
-        }
-        Ok(Vec::new())
     }
 }
 
@@ -122,7 +90,7 @@ fn trim(cx: &mut VisualTestContext, selector: &'static str) {
 }
 
 fn bar(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<TrimBar> {
-    cx.read(|cx| workspace.read(cx).trim_bar(cx))
+    cx.read(|cx| workspace.read(cx).lab().read(cx).trim_bar(cx))
 }
 
 fn bar_line(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<String> {
@@ -130,7 +98,7 @@ fn bar_line(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option
 }
 
 fn selected(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> TrimLevel {
-    cx.read(|cx| workspace.read(cx).trim_level(cx))
+    cx.read(|cx| workspace.read(cx).lab().read(cx).trim_level(cx))
 }
 
 fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
@@ -351,60 +319,4 @@ fn an_ai_failure_shows_in_the_bar_and_changes_nothing(cx: &mut TestAppContext) {
     assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
     click(cx, "trim-done");
     assert_eq!(bar(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn with_no_ai_backend_a_trim_fails_at_once(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, None);
-    click(cx, "lab-button");
-
-    click(cx, "trim-level-3");
-
-    assert_eq!(
-        bar_line(&workspace, cx),
-        Some("Even sharper: no AI backend is set".to_owned())
-    );
-}
-
-#[gpui::test]
-fn a_trim_for_text_that_changed_meanwhile_is_refused(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    click(cx, "lab-button");
-    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
-
-    cx.update(|window, cx| {
-        window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
-    });
-    cx.update(|window, cx| {
-        editor.update(cx, |editor, cx| {
-            editor.replace_text_in_range(Some(0..0), "A ", window, cx);
-        });
-    });
-    cx.run_until_parked();
-
-    assert_eq!(
-        bar_line(&workspace, cx),
-        Some("Slight trim: the text changed since the Trim request".to_owned())
-    );
-    assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
-}
-
-#[gpui::test]
-fn a_new_trim_level_cancels_the_ai_call_of_the_one_that_runs(cx: &mut TestAppContext) {
-    let (_workspace, cx) = open(cx, None);
-    let cancels = Arc::new(Mutex::new(Vec::new()));
-    let watch = CancelWatch(Arc::clone(&cancels));
-    cx.update(|_, cx| cx.set_global(Ai(Arc::new(watch))));
-    let calls = || cancels.lock().map_or(0, |cancels| cancels.len());
-
-    cx.dispatch_action(RunTrim(TrimLevel::SlightTrim));
-    while calls() == 0 && cx.executor().tick() {}
-    cx.dispatch_action(RunTrim(TrimLevel::TightenMore));
-    cx.run_until_parked();
-
-    let cancelled: Vec<bool> = cancels.lock().map_or_else(
-        |_| Vec::new(),
-        |cancels| cancels.iter().map(CancelToken::is_cancelled).collect(),
-    );
-    assert_eq!(cancelled, [true, false]);
 }

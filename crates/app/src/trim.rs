@@ -2,13 +2,11 @@
 //! A Trim level runs on the background executor; the cuts fade in the editor until the
 //! writer makes them.
 
-use std::sync::Arc;
+use gpui::{AnyElement, App, Context, IntoElement, SharedString, Window, div, prelude::*, px};
+use ka_teb_core::{TrimError, TrimLevel};
 
-use gpui::{AnyElement, Context, IntoElement, SharedString, Window, div, prelude::*, px};
-use ka_teb_core::{AiError, CancelToken, TrimError, TrimLevel, TrimRequest};
-
-use crate::ai::AiFailure;
-use crate::{Ai, Theme, Workspace};
+use crate::ai::{AiRun, AiStatus};
+use crate::{Lab, Theme};
 
 #[expect(
     clippy::disallowed_types,
@@ -41,13 +39,8 @@ pub struct TrimBar {
     pub walking: bool,
 }
 
-/// The last Trim request that has no proposal yet.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) enum TrimRun {
-    #[default]
-    Idle,
-    Running(TrimLevel),
-    Failed(TrimLevel, AiFailure<TrimError>),
+fn trim_run(lab: &mut Lab, _: TrimLevel) -> &mut AiRun<TrimLevel, TrimError> {
+    &mut lab.trim
 }
 
 /// The trim row label of `level`.
@@ -61,13 +54,13 @@ fn label(level: TrimLevel) -> &'static str {
     }
 }
 
-impl Workspace {
+impl Lab {
     /// The Trim level with the accent outline: the one that runs, else the one of the open
     /// proposal, else Original.
     #[must_use]
-    pub fn trim_level(&self, cx: &gpui::App) -> TrimLevel {
-        if let TrimRun::Running(level) = self.lab.trim {
-            return level;
+    pub fn trim_level(&self, cx: &App) -> TrimLevel {
+        if let (true, Some(level)) = (self.trim.is_running(), self.trim.key()) {
+            return *level;
         }
         self.editor
             .read(cx)
@@ -78,11 +71,12 @@ impl Workspace {
 
     /// The trim bar; `None` when no Trim runs, failed, or has a proposal open.
     #[must_use]
-    pub fn trim_bar(&self, cx: &gpui::App) -> Option<TrimBar> {
-        let (level, line) = match &self.lab.trim {
-            TrimRun::Running(level) => (*level, format!("{}: trimming…", label(*level))),
-            TrimRun::Failed(level, failure) => (*level, format!("{}: {failure}", label(*level))),
-            TrimRun::Idle => {
+    pub fn trim_bar(&self, cx: &App) -> Option<TrimBar> {
+        let level = self.trim.key().copied().unwrap_or(TrimLevel::Original);
+        let (level, line) = match self.trim.status() {
+            AiStatus::Running => (level, format!("{}: trimming…", label(level))),
+            AiStatus::Failed(failure) => (level, format!("{}: {failure}", label(level))),
+            AiStatus::Idle | AiStatus::Done => {
                 let proposal = self.editor.read(cx).document().trim_proposal()?;
                 let line = format!("{} {proposal}", label(proposal.level()));
                 (proposal.level(), line)
@@ -103,73 +97,32 @@ impl Workspace {
 
     /// Sends the whole active text to the AI on the background executor. A new
     /// level replaces the proposal when its answer comes; Original removes the
-    /// proposal at once. A level that runs already is not started again.
+    /// proposal at once. A level that runs already is not started again. A failure or a
+    /// result for changed text stays for the bar.
     pub(crate) fn run_trim(&mut self, run: &RunTrim, _: &mut Window, cx: &mut Context<Self>) {
         let level = run.0;
-        if self.lab.trim == TrimRun::Running(level) {
-            return;
-        }
         let request = self.editor.read(cx).document().trim_request(level);
         let Some(request) = request else {
             self.end_trim(cx);
             return;
         };
-        let Some(ai) = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0)) else {
-            self.lab.trim = TrimRun::Failed(level, AiFailure::NoBackend);
-            cx.notify();
-            return;
-        };
-        self.lab.trim = TrimRun::Running(level);
-        cx.notify();
-        let cancel = self.new_trim_cancel();
-        let trimming = cx.background_spawn(async move {
-            let cuts = ai.trim(&request, &cancel);
-            (request, cuts)
-        });
-        cx.spawn(async move |this, cx| {
-            let (request, cuts) = trimming.await;
-            this.update(cx, |workspace, cx| workspace.trimmed(&request, cuts, cx))
-        })
-        .detach();
-    }
-
-    /// Makes the answer the proposal. An answer for a level that is not the running one
-    /// any more is dropped; a failure or a result for changed text is kept for the bar.
-    fn trimmed(
-        &mut self,
-        request: &TrimRequest,
-        cuts: Result<Vec<std::ops::Range<usize>>, AiError>,
-        cx: &mut Context<Self>,
-    ) {
-        let level = request.level();
-        if self.lab.trim != TrimRun::Running(level) || cuts == Err(AiError::Cancelled) {
-            return;
-        }
-        let proposed = cuts.map_err(AiFailure::Ai).and_then(|cuts| {
-            self.editor
-                .update(cx, |editor, cx| {
+        self.trim.start(
+            level,
+            Ok(request),
+            |ai, request, cancel| ai.trim(request, cancel),
+            trim_run,
+            |lab, request, cuts, cx| {
+                lab.editor.update(cx, |editor, cx| {
                     editor.trim_step(|document| document.apply_trim_result(request, &cuts), cx)
                 })
-                .map_err(AiFailure::Refused)
-        });
-        self.lab.trim = match proposed {
-            Ok(()) => TrimRun::Idle,
-            Err(failure) => TrimRun::Failed(level, failure),
-        };
-        cx.notify();
-    }
-
-    /// Cancels the AI call of the Trim that runs, and gives the token for the next one.
-    fn new_trim_cancel(&mut self) -> CancelToken {
-        self.lab.trim_cancel.cancel();
-        self.lab.trim_cancel = CancelToken::default();
-        self.lab.trim_cancel.clone()
+            },
+            cx,
+        );
     }
 
     /// Removes the proposal and any run or failure; the text stays.
     fn end_trim(&mut self, cx: &mut Context<Self>) {
-        self.new_trim_cancel();
-        self.lab.trim = TrimRun::Idle;
+        self.trim.cancel(cx);
         self.trim_step(
             |document| {
                 document.close_trim();
@@ -225,7 +178,7 @@ impl Workspace {
 
     /// The trim row of the Lab popover: one outlined button per level, the
     /// selected one in accent.
-    pub(crate) fn trim_row(&self, theme: &Theme, cx: &gpui::App) -> AnyElement {
+    pub(crate) fn trim_row(&self, theme: &Theme, cx: &App) -> AnyElement {
         let selected = self.trim_level(cx);
         let buttons = TrimLevel::ALL
             .into_iter()
@@ -273,9 +226,9 @@ impl Workspace {
     }
 
     /// The trim bar, while a Trim runs, failed, or has a proposal open.
-    pub(crate) fn trim_bar_view(&self, theme: &Theme, cx: &gpui::App) -> Option<AnyElement> {
+    pub(crate) fn trim_bar_view(&self, theme: &Theme, cx: &App) -> Option<AnyElement> {
         let bar = self.trim_bar(cx)?;
-        let proposed = self.lab.trim == TrimRun::Idle;
+        let proposed = matches!(self.trim.status(), AiStatus::Idle | AiStatus::Done);
         let button = |name: &'static str, caption: &'static str| {
             div()
                 .id(name)

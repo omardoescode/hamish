@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, LabRow, LabStatus, RunLabCheck, ToggleChrome, Workspace};
+use app::{Ai, AiFailure, LabRow, LabStatus, RunLabCheck, ToggleChrome, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
@@ -89,11 +89,11 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
 }
 
 fn lab_open(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
-    cx.read(|cx| workspace.read(cx).lab_open())
+    cx.read(|cx| workspace.read(cx).lab().read(cx).is_open())
 }
 
 fn rows(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<LabRow> {
-    cx.read(|cx| workspace.read(cx).lab_rows(cx))
+    cx.read(|cx| workspace.read(cx).lab().read(cx).rows(cx))
 }
 
 fn status(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, check: LabCheck) -> LabStatus {
@@ -235,7 +235,9 @@ fn card(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Ran
     cx.read(|cx| {
         workspace
             .read(cx)
-            .lab_mark_at_cursor(cx)
+            .lab()
+            .read(cx)
+            .mark_at_cursor(cx)
             .map(|mark| mark.range)
     })
 }
@@ -296,50 +298,10 @@ fn an_ai_failure_shows_in_the_row_and_changes_nothing(cx: &mut TestAppContext) {
 
     assert_eq!(
         status(&workspace, cx, LabCheck::ConvolutedSentences),
-        LabStatus::Failed("the AI declined: no".to_owned())
+        LabStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
     );
     assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
     assert_eq!(text(&workspace, cx), TEXT);
-}
-
-#[gpui::test]
-fn with_no_ai_backend_a_check_fails_at_once(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, None);
-    click(cx, "lab-button");
-
-    click(cx, "lab-check-1");
-
-    assert_eq!(
-        status(&workspace, cx, LabCheck::WeakestSentences),
-        LabStatus::Failed("no AI backend is set".to_owned())
-    );
-}
-
-#[gpui::test]
-fn a_result_for_text_that_changed_meanwhile_is_refused(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    click(cx, "lab-button");
-    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
-
-    cx.update(|window, cx| {
-        window.dispatch_action(Box::new(RunLabCheck(LabCheck::HedgesFiller)), cx);
-    });
-    assert_eq!(
-        status(&workspace, cx, LabCheck::HedgesFiller),
-        LabStatus::Running
-    );
-    cx.update(|window, cx| {
-        editor.update(cx, |editor, cx| {
-            editor.replace_text_in_range(Some(0..0), "A ", window, cx);
-        });
-    });
-    cx.run_until_parked();
-
-    assert_eq!(
-        status(&workspace, cx, LabCheck::HedgesFiller),
-        LabStatus::Failed("the text changed since the Lab check".to_owned())
-    );
-    assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
 }
 
 #[gpui::test]

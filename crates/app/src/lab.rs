@@ -1,24 +1,17 @@
-//! The Lab popover and Lab checks: the LAB button, the check list with
-//! progress, and the card that accepts or dismisses the Lab mark at the cursor. Checks run
-//! on the background executor.
+//! The Lab: the LAB button, the popover with the Lab checks and their progress, and the card
+//! that accepts or dismisses the Lab mark at the cursor. Checks run on the background executor.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use gpui::{
-    AnyElement, Context, FocusHandle, IntoElement, MouseButton, SharedString, Window, div,
-    prelude::*, px,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, MouseButton, Render,
+    SharedString, Subscription, Window, div, prelude::*, px,
 };
-use ka_teb_core::{
-    AiError, CancelToken, LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest,
-};
-
-use gpui::Focusable;
+use ka_teb_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
 
 use crate::actions::{Redo, Undo};
-use crate::ai::AiFailure;
-use crate::trim::TrimRun;
-use crate::{Ai, Editor, Theme, Workspace};
+use crate::ai::{AiFailure, AiRun, AiStatus};
+use crate::{Editor, Theme};
 
 #[expect(
     clippy::disallowed_types,
@@ -67,38 +60,24 @@ pub enum LabStatus {
     /// It ran; this many of its marks are open.
     Marked(usize),
     /// It gave no marks; the reason.
-    Failed(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Run {
-    Running,
-    Done,
     Failed(AiFailure<LabError>),
 }
 
-/// The Lab popover state.
-pub(crate) struct Lab {
+/// The Lab with its Lab checks and Trim. It changes the Document only through the
+/// [`Editor`], so each change is one editor undo step.
+pub struct Lab {
+    pub(crate) editor: Entity<Editor>,
     open: bool,
     guide: bool,
-    runs: HashMap<LabCheck, Run>,
-    pub(crate) trim: TrimRun,
-    /// Stops the AI call of the running Trim when a new level or Original replaces it.
-    pub(crate) trim_cancel: CancelToken,
+    checks: HashMap<LabCheck, AiRun<LabCheck, LabError>>,
+    /// The Trim run; a new level cancels the one that runs.
+    pub(crate) trim: AiRun<TrimLevel, TrimError>,
     focus_handle: FocusHandle,
+    _editor_changes: Subscription,
 }
 
-impl Lab {
-    pub(crate) fn new(cx: &mut gpui::App) -> Self {
-        Self {
-            open: false,
-            guide: false,
-            runs: HashMap::new(),
-            trim: TrimRun::Idle,
-            trim_cancel: CancelToken::default(),
-            focus_handle: cx.focus_handle(),
-        }
-    }
+fn check_run(lab: &mut Lab, check: LabCheck) -> &mut AiRun<LabCheck, LabError> {
+    lab.checks.entry(check).or_default()
 }
 
 /// The popover label of `check`.
@@ -136,146 +115,124 @@ fn status_text(status: &LabStatus) -> SharedString {
     }
 }
 
-impl Workspace {
+impl Lab {
+    pub(crate) fn new(editor: Entity<Editor>, cx: &mut Context<Self>) -> Self {
+        let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        Self {
+            editor,
+            open: false,
+            guide: false,
+            checks: HashMap::new(),
+            trim: AiRun::default(),
+            focus_handle: cx.focus_handle(),
+            _editor_changes: editor_changes,
+        }
+    }
+
     /// The Lab popover is open.
     #[must_use]
-    pub fn lab_open(&self) -> bool {
-        self.lab.open
+    pub fn is_open(&self) -> bool {
+        self.open
     }
 
     /// The popover rows in the order of [`LabCheck::ALL`], with each check's status.
     #[must_use]
-    pub fn lab_rows(&self, cx: &gpui::App) -> Vec<LabRow> {
+    pub fn rows(&self, cx: &App) -> Vec<LabRow> {
         let marks = self.editor.read(cx).document().lab_marks();
         LabCheck::ALL
             .into_iter()
             .map(|check| {
-                let status = match self.lab.runs.get(&check) {
-                    None => LabStatus::Idle,
-                    Some(Run::Running) => LabStatus::Running,
-                    Some(Run::Failed(failure)) => LabStatus::Failed(failure.to_string()),
-                    Some(Run::Done) => {
+                let status = match self.checks.get(&check).map(AiRun::status) {
+                    None | Some(AiStatus::Idle) => LabStatus::Idle,
+                    Some(AiStatus::Running) => LabStatus::Running,
+                    Some(AiStatus::Failed(failure)) => LabStatus::Failed(failure.clone()),
+                    Some(AiStatus::Done) => {
                         LabStatus::Marked(marks.iter().filter(|mark| mark.check == check).count())
                     }
                 };
                 LabRow {
                     check,
                     label: label(check),
-                    guide: self.lab.guide.then(|| guide(check)),
+                    guide: self.guide.then(|| guide(check)),
                     status,
                 }
             })
             .collect()
     }
 
-    /// The Lab mark at the cursor: the first open mark the cursor lies in or on an edge of.
-    /// `None` when text is selected.
+    /// The Lab mark at the cursor (see [`ka_teb_core::Document::lab_mark_at`]). `None` when
+    /// text is selected.
     #[must_use]
-    pub fn lab_mark_at_cursor(&self, cx: &gpui::App) -> Option<LabMark> {
+    pub fn mark_at_cursor(&self, cx: &App) -> Option<LabMark> {
         let editor = self.editor.read(cx);
         let selection = editor.selection();
         if !selection.is_empty() {
             return None;
         }
-        editor
-            .document()
-            .lab_marks()
-            .iter()
-            .find(|mark| mark.range.start <= selection.start && selection.start <= mark.range.end)
-            .cloned()
+        editor.document().lab_mark_at(selection.start).cloned()
     }
 
-    /// The LAB button opens the popover and gives it focus; a second press closes it.
-    pub(crate) fn toggle_lab(
-        &mut self,
-        _: &ToggleLab,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.lab.open {
-            self.close_lab(&CloseLab, window, cx);
+    /// A Lab check or a Trim runs.
+    fn is_running(&self) -> bool {
+        self.trim.is_running() || self.checks.values().any(AiRun::is_running)
+    }
+
+    /// Opens the popover and gives it focus; a second toggle closes it.
+    pub(crate) fn toggle(&mut self, _: &ToggleLab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open {
+            self.close(&CloseLab, window, cx);
             return;
         }
-        self.lab.open = true;
-        window.focus(&self.lab.focus_handle);
+        self.open = true;
+        window.focus(&self.focus_handle);
         cx.notify();
     }
 
     /// Esc in the popover: closes it and gives focus back to the editor.
-    pub(crate) fn close_lab(&mut self, _: &CloseLab, window: &mut Window, cx: &mut Context<Self>) {
-        self.lab.open = false;
+    fn close(&mut self, _: &CloseLab, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = false;
         window.focus(&self.editor.read(cx).focus_handle(cx));
         cx.notify();
     }
 
-    fn lab_undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         self.editor.update(cx, Editor::undo_step);
     }
 
-    fn lab_redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
         self.editor.update(cx, Editor::redo_step);
     }
 
     fn toggle_guide(&mut self, cx: &mut Context<Self>) {
-        self.lab.guide = !self.lab.guide;
+        self.guide = !self.guide;
         cx.notify();
     }
 
-    /// Sends the whole active text to the AI on the background executor. A check
-    /// that runs already is not started again.
+    /// Sends the whole active text to the AI. A check that runs already is not started
+    /// again. The findings become marks as one undo step; a result for changed text is
+    /// refused.
     fn run_lab_check(&mut self, run: &RunLabCheck, _: &mut Window, cx: &mut Context<Self>) {
         let check = run.0;
-        if self.lab.runs.get(&check) == Some(&Run::Running) {
-            return;
-        }
-        let Some(ai) = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0)) else {
-            self.lab
-                .runs
-                .insert(check, Run::Failed(AiFailure::NoBackend));
-            cx.notify();
-            return;
-        };
         let request = self.editor.read(cx).document().lab_request(check);
-        self.lab.runs.insert(check, Run::Running);
-        cx.notify();
-        let checking = cx.background_spawn(async move {
-            let findings = ai.lab_check(&request, &CancelToken::default());
-            (request, findings)
-        });
-        cx.spawn(async move |this, cx| {
-            let (request, findings) = checking.await;
-            this.update(cx, |workspace, cx| {
-                workspace.lab_checked(&request, findings, cx);
-            })
-        })
-        .detach();
-    }
-
-    /// Marks the findings as one undo step, or keeps why the check failed. A result for
-    /// text that changed meanwhile is refused.
-    fn lab_checked(
-        &mut self,
-        request: &LabRequest,
-        findings: Result<Vec<LabFinding>, AiError>,
-        cx: &mut Context<Self>,
-    ) {
-        let marked = findings.map_err(AiFailure::Ai).and_then(|findings| {
-            self.editor
-                .update(cx, |editor, cx| {
-                    editor.lab_step(|document| document.apply_lab_result(request, &findings), cx)
-                })
-                .map_err(AiFailure::Refused)
-        });
-        let run = match marked {
-            Ok(_) => Run::Done,
-            Err(failure) => Run::Failed(failure),
-        };
-        self.lab.runs.insert(request.check(), run);
-        cx.notify();
+        self.checks.entry(check).or_default().start(
+            check,
+            Ok(request),
+            |ai, request, cancel| ai.lab_check(request, cancel),
+            check_run,
+            |lab, request, findings, cx| {
+                lab.editor
+                    .update(cx, |editor, cx| {
+                        editor
+                            .lab_step(|document| document.apply_lab_result(request, &findings), cx)
+                    })
+                    .map(|_| ())
+            },
+            cx,
+        );
     }
 
     /// Puts the proposed fix of mark `id` in place, as one undo step.
-    fn accept_lab_fix(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
+    fn accept_fix(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
         let accepted = self.editor.update(cx, |editor, cx| {
             editor.lab_step(|document| document.accept_lab_fix(id), cx)
         });
@@ -285,7 +242,7 @@ impl Workspace {
     }
 
     /// Ends mark `id`; the text stays.
-    fn dismiss_lab_mark(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
+    fn dismiss_mark(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
         let dismissed = self.editor.update(cx, |editor, cx| {
             editor.lab_step(|document| document.dismiss_lab_mark(id), cx)
         });
@@ -294,69 +251,7 @@ impl Workspace {
         }
     }
 
-    /// The LAB button (with the Chrome), and above it the trim bar over the open popover or
-    /// over the card of the mark at the cursor (while the popover is closed).
-    pub(crate) fn lab_view(&self, theme: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let mut elements = Vec::new();
-        if self.chrome_visible() {
-            elements.push(self.lab_button(theme, cx));
-        }
-        let below = if self.lab.open {
-            Some(self.lab_popover(theme, cx))
-        } else {
-            self.lab_mark_at_cursor(cx)
-                .map(|mark| self.lab_mark_card(&mark, theme, cx))
-        };
-        let bar = self.trim_bar_view(theme, cx);
-        if bar.is_some() || below.is_some() {
-            elements.push(
-                bottom_center(POPOVER_BOTTOM)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap(px(6.))
-                            .children(bar)
-                            .children(below),
-                    )
-                    .into_any_element(),
-            );
-        }
-        elements
-    }
-
-    fn lab_button(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let running = self.lab.runs.values().any(|run| *run == Run::Running)
-            || matches!(self.lab.trim, TrimRun::Running(_));
-        let color = if self.lab.open {
-            theme.accent
-        } else {
-            theme.text_muted
-        };
-        bottom_center(BUTTON_BOTTOM)
-            .child(
-                div()
-                    .id("lab-button")
-                    .debug_selector(|| "lab-button".to_owned())
-                    .px(px(6.))
-                    .border_1()
-                    .border_dashed()
-                    .border_color(color)
-                    .rounded(px(3.))
-                    .text_size(theme.font_size_hint)
-                    .text_color(color)
-                    .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-                    .on_click(cx.listener(|workspace, _, window, cx| {
-                        workspace.toggle_lab(&ToggleLab, window, cx);
-                    }))
-                    .child(if running { "LAB …" } else { "LAB" }),
-            )
-            .into_any_element()
-    }
-
-    fn lab_popover(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn popover(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let header = div()
             .id("lab-guide")
             .debug_selector(|| "lab-guide".to_owned())
@@ -366,63 +261,59 @@ impl Workspace {
             .py(px(6.))
             .bg(theme.elevated_row_hover.opacity(0.5))
             .cursor_pointer()
-            .on_click(cx.listener(|workspace, _, _, cx| workspace.toggle_guide(cx)))
+            .on_click(cx.listener(|lab, _, _, cx| lab.toggle_guide(cx)))
             .child(div().text_color(theme.text).child("The Lab guide…"))
             .child(
                 div()
                     .text_color(theme.text_muted)
                     .child("what each idea does"),
             );
-        let rows = self
-            .lab_rows(cx)
-            .into_iter()
-            .enumerate()
-            .map(|(index, row)| {
-                let check = row.check;
-                let detail = match &row.status {
-                    LabStatus::Failed(message) => Some(message.clone()),
-                    LabStatus::Idle | LabStatus::Running | LabStatus::Marked(_) => {
-                        row.guide.map(str::to_owned)
-                    }
-                };
-                div()
-                    .id(("lab-check", index))
-                    .debug_selector(move || format!("lab-check-{index}"))
-                    .px(px(12.))
-                    .py(px(2.))
-                    .rounded(theme.elevated_radius)
-                    .cursor_pointer()
-                    .hover(|row| row.bg(theme.elevated_row_hover))
-                    .on_click(move |_, window, cx| {
-                        window.dispatch_action(Box::new(RunLabCheck(check)), cx);
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .gap(px(12.))
-                            .child(div().text_color(theme.text).child(row.label))
-                            .child(
-                                div()
-                                    .text_color(theme.text_muted)
-                                    .child(status_text(&row.status)),
-                            ),
-                    )
-                    .children(detail.map(|detail| {
-                        div()
-                            .text_size(theme.font_size_hint)
-                            .text_color(theme.text_muted)
-                            .child(detail)
-                    }))
-            });
+        let rows = self.rows(cx).into_iter().enumerate().map(|(index, row)| {
+            let check = row.check;
+            let detail = match &row.status {
+                LabStatus::Failed(failure) => Some(failure.to_string()),
+                LabStatus::Idle | LabStatus::Running | LabStatus::Marked(_) => {
+                    row.guide.map(str::to_owned)
+                }
+            };
+            div()
+                .id(("lab-check", index))
+                .debug_selector(move || format!("lab-check-{index}"))
+                .px(px(12.))
+                .py(px(2.))
+                .rounded(theme.elevated_radius)
+                .cursor_pointer()
+                .hover(|row| row.bg(theme.elevated_row_hover))
+                .on_click(move |_, window, cx| {
+                    window.dispatch_action(Box::new(RunLabCheck(check)), cx);
+                })
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .gap(px(12.))
+                        .child(div().text_color(theme.text).child(row.label))
+                        .child(
+                            div()
+                                .text_color(theme.text_muted)
+                                .child(status_text(&row.status)),
+                        ),
+                )
+                .children(detail.map(|detail| {
+                    div()
+                        .text_size(theme.font_size_hint)
+                        .text_color(theme.text_muted)
+                        .child(detail)
+                }))
+        });
         div()
             .id("lab-popover")
             .key_context("Lab")
-            .track_focus(&self.lab.focus_handle)
-            .on_action(cx.listener(Self::close_lab))
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::close))
             .on_action(cx.listener(Self::run_lab_check))
-            .on_action(cx.listener(Self::lab_undo))
-            .on_action(cx.listener(Self::lab_redo))
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             .occlude()
             .w(POPOVER_WIDTH)
             .pb(px(4.))
@@ -436,7 +327,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    fn lab_mark_card(&self, mark: &LabMark, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+    fn mark_card(&self, mark: &LabMark, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let id = mark.id;
         let text = self
             .editor
@@ -460,10 +351,10 @@ impl Workspace {
         };
         let accept = mark.fix.as_ref().map(|_| {
             button("lab-mark-accept", "Accept")
-                .on_click(cx.listener(move |workspace, _, _, cx| workspace.accept_lab_fix(id, cx)))
+                .on_click(cx.listener(move |lab, _, _, cx| lab.accept_fix(id, cx)))
         });
         let dismiss = button("lab-mark-dismiss", "Dismiss")
-            .on_click(cx.listener(move |workspace, _, _, cx| workspace.dismiss_lab_mark(id, cx)));
+            .on_click(cx.listener(move |lab, _, _, cx| lab.dismiss_mark(id, cx)));
         let fix = mark.fix.as_ref().map(|fix| {
             div()
                 .text_color(theme.text)
@@ -498,6 +389,66 @@ impl Workspace {
             )
             .into_any_element()
     }
+}
+
+impl Focusable for Lab {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for Lab {
+    /// The trim bar over the open popover, or over the card of the mark at the cursor while
+    /// the popover is closed.
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.global::<Theme>().clone();
+        let below = if self.open {
+            Some(self.popover(&theme, cx))
+        } else {
+            self.mark_at_cursor(cx)
+                .map(|mark| self.mark_card(&mark, &theme, cx))
+        };
+        let bar = self.trim_bar_view(&theme, cx);
+        bottom_center(POPOVER_BOTTOM).child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(6.))
+                .children(bar)
+                .children(below),
+        )
+    }
+}
+
+/// The LAB button of the Chrome: it toggles the popover of `lab`.
+pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyElement {
+    let (open, running) = {
+        let lab = lab.read(cx);
+        (lab.open, lab.is_running())
+    };
+    let color = if open { theme.accent } else { theme.text_muted };
+    let lab = lab.clone();
+    bottom_center(BUTTON_BOTTOM)
+        .child(
+            div()
+                .id("lab-button")
+                .debug_selector(|| "lab-button".to_owned())
+                .px(px(6.))
+                .border_1()
+                .border_dashed()
+                .border_color(color)
+                .rounded(px(3.))
+                .text_size(theme.font_size_hint)
+                .text_color(color)
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+                .on_click(move |_, window, cx| {
+                    lab.update(cx, |lab, cx| lab.toggle(&ToggleLab, window, cx));
+                })
+                .child(if running { "LAB …" } else { "LAB" }),
+        )
+        .into_any_element()
 }
 
 /// A full-width row at `bottom` that centers its child.
