@@ -72,6 +72,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "ka-teb-core",
+ "tempfile",
  "unicode-segmentation",
 ]
 
@@ -2793,6 +2794,8 @@ dependencies = [
  "cargo-husky",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

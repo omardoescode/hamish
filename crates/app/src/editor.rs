@@ -67,6 +67,8 @@ pub struct Editor {
     hovered: Option<SlotId>,
     markers: Vec<Marker>,
     context_menu: Option<ContextMenu>,
+    /// The undo step the last save wrote (see [`EditHistory::top`]).
+    saved: Option<u64>,
 }
 
 /// The text as last painted, for mouse and vertical cursor moves.
@@ -98,12 +100,41 @@ impl Editor {
             hovered: None,
             markers: Vec::new(),
             context_menu: None,
+            saved: None,
         }
     }
 
     #[must_use]
     pub fn document(&self) -> &Document {
         &self.document
+    }
+
+    /// The Document has changes since the last save or open.
+    #[must_use]
+    pub fn is_unsaved(&self) -> bool {
+        self.history.top() != self.saved
+    }
+
+    /// A copy of the Document to save, and the undo step it is at. The next edit starts a
+    /// new undo step, so it makes the Document unsaved again.
+    pub(crate) fn snapshot(&mut self) -> (Document, Option<u64>) {
+        self.history.close();
+        (self.document.clone(), self.history.top())
+    }
+
+    pub(crate) fn mark_saved(&mut self, at: Option<u64>, cx: &mut Context<Self>) {
+        self.saved = at;
+        cx.notify();
+    }
+
+    /// Shows `document` in place of the current one, with no edit history.
+    pub(crate) fn load(&mut self, document: Document, cx: &mut Context<Self>) {
+        *self = Self {
+            document,
+            focus_handle: self.focus_handle.clone(),
+            ..Self::new(Document::default(), cx)
+        };
+        cx.notify();
     }
 
     /// Byte range of the selection; empty at the cursor.

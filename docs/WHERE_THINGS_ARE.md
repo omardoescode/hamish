@@ -5,6 +5,7 @@
 | Path | What |
 |---|---|
 | `crates/core/` | Package `ka-teb-core`: all testable logic (Document API). No gpui. |
+| `crates/core/src/storage.rs` | Save/open: active text in `<name>.md`, all other state in `<name>.md.ka-teb.json` (schema `version`, `.md` SHA-256, re-anchor by text; ADR 0003). |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
 | `crates/app/assets/fonts/` | Bundled body font IBM Plex Mono (Regular, Bold) and its license (`OFL.txt`). |
 | `Cargo.toml` | Workspace, pinned `gpui`, `[workspace.lints]`, `[profile.dist]`. |

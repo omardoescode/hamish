@@ -9,6 +9,7 @@ mod context_menu;
 mod edit_history;
 mod editor;
 mod overflow_panel;
+mod save_open;
 mod theme;
 mod workspace;
 
@@ -18,13 +19,15 @@ use gpui::{App, KeyBinding};
 
 pub use actions::{
     AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, LeaveOverflow, MoveDown, MoveLeft,
-    MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste, Redo,
-    SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp,
-    Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
+    MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, Open, OpenAlternatives, Paste,
+    Redo, Save, SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
+    SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo,
+    UseOverflowBlock,
 };
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use overflow_panel::OverflowPanel;
+pub use save_open::Notice;
 pub use theme::Theme;
 pub use workspace::Workspace;
 
@@ -75,6 +78,9 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-enter", UseOverflowBlock, overflow),
         KeyBinding::new("escape", LeaveOverflow, overflow),
         KeyBinding::new("ctrl-shift-o", ToggleOverflow, Some("Workspace")),
+        KeyBinding::new("ctrl-s", Save, None),
+        KeyBinding::new("ctrl-shift-s", SaveAs, None),
+        KeyBinding::new("ctrl-o", Open, None),
     ]);
     Ok(())
 }

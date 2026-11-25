@@ -4,14 +4,15 @@ use gpui::{
 };
 use ka_teb_core::Document;
 
-use crate::actions::Stash;
-use crate::actions::{ToggleChrome, ToggleOverflow};
+use crate::actions::{Stash, ToggleChrome, ToggleOverflow};
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
+use crate::save_open::SaveOpen;
 use crate::{Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
 pub struct Workspace {
-    editor: Entity<Editor>,
+    pub(crate) editor: Entity<Editor>,
+    pub(crate) save_open: SaveOpen,
     overflow_panel: Entity<OverflowPanel>,
     chrome_visible: bool,
     overflow_open: bool,
@@ -27,6 +28,7 @@ impl Workspace {
         Self {
             editor,
             overflow_panel,
+            save_open: SaveOpen::default(),
             chrome_visible: false,
             overflow_open: false,
             _editor_changes: editor_changes,
@@ -114,6 +116,9 @@ impl Render for Workspace {
                     .on_drop(cx.listener(Self::drop_block))
                     .child(self.editor.clone()),
             )
+            .on_action(cx.listener(Self::save))
+            .on_action(cx.listener(Self::save_as))
+            .on_action(cx.listener(Self::open))
             .child(
                 div()
                     .absolute()
@@ -158,8 +163,10 @@ impl Render for Workspace {
                         .h(px(16.))
                         .flex()
                         .justify_between()
+                        .child(self.save_open_icons(&theme, cx))
                         .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
                 )
             })
+            .children(self.notice_view(&theme, cx))
     }
 }
