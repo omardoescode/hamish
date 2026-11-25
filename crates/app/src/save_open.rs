@@ -1,4 +1,4 @@
-//! Save and Open (FR-63, FR-64): file dialogs, the unsaved sign, and the notice that shows
+//! Save and Open: file dialogs, the unsaved sign, and the notice that shows
 //! errors and what an open dropped (ADR 0003). File I/O runs on the background executor.
 
 use std::path::{Path, PathBuf};

@@ -174,6 +174,28 @@ fn one_undo_removes_a_variant_added_with_return(cx: &mut TestAppContext) {
     assert_eq!(variants, Some(2));
 }
 
+#[gpui::test]
+fn undo_and_redo_work_while_the_panel_has_focus(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("client");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("patron");
+    cx.simulate_keystrokes("enter");
+
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(text(&workspace, cx), "Title\nThe client waits.");
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![row("customer", false), row("client", true)]
+    );
+
+    cx.simulate_keystrokes("ctrl-shift-z");
+    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
+    assert!(panel(&workspace, cx).is_some());
+}
+
 fn focused_on_editor(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
     let editor = cx.read(|cx| workspace.read(cx).editor().clone());
     cx.update(|window, cx| editor.focus_handle(cx).is_focused(window))
@@ -306,8 +328,8 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span(cx: &mut TestAppC
     let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
     assert_eq!(
         effects,
-        vec![app::Effect {
-            kind: app::EffectKind::Explosion,
+        vec![app::PlayingEffect {
+            effect: ka_teb_core::Effect::Explosion,
             range: 10..16
         }]
     );

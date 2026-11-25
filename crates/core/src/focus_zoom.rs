@@ -1,4 +1,4 @@
-//! Focus zoom (FR-83): the paragraph with the caret shows a little larger, to pull
+//! Focus zoom: the paragraph with the caret shows a little larger, to pull
 //! attention to it; the opposite of Ghost. A paragraph is one line of the text (between
 //! newlines). The zoom is a look only: the text keeps its layout.
 
@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::Effect;
 
-/// How much larger the focused paragraph shows (issue #32 decision).
+/// How much larger the focused paragraph shows.
 pub const FOCUS_ZOOM_SCALE: f32 = 1.02;
 
 /// Which paragraphs show zoomed, and how far each one is in its zoom in or out.

@@ -115,6 +115,33 @@ fn alternatives_panel_previews_use_the_same_tones(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn return_in_the_panel_that_makes_a_new_variant_active_plays_the_high_tone(
+    cx: &mut TestAppContext,
+) {
+    let (_, heard, cx) = open(cx, Settings::default());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("buyer");
+    assert_eq!(heard.take(), []);
+
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(heard.take(), [Sound::HighTone]);
+}
+
+#[gpui::test]
+fn return_in_the_panel_on_text_with_no_slot_plays_the_high_tone(cx: &mut TestAppContext) {
+    let (_, heard, cx) = open(cx, Settings::default());
+    cx.simulate_keystrokes("down end left left");
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("sits");
+
+    cx.simulate_keystrokes("enter");
+
+    assert_eq!(heard.take(), [Sound::HighTone]);
+}
+
+#[gpui::test]
 fn a_variant_delete_plays_the_explosion(cx: &mut TestAppContext) {
     let (_, heard, cx) = open(cx, Settings::default());
     cx.simulate_keystrokes(INTO_CUSTOMER);

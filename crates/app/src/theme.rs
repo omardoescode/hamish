@@ -1,3 +1,5 @@
+//! The Theme global: colors and sizes for each view, made from the Settings.
+
 use gpui::{Global, Hsla, Pixels, SharedString, hsla, px, rgb};
 use ka_teb_core::{Settings, ThemeName};
 
@@ -33,7 +35,7 @@ pub struct Theme {
     /// Background + about 4% white (dark) or black (light).
     pub slot_hover_background: Hsla,
     pub selection: Hsla,
-    /// Background of Lab marks (mark style inferred, FR-52).
+    /// Background of Lab marks (mark style inferred).
     pub lab_mark: Hsla,
     pub ghost_opacity: f32,
     /// Text of the cuts of a Trim proposal.

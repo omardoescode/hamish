@@ -1,9 +1,11 @@
+//! Trim: Trim levels, requests, the Trim proposal, Keep, Make the cuts, and Walk through.
+
 use std::fmt;
 use std::ops::Range;
 
 use crate::{Document, RangeError};
 
-/// How much a Trim cuts (FR-55).
+/// How much a Trim cuts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TrimLevel {
     /// No Trim: the text as written.
@@ -15,7 +17,7 @@ pub enum TrimLevel {
 }
 
 impl TrimLevel {
-    /// The levels in the order the Lab lists them (FR-55).
+    /// The levels in the order the Lab lists them.
     pub const ALL: [Self; 5] = [
         Self::Original,
         Self::SlightTrim,
@@ -37,7 +39,7 @@ impl TrimLevel {
     }
 }
 
-/// What the AI gets for a Trim: the level and the whole active text (FR-56).
+/// What the AI gets for a Trim: the level and the whole active text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrimRequest {
     level: TrimLevel,
@@ -45,6 +47,7 @@ pub struct TrimRequest {
 }
 
 impl TrimRequest {
+    /// The Trim level to run.
     #[must_use]
     pub fn level(&self) -> TrimLevel {
         self.level
@@ -77,7 +80,7 @@ impl TrimCut {
     }
 }
 
-/// The ranges a Trim marks for cut, with word counts before and after (FR-57).
+/// The ranges a Trim marks for cut, with word counts before and after.
 /// The text does not change until the cuts are made. Its fades are not Ghost ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrimProposal {
@@ -106,6 +109,7 @@ impl TrimProposal {
             .map(|(index, _)| index)
     }
 
+    /// The Trim level that made the proposal.
     #[must_use]
     pub fn level(&self) -> TrimLevel {
         self.level
@@ -237,7 +241,7 @@ impl Document {
         })
     }
 
-    /// Makes `cuts` the Trim proposal, in place of any open one. The text stays (FR-56).
+    /// Makes `cuts` the Trim proposal, in place of any open one. The text stays.
     /// A cut with an empty range or one that is not a valid range of the text is dropped;
     /// cuts that overlap join. Not an undo step: the proposal changes no text.
     ///
@@ -290,7 +294,7 @@ impl Document {
         self.trim = None;
     }
 
-    /// Keep: cut `index` leaves the proposal, its text stays, and the counts update (FR-58).
+    /// Keep: cut `index` leaves the proposal, its text stays, and the counts update.
     ///
     /// # Errors
     /// [`TrimError::NoProposal`] when no proposal is open, [`TrimError::NoCut`] when it has
@@ -311,7 +315,7 @@ impl Document {
     }
 
     /// Make the cuts: deletes the cuts still in the proposal as one undoable writer edit,
-    /// and closes the proposal (FR-59).
+    /// and closes the proposal.
     ///
     /// # Errors
     /// [`TrimError::NoProposal`] when no proposal is open.
@@ -326,7 +330,7 @@ impl Document {
         }
     }
 
-    /// Walk through: puts the cursor on the first cut still in the proposal (FR-60).
+    /// Walk through: puts the cursor on the first cut still in the proposal.
     ///
     /// # Errors
     /// [`TrimError::NoProposal`] when no proposal is open.

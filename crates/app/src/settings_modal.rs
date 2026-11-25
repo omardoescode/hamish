@@ -1,4 +1,4 @@
-//! The Settings modal (issue #21), Zed style: sections on the left, the fields of the
+//! The Settings modal, Zed style: sections on the left, the fields of the
 //! active section on the right. A change applies at once and saves to the settings file
 //! on the background executor.
 
@@ -35,16 +35,10 @@ pub fn use_settings(path: Option<PathBuf>, loaded: LoadedSettings, cx: &mut App)
     });
 }
 
-/// Effects are instant (spec NFR "Reduced motion").
-pub(crate) fn reduced_motion(cx: &App) -> bool {
+/// The on/off setting that `pick` reads. `false` when no settings are set.
+pub(crate) fn is_on(cx: &App, pick: impl FnOnce(&Settings) -> bool) -> bool {
     cx.try_global::<SettingsStore>()
-        .is_some_and(|store| store.settings.reduced_motion)
-}
-
-/// The paragraph with the caret zooms (FR-83).
-pub(crate) fn focus_zoom(cx: &App) -> bool {
-    cx.try_global::<SettingsStore>()
-        .is_some_and(|store| store.settings.focus_zoom)
+        .is_some_and(|store| pick(&store.settings))
 }
 
 /// The notice for a settings file that did not load at start; it shows one time.
@@ -276,7 +270,7 @@ impl SettingsModal {
             .child(Self::cycle_sounds(settings, theme, cx))
     }
 
-    /// Issue #27: a tone on each Active variant switch, on or off.
+    /// A tone on each Active variant switch, on or off.
     fn cycle_sounds(settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
         let on = settings.cycle_sounds;
         field(

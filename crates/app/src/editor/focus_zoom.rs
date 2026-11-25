@@ -1,4 +1,4 @@
-//! FR-83: focus zoom. The paragraph with the caret paints a little larger about the middle
+//! Focus zoom. The paragraph with the caret paints a little larger about the middle
 //! of its rows; the layout stays, so the paragraph may overlap its neighbors a little.
 //! GPUI 0.2.2 has no transform for text or quads (`TransformationMatrix` is for SVG only),
 //! so this paints the glyphs of the zoomed paragraph itself and moves every quad, the caret,
@@ -204,14 +204,17 @@ fn run_at(runs: &[TextRun], offset: usize) -> Option<&TextRun> {
 }
 
 impl Editor {
-    /// FR-83: each paragraph shown zoomed now and its scale; the one with the caret first.
+    /// Each paragraph shown zoomed now and its scale; the one with the caret first.
     /// Empty with the setting off and while the Alternatives panel dims the text.
     #[must_use]
     pub fn focus_zoom(&self, cx: &App) -> Vec<(Range<usize>, f32)> {
         let now = cx.background_executor().now();
         let text = self.document.text();
         self.focus_zoom
-            .zoomed(now, settings_modal::reduced_motion(cx))
+            .zoomed(
+                now,
+                settings_modal::is_on(cx, |settings| settings.reduced_motion),
+            )
             .into_iter()
             .filter_map(|(index, scale)| Some((paragraph_range(text, index)?, scale)))
             .collect()
@@ -219,10 +222,11 @@ impl Editor {
 
     /// Zooms the paragraph with the caret; `true` while a zoom runs.
     fn focus_zoom_step(&mut self, cx: &App) -> bool {
-        let on = settings_modal::focus_zoom(cx) && self.bright_paragraph().is_none();
+        let on = settings_modal::is_on(cx, |settings| settings.focus_zoom)
+            && self.bright_paragraph().is_none();
         let paragraph = on.then(|| paragraph_index(self.document.text(), self.cursor()));
         let now = cx.background_executor().now();
-        let reduced_motion = settings_modal::reduced_motion(cx);
+        let reduced_motion = settings_modal::is_on(cx, |settings| settings.reduced_motion);
         self.focus_zoom.focus(paragraph, now, reduced_motion);
         self.focus_zoom.is_moving(now, reduced_motion)
     }

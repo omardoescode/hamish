@@ -1,3 +1,6 @@
+//! The editor: our own GPUI text element over a core Document (ADR 0002). It owns the
+//! selection, the undo steps of the writer, Markers, and the Effects over the text.
+
 use std::f32::consts::TAU;
 use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
@@ -12,8 +15,8 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 use ka_teb_core::{
-    Cycle, Document, FocusZoom, LabError, Level, MarkdownSpan, MarkdownStyle, Slot, SlotError,
-    SlotId, Sound, TrimError, paragraph_around,
+    Cycle, Document, EditHistory, EditKind, Effect, FocusZoom, LabError, Level, MarkdownSpan,
+    MarkdownStyle, Slot, SlotError, SlotId, Sound, TrimError, paragraph_around,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -25,14 +28,13 @@ use crate::actions::{
     SelectUp, Stash, ToggleGhost, Undo,
 };
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
-use crate::edit_history::{EditHistory, EditKind};
-use crate::effects::{self, Effect, EffectKind, Playing};
+use crate::effects::{self, Particles, PlayingEffect};
 use crate::settings_modal;
 use crate::sounds;
 
 mod focus_zoom;
 
-/// How a Slot shows that it has Variants (FR-12).
+/// How a Slot shows that it has Variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerKind {
     /// Word and Sentence: underline plus a row of Variant dots.
@@ -41,7 +43,7 @@ pub enum MarkerKind {
     MarginLine,
 }
 
-/// The Marker of one visible Slot: `dots` Variant dots, dot `active` filled (FR-13).
+/// The Marker of one visible Slot: `dots` Variant dots, dot `active` filled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Marker {
     pub slot: SlotId,
@@ -60,7 +62,7 @@ const MARGIN_LINE_STEP: Pixels = px(10.);
 const HOVER_PAD: Pixels = px(2.);
 const HOVER_RADIUS: Pixels = px(3.);
 
-/// Word and Sentence underline: an editor's pen, a little wavy (issue #28). Height of the
+/// Word and Sentence underline: an editor's pen, a little wavy. Height of the
 /// wobble, length of its main wave, base thickness and how much the thickness changes.
 const PEN_WOBBLE: f32 = 0.8;
 const PEN_WAVELENGTH: f32 = 60.;
@@ -72,7 +74,7 @@ const PEN_STEP: Pixels = px(2.);
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
 
-/// Opacity of new Active variant text when its fade-in starts (FR-81: "low opacity").
+/// Opacity of new Active variant text when its fade-in starts (spec: "low opacity").
 const FADE_IN_START_OPACITY: f32 = 0.2;
 
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
@@ -92,36 +94,54 @@ pub struct Editor {
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
-    /// The Document with the draft of the Alternatives panel in place (FR-68); it is painted,
+    /// The Document with the draft of the Alternatives panel in place; it is painted,
     /// never saved.
     preview: Option<Document>,
     /// The undo step the last save wrote (see [`EditHistory::top`]).
     saved: Option<u64>,
-    /// The Slot whose Active variant last changed, and when (FR-81).
+    /// The Slot whose Active variant last changed, and when.
     fade_in: Option<(SlotId, Instant)>,
-    /// FR-78, FR-79: effects that play over the text.
-    effects: Vec<Playing>,
+    /// Effects that play over the text.
+    effects: Vec<Particles>,
     effect_seed: u64,
     focus_zoom: FocusZoom,
-    /// The zoomed paragraphs as last painted (FR-83).
+    /// The zoomed paragraphs as last painted.
     zooms: Vec<focus_zoom::Zoom>,
 }
 
-/// What the open Alternatives panel shows: its paragraph stays bright, the rest dims (FR-27).
+/// What the open Alternatives panel shows: its paragraph stays bright, the rest dims.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Spotlight {
     Slot(SlotId),
     Text(Range<usize>),
 }
 
+/// What shows of a Slot: its Active variant (index and text) and its Variant count.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShownVariant {
+    slot: SlotId,
+    active: usize,
+    count: usize,
+    text: String,
+}
+
+impl ShownVariant {
+    /// A different Variant is active than in `old`. Typing in the Active variant changes
+    /// only its text; an added Variant changes only the count. Neither is a new Active variant.
+    fn replaces(&self, old: &Self) -> bool {
+        let moved = self.active != old.active || self.count != old.count;
+        moved && self.text != old.text
+    }
+}
+
 /// What the editor tells the views around it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorEvent {
-    /// A click on the text of a visible Slot (FR-21).
+    /// A click on the text of a visible Slot.
     SlotClicked(SlotId),
-    /// A Variant of the Slot was deleted; its explosion and its sound (#27) play (FR-78).
+    /// A Variant of the Slot was deleted; its explosion and its sound play.
     VariantDeleted(SlotId),
-    /// An undo put a deleted Variant of the Slot back; its burst plays (FR-79).
+    /// An undo put a deleted Variant of the Slot back; its burst plays.
     VariantRestored(SlotId),
 }
 
@@ -213,26 +233,28 @@ impl Editor {
         &self.markers
     }
 
-    /// The effects that play now, oldest first (FR-78, FR-79).
+    /// The effects that play now, oldest first.
     #[must_use]
-    pub fn effects(&self) -> Vec<Effect> {
+    pub fn effects(&self) -> Vec<PlayingEffect> {
         self.effects
             .iter()
-            .map(|playing| playing.effect.clone())
+            .map(|particles| particles.playing.clone())
             .collect()
     }
 
-    fn play(&mut self, kind: EffectKind, range: Range<usize>, cx: &App) {
+    fn play(&mut self, effect: Effect, range: Range<usize>, cx: &App) {
         if !effects::plays(cx) {
             return;
         }
         self.effect_seed = self.effect_seed.wrapping_add(1);
-        self.effects
-            .push(Playing::new(Effect { kind, range }, self.effect_seed));
+        self.effects.push(Particles::new(
+            PlayingEffect { effect, range },
+            self.effect_seed,
+        ));
     }
 
-    /// FR-77, FR-80: deletes Variant `index` of Slot `id` as one undo step, with an
-    /// explosion at the span (FR-78).
+    /// Deletes Variant `index` of Slot `id` as one undo step, with an
+    /// explosion at the span.
     pub(crate) fn delete_variant(
         &mut self,
         id: SlotId,
@@ -243,7 +265,7 @@ impl Editor {
         self.change_document(|document| document.delete_variant(id, index), cx)?;
         let len = self.document.text().len();
         self.play(
-            EffectKind::Explosion,
+            Effect::Explosion,
             range.start.min(len)..range.end.min(len),
             cx,
         );
@@ -252,7 +274,7 @@ impl Editor {
         Ok(())
     }
 
-    /// FR-77: with the caret in a Slot span, deletes its Active variant.
+    /// With the caret in a Slot span, deletes its Active variant.
     fn delete_active_variant(
         &mut self,
         _: &DeleteActiveVariant,
@@ -314,7 +336,7 @@ impl Editor {
         )
     }
 
-    /// The paragraph that stays bright while the Alternatives panel is open (FR-27); the
+    /// The paragraph that stays bright while the Alternatives panel is open; the
     /// rest of the text dims. `None` when nothing dims.
     #[must_use]
     pub fn bright_paragraph(&self) -> Option<Range<usize>> {
@@ -327,7 +349,7 @@ impl Editor {
     }
 
     /// The Document as painted: with the draft of the Alternatives panel in place of the
-    /// text it is for, while there is one (FR-68). Else the Document.
+    /// text it is for, while there is one. Else the Document.
     #[must_use]
     pub fn shown_document(&self) -> &Document {
         self.preview.as_ref().unwrap_or(&self.document)
@@ -360,7 +382,7 @@ impl Editor {
         }
     }
 
-    /// The ranges of the cuts still in the Trim proposal, which fade (FR-55).
+    /// The ranges of the cuts still in the Trim proposal, which fade.
     fn trim_fades(&self) -> Vec<Range<usize>> {
         self.document
             .trim_proposal()
@@ -374,7 +396,7 @@ impl Editor {
             })
     }
 
-    /// Counter text: the Document, or the selection with "selected" (FR-3, FR-4).
+    /// Counter text: the Document, or the selection with "selected".
     #[must_use]
     pub fn counter_label(&self) -> String {
         if self.selection.is_empty() {
@@ -514,7 +536,7 @@ impl Editor {
         }
     }
 
-    /// FR-14: Up/Down over a Slot, or with the caret in a Slot span, cycle its Active variant
+    /// Up/Down over a Slot, or with the caret in a Slot span, cycle its Active variant
     /// in place, as one undo step. `false` when there is no such Slot.
     fn cycle_hovered(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
         let at_caret = || {
@@ -535,25 +557,33 @@ impl Editor {
         true
     }
 
-    /// Each Slot with the index of its Active variant and its Variant count.
-    fn shown_variants(&self) -> Vec<(SlotId, usize, usize)> {
+    /// Each Slot with what shows of it: see [`ShownVariant`].
+    fn shown_variants(&self) -> Vec<ShownVariant> {
         self.document
             .slots()
             .iter()
-            .map(|slot| (slot.id, slot.active, slot.variants.len()))
+            .map(|slot| ShownVariant {
+                slot: slot.id,
+                active: slot.active,
+                count: slot.variants.len(),
+                text: slot
+                    .variants
+                    .get(slot.active)
+                    .map_or_default(|variant| variant.text().to_owned()),
+            })
             .collect()
     }
 
-    /// FR-81: starts the fade-in of a Slot whose Active variant changed since `before`
-    /// (cycle, delete, undo), `delay` from now. Typing in a Variant changes neither, so it
-    /// does not fade.
-    fn fade_in_changed(&mut self, before: &[(SlotId, usize, usize)], delay: Duration, cx: &App) {
-        let changed = self
-            .shown_variants()
-            .into_iter()
-            .find(|shown| before.iter().any(|old| old.0 == shown.0 && old != shown));
-        if let Some((slot, _, _)) = changed {
-            self.fade_in = Some((slot, cx.background_executor().now() + delay));
+    /// Starts the fade-in of a Slot whose Active variant changed since `before` (cycle,
+    /// delete, undo, redo), `delay` from now. See [`ShownVariant::replaces`].
+    fn fade_in_changed(&mut self, before: &[ShownVariant], delay: Duration, cx: &App) {
+        let changed = self.shown_variants().into_iter().find(|shown| {
+            before
+                .iter()
+                .any(|old| old.slot == shown.slot && shown.replaces(old))
+        });
+        if let Some(shown) = changed {
+            self.fade_in = Some((shown.slot, cx.background_executor().now() + delay));
         }
     }
 
@@ -566,8 +596,10 @@ impl Editor {
             .background_executor()
             .now()
             .saturating_duration_since(started);
-        let progress = ka_teb_core::Effect::VariantFadeIn
-            .progress(elapsed, settings_modal::reduced_motion(cx));
+        let progress = Effect::VariantFadeIn.progress(
+            elapsed,
+            settings_modal::is_on(cx, |settings| settings.reduced_motion),
+        );
         (progress < 1.).then_some((
             slot,
             FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,
@@ -655,7 +687,7 @@ impl Editor {
         Ok(result)
     }
 
-    /// FR-57: a click on a faded word keeps its cut. `false` when no open cut is there.
+    /// A click on a faded word keeps its cut. `false` when no open cut is there.
     fn keep_trim_cut_at(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) -> bool {
         let Some(glyph) = self
             .painted
@@ -780,6 +812,7 @@ impl Editor {
     }
 
     /// Reverts the last editor undo step: text edits and Overflow edits share one history.
+    /// Nothing happens with nothing to undo.
     pub(crate) fn undo_step(&mut self, cx: &mut Context<Self>) {
         let Some(group) = self.history.undo() else {
             return;
@@ -790,17 +823,17 @@ impl Editor {
             restored.extend(self.document.undo_restores_variant());
             self.document.undo();
         }
-        // FR-79: the restored text fades in after its burst.
+        // The restored text fades in after its burst.
         let after_burst = if restored.is_empty() || !effects::plays(cx) {
             Duration::ZERO
         } else {
-            ka_teb_core::Effect::UndoBurst.duration()
+            Effect::UndoBurst.duration()
         };
         for id in restored {
             let Some(range) = self.document.slot(id).map(|slot| slot.range) else {
                 continue;
             };
-            self.play(EffectKind::Burst, range, cx);
+            self.play(Effect::UndoBurst, range, cx);
             cx.emit(EditorEvent::VariantRestored(id));
         }
         self.fade_in_changed(&shown, after_burst, cx);
@@ -810,6 +843,8 @@ impl Editor {
         cx.notify();
     }
 
+    /// Puts back the last undone editor undo step; the selection goes where it ended.
+    /// Nothing happens with nothing to redo.
     pub(crate) fn redo_step(&mut self, cx: &mut Context<Self>) {
         let Some(group) = self.history.redo() else {
             return;
@@ -825,7 +860,7 @@ impl Editor {
         cx.notify();
     }
 
-    /// FR-46: replaces `range` of the Overflow text with `text`. `false` when refused.
+    /// Replaces `range` of the Overflow text with `text`. `false` when refused.
     pub(crate) fn edit_overflow(
         &mut self,
         range: Range<usize>,
@@ -850,12 +885,12 @@ impl Editor {
         self.history.close();
     }
 
-    /// FR-47: Ctrl+Return puts the Overflow block at Overflow offset `caret` at the cursor.
+    /// Ctrl+Return puts the Overflow block at Overflow offset `caret` at the cursor.
     pub(crate) fn use_overflow_block(&mut self, caret: usize, cx: &mut Context<Self>) -> bool {
         self.insert_overflow_block(caret, self.cursor(), cx)
     }
 
-    /// FR-47: a block dragged into the page goes in at the drop point.
+    /// A block dragged into the page goes in at the drop point.
     pub(crate) fn drop_overflow_block(
         &mut self,
         caret: usize,
@@ -928,7 +963,7 @@ impl Editor {
             .map(|slot| slot.id)
     }
 
-    /// What the menu actions act on: the selection, else the word at the cursor (FR-29),
+    /// What the menu actions act on: the selection, else the word at the cursor,
     /// else the cursor.
     pub(crate) fn target(&self) -> Range<usize> {
         if !self.selection.is_empty() {
@@ -938,7 +973,7 @@ impl Editor {
         context_menu::word_at(self.document.text(), cursor).unwrap_or(cursor..cursor)
     }
 
-    /// FR-28: a right-click opens the context menu. Outside the selection it moves the
+    /// A right-click opens the context menu. Outside the selection it moves the
     /// cursor there first, so the menu acts on the word under the pointer.
     fn on_right_mouse_down(
         &mut self,
@@ -979,7 +1014,7 @@ impl Editor {
         }
     }
 
-    /// FR-37, FR-39: Ghost the target, or Revive it when it touches a Ghost range, as one
+    /// Ghost the target, or Revive it when it touches a Ghost range, as one
     /// undo step.
     fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
@@ -1018,7 +1053,7 @@ impl Editor {
         self.pass_on(cx);
     }
 
-    /// FR-45: moves the target to the end of Overflow as one undo step, then lets the
+    /// Moves the target to the end of Overflow as one undo step, then lets the
     /// workspace show Overflow.
     fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
@@ -1190,7 +1225,7 @@ impl PaintedText {
     }
 
     /// The hover box behind `range` (window coordinates): one rounded box per row for a
-    /// Word or Sentence Slot, one box over the full rows for a Paragraph (FR-14).
+    /// Word or Sentence Slot, one box over the full rows for a Paragraph.
     fn hover_quads(&self, range: &Range<usize>, level: Level, color: Hsla) -> Vec<PaintQuad> {
         let Some((start, end)) = self.rows(range) else {
             return Vec::new();
@@ -1358,15 +1393,15 @@ impl PaintedText {
     /// The effects that still play at `now`, each with its progress and the rows of its span.
     fn effect_frames(
         &self,
-        effects: &[Playing],
+        effects: &[Particles],
         now: Instant,
-    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+    ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
         effects
             .iter()
             .filter_map(|playing| {
                 let progress = playing.progress(now)?;
                 let rows = self
-                    .selection_quads(&playing.effect.range, Hsla::default())
+                    .selection_quads(&playing.playing.range, Hsla::default())
                     .into_iter()
                     .map(|quad| quad.bounds)
                     .collect();
@@ -1576,7 +1611,7 @@ struct EditorElement {
 struct EditorPrepaint {
     lines: Vec<PaintedLine>,
     /// Each playing effect, its progress, and the rows of its span.
-    effects: Vec<(Playing, f32, Vec<Bounds<Pixels>>)>,
+    effects: Vec<(Particles, f32, Vec<Bounds<Pixels>>)>,
     hover: Vec<PaintQuad>,
     lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
@@ -1588,14 +1623,13 @@ struct EditorPrepaint {
 
 impl EditorElement {
     /// The effects that play now, each with its progress and the rows of its span. Ended
-    /// effects drop; while one plays or a Variant fades in, the next frame comes (FR-78,
-    /// FR-79, FR-81).
+    /// effects drop; while one plays or a Variant fades in, the next frame comes.
     fn effect_frames(
         &self,
         painted: &PaintedText,
         window: &mut Window,
         cx: &mut App,
-    ) -> Vec<(Playing, f32, Vec<Bounds<Pixels>>)> {
+    ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
         let now = Instant::now();
         let effects = painted.effect_frames(&self.editor.read(cx).effects, now);
         self.editor.update(cx, |editor, _| {
@@ -1611,9 +1645,9 @@ impl EditorElement {
     }
 
     /// Text runs and the heading lines with their font size. The title line is bold in the
-    /// title color (FR-5) unless it is a Markdown heading, which uses the heading style.
-    /// Ghost text dims (FR-37), Trim cuts fade (FR-55), and so does text outside the bright
-    /// paragraph while the Alternatives panel is open (FR-27). Slot underlines are pen
+    /// title color unless it is a Markdown heading, which uses the heading style.
+    /// Ghost text dims, Trim cuts fade, and so does text outside the bright
+    /// paragraph while the Alternatives panel is open. Slot underlines are pen
     /// strokes, not text runs.
     fn runs(&self, window: &Window, cx: &App) -> (Vec<TextRun>, Vec<(usize, Pixels)>) {
         let editor = self.editor.read(cx);
@@ -2088,9 +2122,9 @@ struct Span {
     ghost: bool,
     /// The Markdown styles over it, outer first.
     markdown: Vec<MarkdownStyle>,
-    /// Outside the bright paragraph while the Alternatives panel is open (FR-27).
+    /// Outside the bright paragraph while the Alternatives panel is open.
     dimmed: bool,
-    /// In a cut of the Trim proposal (FR-55).
+    /// In a cut of the Trim proposal.
     faded: bool,
 }
 
@@ -2159,7 +2193,7 @@ impl Span {
     }
 }
 
-/// One row of a Slot underline in one opacity, drawn like an editor's pen (issue #28).
+/// One row of a Slot underline in one opacity, drawn like an editor's pen.
 #[derive(Debug, Clone)]
 struct PenStroke {
     slot: SlotId,

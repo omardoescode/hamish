@@ -1,4 +1,4 @@
-//! The Lab popover and Lab checks (FR-49 to FR-53): the LAB button, the check list with
+//! The Lab popover and Lab checks: the LAB button, the check list with
 //! progress, and the card that accepts or dismisses the Lab mark at the cursor. Checks run
 //! on the background executor.
 
@@ -9,12 +9,16 @@ use gpui::{
     AnyElement, Context, FocusHandle, IntoElement, MouseButton, SharedString, Window, div,
     prelude::*, px,
 };
-use ka_teb_core::{AiError, LabCheck, LabFinding, LabMark, LabMarkId, LabRequest};
+use ka_teb_core::{
+    AiError, CancelToken, LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest,
+};
 
 use gpui::Focusable;
 
+use crate::actions::{Redo, Undo};
+use crate::ai::AiFailure;
 use crate::trim::TrimRun;
-use crate::{Ai, Theme, Workspace};
+use crate::{Ai, Editor, Theme, Workspace};
 
 #[expect(
     clippy::disallowed_types,
@@ -48,7 +52,7 @@ const POPOVER_BOTTOM: gpui::Pixels = px(48.);
 pub struct LabRow {
     pub check: LabCheck,
     pub label: &'static str,
-    /// What the check does; shown while the guide is open (FR-50).
+    /// What the check does; shown while the guide is open.
     pub guide: Option<&'static str>,
     pub status: LabStatus,
 }
@@ -70,7 +74,7 @@ pub enum LabStatus {
 enum Run {
     Running,
     Done,
-    Failed(String),
+    Failed(AiFailure<LabError>),
 }
 
 /// The Lab popover state.
@@ -79,6 +83,8 @@ pub(crate) struct Lab {
     guide: bool,
     runs: HashMap<LabCheck, Run>,
     pub(crate) trim: TrimRun,
+    /// Stops the AI call of the running Trim when a new level or Original replaces it.
+    pub(crate) trim_cancel: CancelToken,
     focus_handle: FocusHandle,
 }
 
@@ -89,12 +95,13 @@ impl Lab {
             guide: false,
             runs: HashMap::new(),
             trim: TrimRun::Idle,
+            trim_cancel: CancelToken::default(),
             focus_handle: cx.focus_handle(),
         }
     }
 }
 
-/// The FR-51 label of `check`.
+/// The popover label of `check`.
 fn label(check: LabCheck) -> &'static str {
     match check {
         LabCheck::PunctuationTypos => "Fix punctuation and typos",
@@ -106,7 +113,7 @@ fn label(check: LabCheck) -> &'static str {
     }
 }
 
-/// What `check` does, for the guide (FR-50).
+/// What `check` does, for the guide.
 fn guide(check: LabCheck) -> &'static str {
     match check {
         LabCheck::PunctuationTypos => "Proposes small fixes; you accept or dismiss each.",
@@ -136,7 +143,7 @@ impl Workspace {
         self.lab.open
     }
 
-    /// The popover rows in FR-51 order, with each check's status.
+    /// The popover rows in the order of [`LabCheck::ALL`], with each check's status.
     #[must_use]
     pub fn lab_rows(&self, cx: &gpui::App) -> Vec<LabRow> {
         let marks = self.editor.read(cx).document().lab_marks();
@@ -146,7 +153,7 @@ impl Workspace {
                 let status = match self.lab.runs.get(&check) {
                     None => LabStatus::Idle,
                     Some(Run::Running) => LabStatus::Running,
-                    Some(Run::Failed(message)) => LabStatus::Failed(message.clone()),
+                    Some(Run::Failed(failure)) => LabStatus::Failed(failure.to_string()),
                     Some(Run::Done) => {
                         LabStatus::Marked(marks.iter().filter(|mark| mark.check == check).count())
                     }
@@ -178,7 +185,7 @@ impl Workspace {
             .cloned()
     }
 
-    /// FR-49: the LAB button opens the popover and gives it focus; a second press closes it.
+    /// The LAB button opens the popover and gives it focus; a second press closes it.
     pub(crate) fn toggle_lab(
         &mut self,
         _: &ToggleLab,
@@ -201,12 +208,20 @@ impl Workspace {
         cx.notify();
     }
 
+    fn lab_undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, Editor::undo_step);
+    }
+
+    fn lab_redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, Editor::redo_step);
+    }
+
     fn toggle_guide(&mut self, cx: &mut Context<Self>) {
         self.lab.guide = !self.lab.guide;
         cx.notify();
     }
 
-    /// FR-52: sends the whole active text to the AI on the background executor. A check
+    /// Sends the whole active text to the AI on the background executor. A check
     /// that runs already is not started again.
     fn run_lab_check(&mut self, run: &RunLabCheck, _: &mut Window, cx: &mut Context<Self>) {
         let check = run.0;
@@ -214,8 +229,9 @@ impl Workspace {
             return;
         }
         let Some(ai) = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0)) else {
-            let message = "no AI backend is set".to_owned();
-            self.lab.runs.insert(check, Run::Failed(message));
+            self.lab
+                .runs
+                .insert(check, Run::Failed(AiFailure::NoBackend));
             cx.notify();
             return;
         };
@@ -223,7 +239,7 @@ impl Workspace {
         self.lab.runs.insert(check, Run::Running);
         cx.notify();
         let checking = cx.background_spawn(async move {
-            let findings = ai.lab_check(&request);
+            let findings = ai.lab_check(&request, &CancelToken::default());
             (request, findings)
         });
         cx.spawn(async move |this, cx| {
@@ -243,25 +259,22 @@ impl Workspace {
         findings: Result<Vec<LabFinding>, AiError>,
         cx: &mut Context<Self>,
     ) {
-        let marked = findings
-            .map_err(|error| error.to_string())
-            .and_then(|findings| {
-                self.editor
-                    .update(cx, |editor, cx| {
-                        editor
-                            .lab_step(|document| document.apply_lab_result(request, &findings), cx)
-                    })
-                    .map_err(|error| error.to_string())
-            });
+        let marked = findings.map_err(AiFailure::Ai).and_then(|findings| {
+            self.editor
+                .update(cx, |editor, cx| {
+                    editor.lab_step(|document| document.apply_lab_result(request, &findings), cx)
+                })
+                .map_err(AiFailure::Refused)
+        });
         let run = match marked {
             Ok(_) => Run::Done,
-            Err(message) => Run::Failed(message),
+            Err(failure) => Run::Failed(failure),
         };
         self.lab.runs.insert(request.check(), run);
         cx.notify();
     }
 
-    /// FR-53: puts the proposed fix of mark `id` in place, as one undo step.
+    /// Puts the proposed fix of mark `id` in place, as one undo step.
     fn accept_lab_fix(&mut self, id: LabMarkId, cx: &mut Context<Self>) {
         let accepted = self.editor.update(cx, |editor, cx| {
             editor.lab_step(|document| document.accept_lab_fix(id), cx)
@@ -408,6 +421,8 @@ impl Workspace {
             .track_focus(&self.lab.focus_handle)
             .on_action(cx.listener(Self::close_lab))
             .on_action(cx.listener(Self::run_lab_check))
+            .on_action(cx.listener(Self::lab_undo))
+            .on_action(cx.listener(Self::lab_redo))
             .occlude()
             .w(POPOVER_WIDTH)
             .pb(px(4.))

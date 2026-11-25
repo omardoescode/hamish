@@ -1,12 +1,13 @@
+use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Once;
 use std::time::{Duration, Instant};
-use std::{env, fs};
+use std::{env, fs, thread};
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, AiTrigger, ClaudeBackend, Document, LabCheck, LabFinding, Level,
-    Provenance, RangeError, TrimLevel,
+    AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, ClaudeBackend, Document, LabCheck,
+    LabFinding, Level, Provenance, RangeError, TrimLevel,
 };
 
 /// A `claude` stand-in. The selection picks its behavior; by default it answers with the
@@ -19,6 +20,7 @@ case "$prompt" in
   *STUB_GARBAGE*) echo "not json"; exit 0 ;;
   *STUB_DECLINED*) echo '{"type":"result","is_error":false,"result":"I will not."}'; exit 0 ;;
   *STUB_SLOW*) exec sleep 10 ;;
+  *STUB_HANG*) echo $ > "$STUB_PID_FILE"; exec sleep 10 ;;
   *STUB_PADDED*) echo '{"is_error":false,"structured_output":{"variants":["  dog\n","fox"]}}'; exit 0 ;;
   *STUB_TRIM_CUTS*) echo '{"is_error":false,"structured_output":{"cuts":["very","missing","","very"," it"]}}'; exit 0 ;;
   *STUB_LAB_MARKS*) echo '{"is_error":false,"structured_output":{"marks":[{"quote":"cat","note":" weak ","fix":"cats"},{"quote":"missing"},{"quote":""},{"quote":"cat","note":""}]}}'; exit 0 ;;
@@ -45,12 +47,17 @@ static STUB_WRITTEN: Once = Once::new();
 
 /// A backend whose environment has the stub first on PATH and an API key and auth token set.
 fn backend() -> std::io::Result<ClaudeBackend> {
+    backend_with(Vec::new())
+}
+
+/// Like [`backend`], with `extra` in the environment too.
+fn backend_with(extra: Vec<(OsString, OsString)>) -> std::io::Result<ClaudeBackend> {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("claude-stub");
     let mut written = Ok(());
     STUB_WRITTEN.call_once(|| written = write_stub(&dir));
     written?;
     let path = format!("{}:{}", dir.display(), env::var("PATH").unwrap_or_default());
-    let environment = vec![
+    let mut environment = vec![
         ("PATH".into(), path.into()),
         (
             "ANTHROPIC_API_KEY".into(),
@@ -61,6 +68,7 @@ fn backend() -> std::io::Result<ClaudeBackend> {
             "token-must-not-reach-claude".into(),
         ),
     ];
+    environment.extend(extra);
     Ok(ClaudeBackend::new(environment).with_timeout(Duration::from_secs(5)))
 }
 
@@ -82,7 +90,10 @@ fn backend_runs_claude_print_without_api_credentials_and_sends_the_request() {
         .ai_request(4..7, Level::Word, AiTrigger::ContextMenu)
         .unwrap();
 
-    let answer = backend().unwrap().variants(&request).unwrap();
+    let answer = backend()
+        .unwrap()
+        .variants(&request, &CancelToken::default())
+        .unwrap();
 
     assert_eq!(answer.len(), 3);
     assert_eq!(
@@ -113,7 +124,11 @@ fn a_quick_fill_asks_for_five_alternatives_that_repeat_no_existing_variant() {
         .ai_request(10..13, Level::Word, AiTrigger::QuickFill)
         .unwrap();
 
-    let prompt = backend().unwrap().variants(&request).unwrap().remove(2);
+    let prompt = backend()
+        .unwrap()
+        .variants(&request, &CancelToken::default())
+        .unwrap()
+        .remove(2);
 
     assert!(prompt.contains("Write 5 alternatives"), "prompt: {prompt}");
     assert!(
@@ -132,7 +147,7 @@ fn backend_trims_variant_texts() {
     assert_eq!(
         backend()
             .unwrap()
-            .variants(&request("STUB_PADDED").unwrap()),
+            .variants(&request("STUB_PADDED").unwrap(), &CancelToken::default()),
         Ok(vec!["dog".to_owned(), "fox".to_owned()])
     );
 }
@@ -140,7 +155,9 @@ fn backend_trims_variant_texts() {
 #[test]
 fn backend_reports_a_non_zero_exit_with_its_stderr() {
     assert_eq!(
-        backend().unwrap().variants(&request("STUB_EXIT").unwrap()),
+        backend()
+            .unwrap()
+            .variants(&request("STUB_EXIT").unwrap(), &CancelToken::default()),
         Err(AiError::Exit {
             code: Some(3),
             message: "stub failed".to_owned()
@@ -153,7 +170,7 @@ fn backend_reports_output_that_is_not_json() {
     assert!(matches!(
         backend()
             .unwrap()
-            .variants(&request("STUB_GARBAGE").unwrap()),
+            .variants(&request("STUB_GARBAGE").unwrap(), &CancelToken::default()),
         Err(AiError::BadOutput(_))
     ));
 }
@@ -163,7 +180,7 @@ fn backend_reports_an_answer_without_variants_as_declined() {
     assert_eq!(
         backend()
             .unwrap()
-            .variants(&request("STUB_DECLINED").unwrap()),
+            .variants(&request("STUB_DECLINED").unwrap(), &CancelToken::default()),
         Err(AiError::Declined("I will not.".to_owned()))
     );
 }
@@ -173,10 +190,49 @@ fn backend_stops_a_call_that_runs_past_the_timeout() {
     let backend = backend().unwrap().with_timeout(Duration::from_millis(200));
     let start = Instant::now();
 
-    let answer = backend.variants(&request("STUB_SLOW").unwrap());
+    let answer = backend.variants(&request("STUB_SLOW").unwrap(), &CancelToken::default());
 
     assert_eq!(answer, Err(AiError::Timeout(Duration::from_millis(200))));
     assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn a_cancel_stops_the_call_and_kills_claude() {
+    let pid_file = Path::new(env!("CARGO_TARGET_TMPDIR")).join("claude-stub-hang.pid");
+    fs::remove_file(&pid_file).ok();
+    let backend = backend_with(vec![("STUB_PID_FILE".into(), pid_file.clone().into())]).unwrap();
+    let cancel = CancelToken::default();
+    let start = Instant::now();
+
+    let answer = thread::scope(|scope| {
+        let call = scope.spawn(|| backend.variants(&request("STUB_HANG").unwrap(), &cancel));
+        while !pid_file.exists() && start.elapsed() < Duration::from_secs(5) {
+            thread::sleep(Duration::from_millis(10));
+        }
+        cancel.cancel();
+        call.join().unwrap()
+    });
+
+    assert_eq!(answer, Err(AiError::Cancelled));
+    assert!(start.elapsed() < Duration::from_secs(5));
+    let pid = fs::read_to_string(&pid_file).unwrap();
+    assert!(
+        !Path::new("/proc").join(pid.trim()).exists(),
+        "claude {pid} still runs"
+    );
+}
+
+#[test]
+fn a_call_cancelled_before_it_starts_runs_no_claude() {
+    let cancel = CancelToken::default();
+    cancel.cancel();
+
+    assert_eq!(
+        backend()
+            .unwrap()
+            .variants(&request("The cat sat.").unwrap(), &cancel),
+        Err(AiError::Cancelled)
+    );
 }
 
 #[test]
@@ -186,7 +242,7 @@ fn backend_reports_a_missing_claude_program() {
     let backend = ClaudeBackend::new(vec![("PATH".into(), empty.into())]);
 
     assert!(matches!(
-        backend.variants(&request("The cat sat.").unwrap()),
+        backend.variants(&request("The cat sat.").unwrap(), &CancelToken::default()),
         Err(AiError::Start(_))
     ));
 }
@@ -196,7 +252,10 @@ fn lab_check_runs_claude_print_without_api_credentials_and_sends_the_document() 
     let request = Document::new("STUB_LAB_ECHO\nSTUB_LAB_ECHO\nSTUB_LAB_ECHO")
         .lab_request(LabCheck::HedgesFiller);
 
-    let findings = backend().unwrap().lab_check(&request).unwrap();
+    let findings = backend()
+        .unwrap()
+        .lab_check(&request, &CancelToken::default())
+        .unwrap();
 
     let ranges: Vec<_> = findings
         .iter()
@@ -230,7 +289,9 @@ fn lab_check_maps_each_quote_to_its_next_place_in_the_document_and_drops_the_res
         .lab_request(LabCheck::PunctuationTypos);
 
     assert_eq!(
-        backend().unwrap().lab_check(&request),
+        backend()
+            .unwrap()
+            .lab_check(&request, &CancelToken::default()),
         Ok(vec![
             LabFinding {
                 range: 20..23,
@@ -251,7 +312,9 @@ fn lab_check_reports_an_answer_without_marks_as_declined() {
     let request = Document::new("STUB_DECLINED").lab_request(LabCheck::LongSentences);
 
     assert_eq!(
-        backend().unwrap().lab_check(&request),
+        backend()
+            .unwrap()
+            .lab_check(&request, &CancelToken::default()),
         Err(AiError::Declined("I will not.".to_owned()))
     );
 }
@@ -265,7 +328,7 @@ fn trim_runs_claude_print_without_api_credentials_and_sends_the_document_and_tar
     let Err(AiError::Exit {
         code: Some(4),
         message,
-    }) = backend().unwrap().trim(&request)
+    }) = backend().unwrap().trim(&request, &CancelToken::default())
     else {
         panic!("the stub echoes on stderr");
     };
@@ -295,7 +358,7 @@ fn trim_maps_each_quote_to_its_next_place_on_word_edges_and_drops_the_rest() {
         .unwrap();
 
     assert_eq!(
-        backend().unwrap().trim(&request),
+        backend().unwrap().trim(&request, &CancelToken::default()),
         Ok(vec![22..26, 33..37, 42..45])
     );
 }
@@ -307,7 +370,7 @@ fn trim_reports_an_answer_without_cuts_as_declined() {
         .unwrap();
 
     assert_eq!(
-        backend().unwrap().trim(&request),
+        backend().unwrap().trim(&request, &CancelToken::default()),
         Err(AiError::Declined("I will not.".to_owned()))
     );
 }

@@ -7,23 +7,36 @@ use gpui::{
     VisualTestContext, point, px,
 };
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, Provenance, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, LoadedSettings,
+    Provenance, Settings, TrimRequest,
 };
 
 /// Gives fixed Variant texts, or fails, as an AI backend would.
 struct FakeAdapter(Result<Vec<&'static str>, AiError>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         let texts = self.0.clone()?;
         Ok(texts.into_iter().map(str::to_owned).collect())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }
@@ -150,14 +163,36 @@ fn with_no_ai_backend_the_panel_says_so(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_panel_shows_the_loading_row_while_the_ai_works(cx: &mut TestAppContext) {
+fn the_empty_row_dances_while_the_ai_works_as_in_a_quick_fill(cx: &mut TestAppContext) {
     let (_workspace, cx) = open(cx, Some(client_and_patron()));
     cx.simulate_keystrokes(INTO_CUSTOMER);
 
     cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
     cx.update(|window, _| window.refresh());
 
-    assert!(cx.debug_bounds("alternatives-ai-status").is_some());
+    assert!(cx.debug_bounds("alternatives-loading").is_some());
+    assert!(cx.debug_bounds("alternatives-loading-still").is_none());
+    assert!(cx.debug_bounds("alternatives-ai-status").is_none());
+    assert!(cx.debug_bounds("alternatives-row-1").is_none());
+}
+
+#[gpui::test]
+fn with_reduced_motion_the_loading_row_is_still(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, Some(client_and_patron()));
+    let settings = LoadedSettings {
+        settings: Settings {
+            reduced_motion: true,
+            ..Settings::default()
+        },
+        problem: None,
+    };
+    cx.update(|_, cx| app::use_settings(None, settings, cx));
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+
+    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+    cx.update(|window, _| window.refresh());
+
+    assert!(cx.debug_bounds("alternatives-loading-still").is_some());
 }
 
 #[gpui::test]

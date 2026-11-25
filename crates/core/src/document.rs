@@ -1,3 +1,6 @@
+//! The Document: its text, Slots, Ghost ranges, Overflow, Lab marks, and Trim proposal,
+//! with core undo and redo.
+
 use std::fmt;
 use std::ops::Range;
 
@@ -45,7 +48,7 @@ struct Step {
     after: Tree,
     marks_before: Vec<LabMark>,
     marks_after: Vec<LabMark>,
-    /// The step deleted a Variant of this Slot (FR-79: its undo plays a burst).
+    /// The step deleted a Variant of this Slot (its undo plays a burst).
     variant_deleted: Option<SlotId>,
 }
 
@@ -91,6 +94,7 @@ impl fmt::Display for RangeError {
 impl std::error::Error for RangeError {}
 
 impl Document {
+    /// A Document with `text`, and no Slots, Ghost ranges, Overflow, or history.
     #[must_use]
     pub fn new(text: &str) -> Self {
         Self {
@@ -99,6 +103,7 @@ impl Document {
         }
     }
 
+    /// The active text: each Slot shows its Active variant.
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
@@ -122,7 +127,7 @@ impl Document {
         out
     }
 
-    /// Ghosts `range` (FR-37): the text stays in the Document, dimmed. Ghost ranges
+    /// Ghosts `range`: the text stays in the Document, dimmed. Ghost ranges
     /// that overlap or touch it join it. A range inside a Slot is Ghost only in that Slot's
     /// Active variant (ADR 0006); a range that holds a Slot stays Ghost whichever Variant shows.
     ///
@@ -143,7 +148,7 @@ impl Document {
         Ok(())
     }
 
-    /// Revives (FR-39) each visible Ghost range that `range` touches. An empty `range`
+    /// Revives each visible Ghost range that `range` touches. An empty `range`
     /// (a caret) touches a Ghost range it lies in or on an edge of.
     ///
     /// # Errors
@@ -187,7 +192,7 @@ impl Document {
         markdown::spans(&self.text)
     }
 
-    /// The first line, shown as the title (FR-5). `None` when the first line is blank.
+    /// The first line, shown as the title. `None` when the first line is blank.
     #[must_use]
     pub fn title(&self) -> Option<&str> {
         self.text
@@ -222,7 +227,7 @@ impl Document {
     }
 
     /// The innermost visible Slot whose span holds byte offset `caret`, edges included
-    /// (FR-14, FR-77: the caret at the end of a span is in it).
+    /// (the caret at the end of a span is in it).
     #[must_use]
     pub fn slot_at(&self, caret: usize) -> Option<SlotId> {
         self.slots()
@@ -314,9 +319,9 @@ impl Document {
         })
     }
 
-    /// Makes Variant `index` of Slot `id` the Active variant (FR-15, FR-16).
+    /// Makes Variant `index` of Slot `id` the Active variant.
     /// For a Word Slot, an "a"/"an" just before it changes to agree with the
-    /// new text, in the same undoable step (Article agreement, FR-17).
+    /// new text, in the same undoable step (Article agreement).
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
@@ -325,7 +330,7 @@ impl Document {
         Ok(Switch::to(index))
     }
 
-    /// Moves the Active variant of Slot `id` one step (FR-14).
+    /// Moves the Active variant of Slot `id` one step.
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] when `id` is not a visible Slot.
@@ -341,8 +346,8 @@ impl Document {
     }
 
     /// Deletes Variant `index` of Slot `id`; any Variant can go, the Original too. When it
-    /// was active, the next Variant shows; after the last one, the first (FR-77).
-    /// A Slot left with fewer than two Variants ends; its active text stays (FR-18).
+    /// was active, the next Variant shows; after the last one, the first.
+    /// A Slot left with fewer than two Variants ends; its active text stays.
     ///
     /// # Errors
     /// [`SlotError::NoSlot`] or [`SlotError::NoVariant`] when they do not exist.
@@ -356,7 +361,7 @@ impl Document {
     }
 
     /// The Slot whose Variant the next [`Document::undo`] puts back: `Some` when the last
-    /// step is a Variant delete (FR-79).
+    /// step is a Variant delete.
     #[must_use]
     pub fn undo_restores_variant(&self) -> Option<SlotId> {
         self.undo_steps.last()?.variant_deleted
@@ -431,7 +436,7 @@ impl Document {
         Ok(())
     }
 
-    /// Article agreement (FR-17) for Word Slot `id` at `old`, now showing `shown`:
+    /// Article agreement for Word Slot `id` at `old`, now showing `shown`:
     /// the range of the "a"/"an" before it and the article that agrees.
     /// `None` when there is no such article, it already agrees, or it is part of
     /// a Slot that does not hold the Word Slot.
@@ -612,12 +617,13 @@ impl Document {
         Ok(())
     }
 
+    /// The Overflow of the Document.
     #[must_use]
     pub fn overflow(&self) -> &Overflow {
         &self.overflow
     }
 
-    /// Replaces the Overflow text in byte range `range` with `text` (FR-46).
+    /// Replaces the Overflow text in byte range `range` with `text`.
     ///
     /// # Errors
     /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
@@ -635,7 +641,7 @@ impl Document {
         self.commit(0..0, "", tree)
     }
 
-    /// Stash (FR-45): moves the text in `range` from the Document to the end of Overflow,
+    /// Stash: moves the text in `range` from the Document to the end of Overflow,
     /// after a blank line, as one undoable step. The Document side is a writer delete.
     ///
     /// # Errors
@@ -661,7 +667,7 @@ impl Document {
         Ok(())
     }
 
-    /// Uses an Overflow block (FR-47): inserts the text of the block that holds Overflow
+    /// Uses an Overflow block: inserts the text of the block that holds Overflow
     /// offset `caret` (on its end included) at `at` in the Document, as one undoable step.
     /// The block stays in Overflow.
     ///

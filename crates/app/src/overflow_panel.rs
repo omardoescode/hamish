@@ -1,4 +1,4 @@
-//! The Overflow panel (FR-43 to FR-47): right side, a free text area over the Document's
+//! The Overflow panel: right side, a free text area over the Document's
 //! Overflow. Edits go through the [`Editor`], so they share its undo history.
 
 use std::ops::Range;
@@ -10,6 +10,7 @@ use gpui::{
     ScrollHandle, SharedString, Size, Style, Subscription, TextRun, UTF16Selection, Window, div,
     fill, point, prelude::*, px, relative, size,
 };
+use ka_teb_core::EditKind;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::actions::{
@@ -17,7 +18,6 @@ use crate::actions::{
     MoveToLineStart, MoveUp, Newline, Paste, Redo, SelectAll, SelectDown, SelectLeft, SelectRight,
     SelectToLineEnd, SelectToLineStart, SelectUp, ToggleOverflow, Undo, UseOverflowBlock,
 };
-use crate::edit_history::EditKind;
 use crate::editor::{PaintedText, follow_change, scroll_into_view, shape};
 use crate::{Editor, Theme};
 
@@ -317,7 +317,7 @@ impl OverflowPanel {
         cx.notify();
     }
 
-    /// FR-47: Ctrl+Return puts the block at the caret into the Document.
+    /// Ctrl+Return puts the block at the caret into the Document.
     fn use_block(&mut self, _: &UseOverflowBlock, _: &mut Window, cx: &mut Context<Self>) {
         self.clamp(cx);
         let caret = self.caret();
@@ -769,7 +769,7 @@ fn from_utf16(text: &str, offset: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-/// The Chrome button that opens and closes Overflow (FR-43): an outline badge, accent when open.
+/// The Chrome button that opens and closes Overflow: an outline badge, accent when open.
 pub(crate) fn overflow_button(open: bool, theme: &Theme) -> impl IntoElement {
     let outline = if open {
         theme.accent_outline

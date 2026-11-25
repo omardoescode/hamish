@@ -1,3 +1,6 @@
+//! The root view: it holds the editor, the panels, the Lab, and the Chrome, and routes
+//! actions between them.
+
 use gpui::{
     Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div, linear_color_stop,
     linear_gradient, prelude::*, px,
@@ -70,7 +73,7 @@ impl Workspace {
         &self.editor
     }
 
-    /// FR-1: hidden on open. FR-2: a click on the Counter toggles it.
+    /// Hidden on open; a click on the Counter toggles it.
     #[must_use]
     pub fn chrome_visible(&self) -> bool {
         self.chrome_visible
@@ -82,7 +85,7 @@ impl Workspace {
         self.alternatives.as_ref().map(|(panel, _)| panel)
     }
 
-    /// FR-19: opens the Alternatives panel on the editor target and focuses it.
+    /// Opens the Alternatives panel on the editor target and focuses it.
     fn open_alternatives(
         &mut self,
         _: &OpenAlternatives,
@@ -103,7 +106,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// FR-32: asks the AI for Variants of the panel target. From the editor (key or context
+    /// Asks the AI for Variants of the panel target. From the editor (key or context
     /// menu), it first opens the panel on the editor target.
     fn ai_alternatives(&mut self, _: &AiAlternatives, window: &mut Window, cx: &mut Context<Self>) {
         let from_panel = self
@@ -117,7 +120,7 @@ impl Workspace {
         }
     }
 
-    /// FR-21: a click on a Slot while the panel is open shows that Slot in the panel.
+    /// A click on a Slot while the panel is open shows that Slot in the panel.
     fn show_slot(&mut self, slot: SlotId, window: &mut Window, cx: &mut Context<Self>) {
         let Some(panel) = self.alternatives_panel() else {
             return;
@@ -136,7 +139,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// FR-43: the Overflow panel is open.
+    /// The Overflow panel is open.
     #[must_use]
     pub fn overflow_open(&self) -> bool {
         self.overflow_open
@@ -159,13 +162,13 @@ impl Workspace {
         cx.notify();
     }
 
-    /// FR-45: after a Stash, Overflow shows where the text went. The Document keeps the keyboard.
+    /// After a Stash, Overflow shows where the text went. The Document keeps the keyboard.
     fn show_stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
         self.overflow_open = true;
         cx.notify();
     }
 
-    /// FR-47: a block dragged from Overflow goes into the Document at the drop point.
+    /// A block dragged from Overflow goes into the Document at the drop point.
     fn drop_block(&mut self, _: &OverflowBlockDrag, window: &mut Window, cx: &mut Context<Self>) {
         let caret = self.overflow_panel.read(cx).caret();
         let position = window.mouse_position();

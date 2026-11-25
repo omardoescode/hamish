@@ -1,23 +1,35 @@
 use std::ops::Range;
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabFinding, LabRequest, Level, Provenance, TrimCut,
-    TrimError, TrimLevel, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
+    Provenance, TrimCut, TrimError, TrimLevel, TrimRequest,
 };
 
 /// Returns fixed cuts, as an AI backend would.
 struct FakeAdapter(Vec<Range<usize>>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         Ok(Vec::new())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(self.0.clone())
     }
 }
@@ -39,7 +51,7 @@ fn run(
     cuts: Vec<Range<usize>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let request = document.trim_request(level).ok_or("no request")?;
-    let cuts = FakeAdapter(cuts).trim(&request)?;
+    let cuts = FakeAdapter(cuts).trim(&request, &CancelToken::default())?;
     Ok(document.apply_trim_result(&request, &cuts)?)
 }
 
@@ -83,7 +95,9 @@ fn a_trim_result_proposes_cuts_with_word_counts_and_keeps_the_text() {
     let request = document.trim_request(TrimLevel::SlightTrim).unwrap();
     assert_eq!(request.level(), TrimLevel::SlightTrim);
     assert_eq!(request.text(), text);
-    let cuts = FakeAdapter(sentences(11)).trim(&request).unwrap();
+    let cuts = FakeAdapter(sentences(11))
+        .trim(&request, &CancelToken::default())
+        .unwrap();
 
     document.apply_trim_result(&request, &cuts).unwrap();
 

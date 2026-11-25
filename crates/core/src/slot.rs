@@ -1,3 +1,6 @@
+//! Slots and Variants: Level, Provenance, the Slot tree (ADR 0006), and how Slots follow
+//! text edits.
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Range;
@@ -7,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::ghost;
 use crate::{GhostError, RangeError};
 
-/// The granularity of a Slot. Word also covers short phrases.
+/// How much text a Slot covers. Word also covers short phrases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Level {
@@ -33,7 +36,7 @@ pub enum Cycle {
 }
 
 /// What a change of the Active variant did: it showed the Original again, or another
-/// Variant. The app picks the cycle sound from it (issue #27).
+/// Variant. The app picks the cycle sound from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Switch {
     ToOriginal,
@@ -92,11 +95,13 @@ impl Variant {
         }
     }
 
+    /// The text of the Variant.
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
     }
 
+    /// Who wrote the Variant.
     #[must_use]
     pub fn provenance(&self) -> Provenance {
         self.provenance
@@ -190,7 +195,7 @@ impl SlotNode {
     }
 
     /// Removes Variant `index`. When it was active, the next Variant becomes active;
-    /// after the last one, the first (FR-77).
+    /// after the last one, the first.
     pub(crate) fn remove_variant(&mut self, index: usize) -> Result<(), SlotError> {
         if index >= self.variants.len() {
             return Err(self.no_variant(index));

@@ -8,7 +8,6 @@ mod actions;
 mod ai;
 mod alternatives_panel;
 mod context_menu;
-mod edit_history;
 mod editor;
 mod effects;
 mod lab;
@@ -40,7 +39,7 @@ pub use ai::Ai;
 pub use alternatives_panel::{AiStatus, AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
-pub use effects::{Effect, EffectKind};
+pub use effects::PlayingEffect;
 pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
@@ -115,6 +114,13 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
+    for context in ["AlternativesPanel", "Lab"] {
+        let context = Some(context);
+        cx.bind_keys([
+            KeyBinding::new("ctrl-z", Undo, context),
+            KeyBinding::new("ctrl-shift-z", Redo, context),
+        ]);
+    }
     let panel = Some("AlternativesPanel");
     cx.bind_keys([
         KeyBinding::new("up", SelectPreviousVariant, panel),

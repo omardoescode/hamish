@@ -1,23 +1,35 @@
 use std::ops::Range;
 
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, Document, LabCheck, LabError, LabFinding, LabMark, LabMarkId,
-    LabRequest, Level, Provenance, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabCheck, LabError, LabFinding, LabMark,
+    LabMarkId, LabRequest, Level, Provenance, TrimRequest,
 };
 
 /// Returns fixed findings, as an AI backend would.
 struct FakeAdapter(Vec<LabFinding>);
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, _request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
         Ok(Vec::new())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(self.0.clone())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }
@@ -37,7 +49,7 @@ fn run(
     findings: Vec<LabFinding>,
 ) -> Result<Vec<LabMarkId>, Box<dyn std::error::Error>> {
     let request = document.lab_request(check);
-    let findings = FakeAdapter(findings).lab_check(&request)?;
+    let findings = FakeAdapter(findings).lab_check(&request, &CancelToken::default())?;
     Ok(document.apply_lab_result(&request, &findings)?)
 }
 
@@ -78,7 +90,7 @@ fn each_lab_check_marks_the_ranges_the_ai_gives_and_keeps_the_text() {
             finding(8..20, Some("why"), None),
             finding(0..7, None, None),
         ])
-        .lab_check(&request)
+        .lab_check(&request, &CancelToken::default())
         .unwrap();
 
         let ids = document.apply_lab_result(&request, &findings).unwrap();

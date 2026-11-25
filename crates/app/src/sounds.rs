@@ -1,4 +1,4 @@
-//! Cycle sounds (issue #27) and the Variant delete sound (issue #30). Core decides which
+//! Cycle sounds and the Variant delete sound. Core decides which
 //! sound plays and makes its samples; a [`SoundSink`] plays them.
 
 use std::collections::VecDeque;
@@ -11,7 +11,7 @@ use cpal::{FromSample, SizedSample, Stream, StreamConfig};
 use gpui::{App, Global};
 use ka_teb_core::Sound;
 
-use crate::settings_modal::SettingsStore;
+use crate::settings_modal;
 
 /// Plays sounds. It returns at once; the sound plays off the UI thread.
 pub trait SoundSink: Send + Sync {
@@ -24,13 +24,10 @@ pub struct Sounds(pub Arc<dyn SoundSink>);
 
 impl Global for Sounds {}
 
-/// Plays `sound` when the "Cycle sounds" setting is on. Issue #30 calls it with
-/// [`Sound::Explosion`] after a Variant delete.
+/// Plays `sound` when the "Cycle sounds" setting is on. A Variant delete plays
+/// [`Sound::Explosion`].
 pub(crate) fn play(sound: Sound, cx: &App) {
-    let on = cx
-        .try_global::<SettingsStore>()
-        .is_some_and(|store| store.settings.cycle_sounds);
-    if !on {
+    if !settings_modal::is_on(cx, |settings| settings.cycle_sounds) {
         return;
     }
     if let Some(Sounds(sink)) = cx.try_global::<Sounds>() {

@@ -1,5 +1,5 @@
-//! Settings (issue #21): theme, UI scale, editor font values, cycle sounds (issue #27),
-//! reduced motion (issue #31), and focus zoom (issue #32), with their defaults, limits, and the JSON file in the
+//! Settings: theme, UI scale, editor font values, cycle sounds,
+//! reduced motion, and focus zoom, with their defaults, limits, and the JSON file in the
 //! XDG config dir.
 
 use std::ffi::{OsStr, OsString};
@@ -72,12 +72,12 @@ pub struct Settings {
     pub font_size: f32,
     pub line_height: f32,
     pub column_width: f32,
-    /// Effects are instant (spec NFR "Reduced motion"). Off by default: GPUI 0.2.2 does not
+    /// Effects are instant. Off by default: GPUI 0.2.2 does not
     /// expose the OS setting.
     pub reduced_motion: bool,
-    /// A tone on each Active variant switch and a sound on a Variant delete (issue #27).
+    /// A tone on each Active variant switch and a sound on a Variant delete.
     pub cycle_sounds: bool,
-    /// The paragraph with the caret shows a little larger (FR-83).
+    /// The paragraph with the caret shows a little larger.
     pub focus_zoom: bool,
 }
 
@@ -216,6 +216,7 @@ impl Settings {
         fs::rename(&next, path).map_err(io_error)
     }
 
+    /// The current value of `setting`, in its own unit.
     #[must_use]
     pub fn value(&self, setting: Setting) -> f32 {
         match setting {

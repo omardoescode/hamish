@@ -1,6 +1,6 @@
-use app::{Effect, EffectKind, Workspace};
+use app::{PlayingEffect, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings, SlotId};
+use ka_teb_core::{Document, Effect, Level, LoadedSettings, Provenance, Settings, SlotId};
 
 fn open(
     cx: &mut TestAppContext,
@@ -58,12 +58,12 @@ fn variants(
     })
 }
 
-fn effects(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Effect> {
+fn effects(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<PlayingEffect> {
     cx.read(|cx| workspace.read(cx).editor().read(cx).effects())
 }
 
-fn effect(kind: EffectKind, range: std::ops::Range<usize>) -> Effect {
-    Effect { kind, range }
+fn effect(effect: Effect, range: std::ops::Range<usize>) -> PlayingEffect {
+    PlayingEffect { effect, range }
 }
 
 fn strings(texts: &[&str]) -> Vec<String> {
@@ -87,7 +87,7 @@ fn ctrl_shift_backspace_in_a_slot_deletes_the_active_variant_and_the_next_shows(
     );
     assert_eq!(
         effects(&workspace, cx),
-        vec![effect(EffectKind::Explosion, 10..18)]
+        vec![effect(Effect::Explosion, 10..18)]
     );
 }
 
@@ -136,7 +136,7 @@ fn undo_puts_the_deleted_variant_back_as_active_with_a_burst(cx: &mut TestAppCon
     );
     assert_eq!(
         effects(&workspace, cx).last(),
-        Some(&effect(EffectKind::Burst, 10..16))
+        Some(&effect(Effect::UndoBurst, 10..16))
     );
 }
 

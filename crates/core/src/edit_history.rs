@@ -1,29 +1,35 @@
+//! Groups core edits into the undo steps the writer sees: consecutive typing or deleting at
+//! the cursor is one step.
+
 use std::ops::Range;
 
 /// What an edit was, for grouping into undo steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EditKind {
+pub enum EditKind {
     Typing,
     Deleting,
     OverflowTyping,
     OverflowDeleting,
+    /// An edit that joins no other.
     Other,
 }
 
 /// One undo step of the editor: `steps` core undo steps, and the selection around them.
-#[derive(Debug, Clone)]
-pub(crate) struct EditGroup {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditGroup {
     id: u64,
     kind: EditKind,
-    pub(crate) steps: usize,
-    pub(crate) before: Range<usize>,
-    pub(crate) after: Range<usize>,
+    /// How many core undo steps the group holds.
+    pub steps: usize,
+    /// Byte range of the selection before the first edit.
+    pub before: Range<usize>,
+    /// Byte range of the selection after the last edit.
+    pub after: Range<usize>,
 }
 
-/// Groups core edits into editor undo steps. Core undo is per edit; consecutive typing
-/// (or deleting) at the cursor is one step for the writer.
+/// The undo and redo stacks of editor undo steps. Core undo is per edit; this joins edits.
 #[derive(Debug, Default)]
-pub(crate) struct EditHistory {
+pub struct EditHistory {
     undo: Vec<EditGroup>,
     redo: Vec<EditGroup>,
     open: bool,
@@ -31,7 +37,10 @@ pub(crate) struct EditHistory {
 }
 
 impl EditHistory {
-    pub(crate) fn record(&mut self, kind: EditKind, before: Range<usize>, after: Range<usize>) {
+    /// Records one core undo step of `kind`. It joins the last group when that group is
+    /// open, has the same kind (not [`EditKind::Other`]), and ends where this edit starts.
+    /// The redo stack clears.
+    pub fn record(&mut self, kind: EditKind, before: Range<usize>, after: Range<usize>) {
         self.redo.clear();
         let open = self.open;
         let joins = |group: &&mut EditGroup| {
@@ -54,7 +63,7 @@ impl EditHistory {
     }
 
     /// Records `steps` core undo steps as one editor undo step that joins no other.
-    pub(crate) fn record_steps(&mut self, steps: usize, before: Range<usize>, after: Range<usize>) {
+    pub fn record_steps(&mut self, steps: usize, before: Range<usize>, after: Range<usize>) {
         self.close();
         self.record(EditKind::Other, before, after);
         if let Some(group) = self.undo.last_mut() {
@@ -63,25 +72,30 @@ impl EditHistory {
         self.close();
     }
 
-    /// The id of the last undo step; `None` when there is none. Equal ids: the same
+    /// The id of the last undo step; `None` when there is none. Equal ids mean the same
     /// Document state, so a save can mark it.
-    pub(crate) fn top(&self) -> Option<u64> {
+    #[must_use]
+    pub fn top(&self) -> Option<u64> {
         self.undo.last().map(|group| group.id)
     }
 
     /// Ends the current group: the next edit starts a new undo step.
-    pub(crate) fn close(&mut self) {
+    pub fn close(&mut self) {
         self.open = false;
     }
 
-    pub(crate) fn undo(&mut self) -> Option<EditGroup> {
+    /// Moves the last undo step to the redo stack and returns it. The caller undoes its
+    /// `steps` core steps. `None` when there is nothing to undo.
+    pub fn undo(&mut self) -> Option<EditGroup> {
         self.open = false;
         let group = self.undo.pop()?;
         self.redo.push(group.clone());
         Some(group)
     }
 
-    pub(crate) fn redo(&mut self) -> Option<EditGroup> {
+    /// Moves the last redo step back to the undo stack and returns it. The caller redoes its
+    /// `steps` core steps. `None` when there is nothing to redo.
+    pub fn redo(&mut self) -> Option<EditGroup> {
         self.open = false;
         let group = self.redo.pop()?;
         self.undo.push(group.clone());

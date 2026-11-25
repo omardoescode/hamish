@@ -5,7 +5,7 @@ use std::time::Duration;
 use app::{Ai, AiStatus, AlternativesPanel, Workspace};
 use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
 use ka_teb_core::{
-    AiAdapter, AiError, AiRequest, AiTrigger, Document, LabFinding, LabRequest, Level,
+    AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, Document, LabFinding, LabRequest, Level,
     LoadedSettings, Provenance, Settings, TrimRequest,
 };
 
@@ -16,7 +16,7 @@ struct FakeAdapter {
 }
 
 impl AiAdapter for FakeAdapter {
-    fn variants(&self, request: &AiRequest) -> Result<Vec<String>, AiError> {
+    fn variants(&self, request: &AiRequest, _cancel: &CancelToken) -> Result<Vec<String>, AiError> {
         if let Ok(mut requests) = self.requests.lock() {
             requests.push(request.clone());
         }
@@ -24,11 +24,47 @@ impl AiAdapter for FakeAdapter {
         Ok(texts.into_iter().map(str::to_owned).collect())
     }
 
-    fn lab_check(&self, _request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
         Ok(Vec::new())
     }
 
-    fn trim(&self, _request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
+        Ok(Vec::new())
+    }
+}
+
+/// Keeps the cancel token of each call and gives no Variant.
+struct CancelWatch(Arc<Mutex<Vec<CancelToken>>>);
+
+impl AiAdapter for CancelWatch {
+    fn variants(&self, _request: &AiRequest, cancel: &CancelToken) -> Result<Vec<String>, AiError> {
+        if let Ok(mut cancels) = self.0.lock() {
+            cancels.push(cancel.clone());
+        }
+        Ok(Vec::new())
+    }
+
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
+        Ok(Vec::new())
+    }
+
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
         Ok(Vec::new())
     }
 }
@@ -234,8 +270,8 @@ fn the_quick_fill_row_dances_while_the_ai_works(cx: &mut TestAppContext) {
     press(cx, "?");
     cx.update(|window, _| window.refresh());
 
-    assert!(cx.debug_bounds("alternatives-quick-fill").is_some());
-    assert!(cx.debug_bounds("alternatives-quick-fill-still").is_none());
+    assert!(cx.debug_bounds("alternatives-loading").is_some());
+    assert!(cx.debug_bounds("alternatives-loading-still").is_none());
 }
 
 #[gpui::test]
@@ -252,7 +288,7 @@ fn with_reduced_motion_the_quick_fill_row_shows_a_still_question_mark_pair(
     press(cx, "?");
     cx.update(|window, _| window.refresh());
 
-    assert!(cx.debug_bounds("alternatives-quick-fill-still").is_some());
+    assert!(cx.debug_bounds("alternatives-loading-still").is_some());
 }
 
 #[gpui::test]
@@ -315,4 +351,28 @@ fn quick_fill_works_on_text_with_no_slot_yet_at_sentence_level(cx: &mut TestAppC
         .ok()
         .and_then(|requests| requests.first().map(AiRequest::level));
     assert_eq!(level, Some(Level::Sentence));
+}
+
+#[gpui::test]
+fn escape_while_the_row_dances_cancels_the_ai_call(cx: &mut TestAppContext) {
+    let (_workspace, cx, _) = open(cx, Ok(DEMO.to_vec()));
+    let cancels = Arc::new(Mutex::new(Vec::new()));
+    let watch = CancelWatch(Arc::clone(&cancels));
+    cx.update(|_, cx| cx.set_global(Ai(Arc::new(watch))));
+    press(cx, "?");
+    press(cx, "?");
+    let called = || cancels.lock().map_or(0, |cancels| cancels.len()) > 0;
+    while !called() && cx.executor().tick() {}
+    let token = cancels
+        .lock()
+        .ok()
+        .and_then(|cancels| cancels.first().cloned());
+    let Some(token) = token else {
+        panic!("the AI was called");
+    };
+    assert!(!token.is_cancelled());
+
+    press(cx, "escape");
+
+    assert!(token.is_cancelled());
 }

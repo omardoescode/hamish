@@ -1,3 +1,5 @@
+//! The `claude -p` AI backend (ADR 0004): prompts, the subprocess, and its structured answer.
+
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -9,7 +11,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use super::{AiAdapter, AiError, AiRequest, AiTrigger};
+use super::{AiAdapter, AiError, AiRequest, AiTrigger, CancelToken};
 use crate::{Counter, LabCheck, LabFinding, LabRequest, Level, TrimRequest};
 
 /// Asks for an object with a non-empty list of Variant texts.
@@ -79,8 +81,13 @@ impl ClaudeBackend {
 
     /// Runs `claude` with `prompt` on stdin and the answer shape `schema`, and reads
     /// its structured answer.
-    fn ask<T: DeserializeOwned>(&self, prompt: String, schema: &str) -> Result<T, AiError> {
-        let (status, stdout, stderr) = self.run(prompt, schema)?;
+    fn ask<T: DeserializeOwned>(
+        &self,
+        prompt: String,
+        schema: &str,
+        cancel: &CancelToken,
+    ) -> Result<T, AiError> {
+        let (status, stdout, stderr) = self.run(prompt, schema, cancel)?;
         if status.success() {
             return parse(&stdout);
         }
@@ -97,7 +104,16 @@ impl ClaudeBackend {
     }
 
     /// Runs `claude` with `prompt` on stdin. Returns its exit status, stdout, and stderr.
-    fn run(&self, prompt: String, schema: &str) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), AiError> {
+    /// A timeout or a cancel kills the child.
+    fn run(
+        &self,
+        prompt: String,
+        schema: &str,
+        cancel: &CancelToken,
+    ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), AiError> {
+        if cancel.is_cancelled() {
+            return Err(AiError::Cancelled);
+        }
         let mut child = self
             .spawn(schema)
             .map_err(|error| AiError::Start(error.to_string()))?;
@@ -109,6 +125,10 @@ impl ClaudeBackend {
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break status,
+                Ok(None) if cancel.is_cancelled() => {
+                    stop(&mut child);
+                    return Err(AiError::Cancelled);
+                }
                 Ok(None) if Instant::now() >= deadline => {
                     stop(&mut child);
                     return Err(AiError::Timeout(self.timeout));
@@ -134,8 +154,8 @@ impl Default for ClaudeBackend {
 }
 
 impl AiAdapter for ClaudeBackend {
-    fn variants(&self, request: &AiRequest) -> Result<Vec<String>, AiError> {
-        let answer: Variants = self.ask(prompt(request), VARIANTS_SCHEMA)?;
+    fn variants(&self, request: &AiRequest, cancel: &CancelToken) -> Result<Vec<String>, AiError> {
+        let answer: Variants = self.ask(prompt(request), VARIANTS_SCHEMA, cancel)?;
         let variants: Vec<String> = answer
             .variants
             .iter()
@@ -148,13 +168,21 @@ impl AiAdapter for ClaudeBackend {
         Ok(variants)
     }
 
-    fn lab_check(&self, request: &LabRequest) -> Result<Vec<LabFinding>, AiError> {
-        let answer: Marks = self.ask(lab_prompt(request), LAB_SCHEMA)?;
+    fn lab_check(
+        &self,
+        request: &LabRequest,
+        cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
+        let answer: Marks = self.ask(lab_prompt(request), LAB_SCHEMA, cancel)?;
         Ok(findings(request.text(), answer.marks))
     }
 
-    fn trim(&self, request: &TrimRequest) -> Result<Vec<Range<usize>>, AiError> {
-        let answer: Cuts = self.ask(trim_prompt(request), TRIM_SCHEMA)?;
+    fn trim(
+        &self,
+        request: &TrimRequest,
+        cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
+        let answer: Cuts = self.ask(trim_prompt(request), TRIM_SCHEMA, cancel)?;
         Ok(cut_ranges(request.text(), answer.cuts))
     }
 }

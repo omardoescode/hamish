@@ -1,10 +1,44 @@
+use std::ops::Range;
+use std::sync::Arc;
 use std::time::Duration;
 
-use app::Workspace;
+use app::{Ai, AiAlternatives, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings, SlotId};
+use ka_teb_core::{
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
+    LoadedSettings, Provenance, Settings, SlotId, TrimRequest,
+};
+
+/// Gives two fixed Variant texts, as an AI backend would.
+struct FakeAdapter;
+
+impl AiAdapter for FakeAdapter {
+    fn variants(
+        &self,
+        _request: &AiRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<String>, AiError> {
+        Ok(vec!["stress".to_owned(), "pull".to_owned()])
+    }
+
+    fn lab_check(
+        &self,
+        _request: &LabRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<LabFinding>, AiError> {
+        Ok(Vec::new())
+    }
+
+    fn trim(
+        &self,
+        _request: &TrimRequest,
+        _cancel: &CancelToken,
+    ) -> Result<Vec<Range<usize>>, AiError> {
+        Ok(Vec::new())
+    }
+}
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
 fn open(
@@ -17,6 +51,7 @@ fn open(
         problem: None,
     };
     cx.update(|cx| app::use_settings(None, loaded, cx));
+    cx.update(|cx| cx.set_global(Ai(Arc::new(FakeAdapter))));
     let mut document = Document::new("Title\nIt is a tension here.");
     let slot = document
         .create_slot(14..21, Level::Word, "struggle", Provenance::Writer)
@@ -145,4 +180,32 @@ fn undo_of_a_variant_delete_fades_the_text_in_after_the_burst(cx: &mut TestAppCo
     wait(cx, 75);
     let (_, opacity) = fading_in(&workspace, cx).unwrap();
     assert!((opacity - 0.6).abs() < 1e-3, "{opacity}");
+}
+
+#[gpui::test]
+fn ai_variants_added_to_a_slot_start_no_fade(cx: &mut TestAppContext) {
+    let (workspace, _, cx) = open(cx, Settings::default());
+
+    cx.simulate_keystrokes("down right right right right right right right right right");
+    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+    cx.run_until_parked();
+
+    let count = cx.read(|cx| {
+        let document = workspace.read(cx).editor().read(cx).document();
+        document.slots().first().map(|slot| slot.variants.len())
+    });
+    assert_eq!(count, Some(5));
+    assert_eq!(fading_in(&workspace, cx), None);
+}
+
+#[gpui::test]
+fn a_quick_fill_on_a_slot_starts_no_fade(cx: &mut TestAppContext) {
+    let (workspace, _, cx) = open(cx, Settings::default());
+
+    cx.simulate_keystrokes("down right right right right right right right right right");
+    cx.simulate_keystrokes("ctrl-shift-a");
+    cx.simulate_input("??");
+    cx.run_until_parked();
+
+    assert_eq!(fading_in(&workspace, cx), None);
 }

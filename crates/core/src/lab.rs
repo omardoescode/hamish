@@ -1,3 +1,5 @@
+//! Lab checks and Lab marks: requests, findings, and how marks follow text edits.
+
 use std::fmt;
 use std::ops::Range;
 
@@ -5,11 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Document, RangeError};
 
-/// A Lab check: a rule the AI marks matching text for (FR-51).
+/// A Lab check: a rule the AI marks matching text for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LabCheck {
-    /// Fix punctuation and typos: marks carry a proposed fix (FR-53).
+    /// Fix punctuation and typos: marks carry a proposed fix.
     PunctuationTypos,
     WeakestSentences,
     LongSentences,
@@ -19,7 +21,7 @@ pub enum LabCheck {
 }
 
 impl LabCheck {
-    /// The checks in the order the Lab lists them (FR-51).
+    /// The checks in the order the Lab lists them.
     pub const ALL: [Self; 6] = [
         Self::PunctuationTypos,
         Self::WeakestSentences,
@@ -30,7 +32,7 @@ impl LabCheck {
     ];
 }
 
-/// What the AI gets for a Lab check: the check and the whole active text (FR-52).
+/// What the AI gets for a Lab check: the check and the whole active text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabRequest {
     check: LabCheck,
@@ -38,6 +40,7 @@ pub struct LabRequest {
 }
 
 impl LabRequest {
+    /// The Lab check to run.
     #[must_use]
     pub fn check(&self) -> LabCheck {
         self.check
@@ -163,7 +166,7 @@ impl Document {
         }
     }
 
-    /// Marks the ranges of `findings` as one undoable step. The text stays (FR-52).
+    /// Marks the ranges of `findings` as one undoable step. The text stays.
     /// The open marks of the same check end. A finding with an empty range or one that is
     /// not a valid range of the text is dropped. Returns the new marks in `findings` order.
     ///
