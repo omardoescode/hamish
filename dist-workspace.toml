@@ -13,6 +13,8 @@ installers = []
 targets = ["x86_64-unknown-linux-gnu"]
 # Where to host releases
 hosting = "github"
+# Release workflow runs on version tags only (no PR runs; saves CI minutes)
+pr-run-mode = "skip"
 
 # GPUI build libraries (Linux): xkbcommon-x11, wayland-client, fontconfig, freetype
 [dist.dependencies.apt]
