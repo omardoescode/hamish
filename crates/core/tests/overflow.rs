@@ -95,3 +95,62 @@ fn stash_of_a_range_that_holds_a_slot_moves_its_active_text_and_undo_brings_the_
     assert!(document.undo());
     assert_eq!(document.slot(id).map(|slot| slot.range), Some(13..17));
 }
+
+#[test]
+fn blank_lines_split_overflow_into_blocks() {
+    let mut document = Document::new("Body.");
+    document
+        .edit_overflow(0..0, "\n first\nstill first\n\n \n\nsecond\n")
+        .unwrap();
+    assert_eq!(document.overflow().blocks(), [1..19, 24..30]);
+}
+
+#[test]
+fn use_block_inserts_the_block_text_and_keeps_it_in_overflow() {
+    let mut document = Document::new("Start. End.");
+    document
+        .edit_overflow(0..0, "a note\n\nMiddle line one.\nMiddle line two. \n")
+        .unwrap();
+    document.use_block(20, 7).unwrap();
+    assert_eq!(
+        document.text(),
+        "Start. Middle line one.\nMiddle line two. End."
+    );
+    assert_eq!(
+        document.overflow().text(),
+        "a note\n\nMiddle line one.\nMiddle line two. \n"
+    );
+}
+
+#[test]
+fn use_block_takes_the_block_the_caret_is_in_or_at_the_end_of() {
+    let mut document = Document::new("Body.");
+    document.edit_overflow(0..0, "one\n\ntwo").unwrap();
+    document.use_block(3, 0).unwrap();
+    document.use_block(5, 0).unwrap();
+    assert_eq!(document.text(), "twooneBody.");
+}
+
+#[test]
+fn use_block_outside_a_block_is_refused() {
+    let mut document = Document::new("Body.");
+    document.edit_overflow(0..0, "one\n\n\ntwo").unwrap();
+    assert_eq!(document.use_block(4, 0), Err(OverflowError::NoBlock(4)));
+    assert!(matches!(
+        document.use_block(0, 9),
+        Err(OverflowError::Range(_))
+    ));
+    assert_eq!(document.text(), "Body.");
+}
+
+#[test]
+fn use_block_is_one_undo_step() {
+    let mut document = Document::new("Body.");
+    document.edit_overflow(0..0, "Lead. ").unwrap();
+    document.use_block(0, 0).unwrap();
+    assert!(document.undo());
+    assert_eq!(document.text(), "Body.");
+    assert_eq!(document.overflow().text(), "Lead. ");
+    assert!(document.redo());
+    assert_eq!(document.text(), "Lead. Body.");
+}

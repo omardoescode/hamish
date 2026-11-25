@@ -71,6 +71,10 @@ _Avoid_: Unghost, restore
 The right-side panel that holds extra text near the Document, outside the main text.
 _Avoid_: Scratchpad, notes, clipboard
 
+**Overflow block**:
+A run of lines in Overflow that are not blank. Blank lines split blocks. Using a block puts a copy of its text into the Document.
+_Avoid_: Item, chunk
+
 **Stash**:
 Move (not copy) a selection from the Document to the end of Overflow.
 _Avoid_: Cut, park

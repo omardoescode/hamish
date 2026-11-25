@@ -1,8 +1,10 @@
 use std::fmt;
+use std::ops::Range;
 
 use crate::RangeError;
 
 /// The free text the writer keeps near the Document, outside the main text.
+/// Blank lines (empty or whitespace only) split it into blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Overflow {
     text: String,
@@ -13,6 +15,8 @@ pub struct Overflow {
 pub enum OverflowError {
     Range(RangeError),
     EmptyRange,
+    /// No block holds this Overflow offset.
+    NoBlock(usize),
 }
 
 impl fmt::Display for OverflowError {
@@ -20,6 +24,7 @@ impl fmt::Display for OverflowError {
         match self {
             Self::Range(error) => error.fmt(f),
             Self::EmptyRange => f.write_str("a Stash needs a non-empty range"),
+            Self::NoBlock(at) => write!(f, "no Overflow block at {at}"),
         }
     }
 }
@@ -36,6 +41,38 @@ impl Overflow {
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// The blocks in order, as byte ranges of [`Overflow::text`]: each a run of lines that
+    /// are not blank, from the start of its first line to the end of its last, newline excluded.
+    #[must_use]
+    pub fn blocks(&self) -> Vec<Range<usize>> {
+        let mut blocks: Vec<Range<usize>> = Vec::new();
+        let mut open = false;
+        let mut start = 0;
+        for line in self.text.split_inclusive('\n') {
+            let content = line.trim_end_matches(['\n', '\r']);
+            let range = start..start + content.len();
+            start += line.len();
+            let blank = content.trim().is_empty();
+            match (blank, open, blocks.last_mut()) {
+                (true, ..) => open = false,
+                (false, true, Some(block)) => block.end = range.end,
+                (false, ..) => {
+                    blocks.push(range);
+                    open = true;
+                }
+            }
+        }
+        blocks
+    }
+
+    /// The text of the block that holds offset `at`, on its end included.
+    pub(crate) fn block_at(&self, at: usize) -> Option<&str> {
+        self.blocks()
+            .into_iter()
+            .find(|block| block.start <= at && at <= block.end)
+            .and_then(|block| self.text.get(block))
     }
 
     pub(crate) fn text_mut(&mut self) -> &mut String {

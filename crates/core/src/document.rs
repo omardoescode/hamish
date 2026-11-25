@@ -543,6 +543,23 @@ impl Document {
         Ok(())
     }
 
+    /// Uses an Overflow block (FR-47): inserts the text of the block that holds Overflow
+    /// offset `caret` (on its end included) at `at` in the Document, as one undoable step.
+    /// The block stays in Overflow.
+    ///
+    /// # Errors
+    /// [`OverflowError::NoBlock`] when no block holds `caret`,
+    /// [`OverflowError::Range`] when `at` is out of bounds or not on a char boundary.
+    pub fn use_block(&mut self, caret: usize, at: usize) -> Result<(), OverflowError> {
+        let block = self
+            .overflow
+            .block_at(caret)
+            .ok_or(OverflowError::NoBlock(caret))?
+            .to_owned();
+        self.insert(at, &block)?;
+        Ok(())
+    }
+
     /// Reverts the last step. `false` when there is nothing to undo.
     pub fn undo(&mut self) -> bool {
         let Some(step) = self.undo_steps.pop() else {
