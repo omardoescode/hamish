@@ -202,7 +202,7 @@ fn ctrl_return_puts_the_block_at_the_caret_into_the_document(cx: &mut TestAppCon
 
     cx.simulate_keystrokes("down end ctrl-shift-o ctrl-a right ctrl-enter");
 
-    assert_eq!(text(&workspace, cx), "Title\nBody.second block");
+    assert_eq!(text(&workspace, cx), "Title\nBody. second block");
     assert_eq!(overflow(&workspace, cx), "first block\n\nsecond block");
 }
 

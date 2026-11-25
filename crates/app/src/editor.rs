@@ -570,7 +570,7 @@ impl Editor {
     ) -> bool {
         self.drop_target = None;
         let at = caret::offset_at(self, position, cx);
-        self.insert_overflow_block(at, |document| document.drop_block(caret, at), cx)
+        self.insert_overflow_block(at, |document| document.use_block(caret, at), cx)
     }
 
     /// Where a dragged Overflow block goes in if it drops now; `None` with no drag over
