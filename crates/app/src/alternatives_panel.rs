@@ -496,7 +496,7 @@ impl AlternativesPanel {
             return;
         }
         let draft = self.draft.clone();
-        let added = match self.target.clone() {
+        let switched = match self.target.clone() {
             Target::Slot(id) => self
                 .editor
                 .update(cx, |editor, cx| {
@@ -512,7 +512,7 @@ impl AlternativesPanel {
                         cx,
                     )
                 })
-                .is_ok(),
+                .ok(),
             Target::Text { range, level } => {
                 let created = self.editor.update(cx, |editor, cx| {
                     editor.change_document_in_steps(
@@ -520,18 +520,22 @@ impl AlternativesPanel {
                         |document| {
                             let id =
                                 document.create_slot(range, level, &draft, Provenance::Writer)?;
-                            document.set_active(id, 1).map(|_switch| id)
+                            document.set_active(id, 1).map(|switch| (id, switch))
                         },
                         cx,
                     )
                 });
                 created
-                    .map(|id| self.set_target(Target::Slot(id), cx))
-                    .is_ok()
+                    .map(|(id, switch)| {
+                        self.set_target(Target::Slot(id), cx);
+                        switch
+                    })
+                    .ok()
             }
-            Target::Nothing => false,
+            Target::Nothing => None,
         };
-        if added {
+        if let Some(switch) = switched {
+            sounds::play(switch.sound(), cx);
             self.draft.clear();
             self.sync_preview(cx);
             self.row = self.rows(cx).len();
