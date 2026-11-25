@@ -288,6 +288,38 @@ impl Document {
         texts: &[&str],
         provenance: Provenance,
     ) -> Result<SlotId, SlotError> {
+        let (id, tree) = self.placed_slot(range.clone(), level, texts, provenance)?;
+        self.commit(range.start..range.start, "", tree)?;
+        self.next_slot = id.next();
+        Ok(id)
+    }
+
+    /// Makes a Slot over `range` with `text` as the Active variant after the Original, as
+    /// one undoable step, with Article agreement as in [`Document::set_active`].
+    ///
+    /// # Errors
+    /// As [`Document::create_slot`].
+    pub fn create_active_slot(
+        &mut self,
+        range: Range<usize>,
+        level: Level,
+        text: &str,
+        provenance: Provenance,
+    ) -> Result<SlotId, SlotError> {
+        let (id, tree) = self.placed_slot(range, level, &[text], provenance)?;
+        self.change_slot_in(tree, id, SlotChange::Switch, |node| node.set_active(1))?;
+        self.next_slot = id.next();
+        Ok(id)
+    }
+
+    /// The Slots, Ghost ranges, and Overflow with a new Slot over `range` placed, and its id.
+    fn placed_slot(
+        &self,
+        range: Range<usize>,
+        level: Level,
+        texts: &[&str],
+        provenance: Provenance,
+    ) -> Result<(SlotId, Tree), SlotError> {
         let original = self.text.get(range.clone()).ok_or(RangeError {
             range: range.clone(),
         })?;
@@ -308,9 +340,7 @@ impl Document {
         let mut slots = self.slots.clone();
         let mut ghosts = self.ghosts.clone();
         slot::place(&mut slots, &mut ghosts, node)?;
-        self.commit(range.start..range.start, "", self.tree(slots, ghosts))?;
-        self.next_slot = id.next();
-        Ok(id)
+        Ok((id, self.tree(slots, ghosts)))
     }
 
     /// Adds a Variant at the end of Slot `id`. The Active variant stays.
@@ -355,6 +385,24 @@ impl Document {
     pub fn set_active(&mut self, id: SlotId, index: usize) -> Result<Switch, SlotError> {
         self.change_slot(id, SlotChange::Switch, |node| node.set_active(index))?;
         Ok(Switch::to(index))
+    }
+
+    /// Adds a Variant at the end of Slot `id` and makes it the Active variant, as one
+    /// undoable step, with Article agreement as in [`Document::set_active`].
+    ///
+    /// # Errors
+    /// [`SlotError::NoSlot`] when `id` is not a visible Slot.
+    pub fn add_active_variant(
+        &mut self,
+        id: SlotId,
+        text: &str,
+        provenance: Provenance,
+    ) -> Result<Switch, SlotError> {
+        self.change_slot(id, SlotChange::Switch, |node| {
+            node.push_variant(text, provenance);
+            node.set_active(node.variants.len().saturating_sub(1))
+        })?;
+        Ok(Switch::ToVariant)
     }
 
     /// Moves the Active variant of Slot `id` one step.
@@ -419,7 +467,24 @@ impl Document {
         kind: SlotChange,
         change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
     ) -> Result<Option<Range<usize>>, SlotError> {
-        let mut slots = self.slots.clone();
+        let tree = self.tree(self.slots.clone(), self.ghosts.clone());
+        self.change_slot_in(tree, id, kind, change)
+    }
+
+    /// Like [`Self::change_slot`], on the Slots and Ghost ranges of `tree` in place of the
+    /// current ones.
+    fn change_slot_in(
+        &mut self,
+        tree: Tree,
+        id: SlotId,
+        kind: SlotChange,
+        change: impl FnOnce(&mut SlotNode) -> Result<(), SlotError>,
+    ) -> Result<Option<Range<usize>>, SlotError> {
+        let Tree {
+            mut slots,
+            mut ghosts,
+            ..
+        } = tree;
         let (node, base) = slot::find_mut(&mut slots, id, 0).ok_or(SlotError::NoSlot(id))?;
         let old = base + node.range.start..base + node.range.end;
         change(node)?;
@@ -429,7 +494,6 @@ impl Document {
         let writer_edit = kind == SlotChange::WriterText && shown_changed;
         let agrees = node.level == Level::Word && shown_changed;
         let ends = node.variants.len() < 2;
-        let mut ghosts = self.ghosts.clone();
         slot::shift(
             &mut slots,
             &mut ghosts,

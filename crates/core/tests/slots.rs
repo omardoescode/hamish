@@ -951,3 +951,36 @@ fn slot_over_a_range_is_the_innermost_slot_that_holds_all_of_it() {
         assert_eq!(document.slot_over(&range), expected, "range {range:?}");
     }
 }
+
+#[test]
+fn an_added_active_variant_shows_at_once_as_one_undo_step() {
+    let mut document = Document::new("It is a thumbtack here.");
+    let id = document
+        .create_slot(8..17, Level::Word, "pin", Provenance::Writer)
+        .unwrap();
+    assert_eq!(
+        document.add_active_variant(id, "eraser", Provenance::Writer),
+        Ok(Switch::ToVariant)
+    );
+    assert_eq!(document.text(), "It is an eraser here.");
+    assert_eq!(variant_texts(&document, id), ["thumbtack", "pin", "eraser"]);
+    assert_eq!(document.slot(id).unwrap().active, 2);
+    assert!(document.undo());
+    assert_eq!(document.text(), "It is a thumbtack here.");
+    assert_eq!(variant_texts(&document, id), ["thumbtack", "pin"]);
+}
+
+#[test]
+fn a_slot_made_with_its_new_variant_active_shows_it_as_one_undo_step() {
+    let mut document = Document::new("It is a thumbtack here.");
+    let id = document
+        .create_active_slot(8..17, Level::Word, "eraser", Provenance::Writer)
+        .unwrap();
+    assert_eq!(document.text(), "It is an eraser here.");
+    let slot = document.slot(id).unwrap();
+    assert_eq!((slot.range.clone(), slot.active), (9..15, 1));
+    assert_eq!(variant_texts(&document, id), ["thumbtack", "eraser"]);
+    assert!(document.undo());
+    assert_eq!(document.text(), "It is a thumbtack here.");
+    assert!(document.slot(id).is_none());
+}

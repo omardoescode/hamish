@@ -11,7 +11,7 @@ use gpui::{
     Modifiers, Render, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
 use ka_teb_core::{
-    AiError, AiRequest, AiTrigger, CancelToken, Effect, Level, Provenance, SlotId,
+    AiError, AiRequest, AiTrigger, CancelToken, Effect, Level, Provenance, SlotId, Switch,
     paragraph_around, sentence_around,
 };
 
@@ -513,13 +513,7 @@ impl AlternativesPanel {
                 .editor
                 .update(cx, |editor, cx| {
                     editor.change_document(
-                        |document| {
-                            document.add_variant(id, &draft, Provenance::Writer)?;
-                            let last = document
-                                .slot(id)
-                                .map_or(0, |slot| slot.variants.len().saturating_sub(1));
-                            document.set_active(id, last)
-                        },
+                        |document| document.add_active_variant(id, &draft, Provenance::Writer),
                         cx,
                     )
                 })
@@ -528,17 +522,15 @@ impl AlternativesPanel {
                 let created = self.editor.update(cx, |editor, cx| {
                     editor.change_document(
                         |document| {
-                            let id =
-                                document.create_slot(range, level, &draft, Provenance::Writer)?;
-                            document.set_active(id, 1).map(|switch| (id, switch))
+                            document.create_active_slot(range, level, &draft, Provenance::Writer)
                         },
                         cx,
                     )
                 });
                 created
-                    .map(|(id, switch)| {
+                    .map(|id| {
                         self.set_target(Target::Slot(id), cx);
-                        switch
+                        Switch::ToVariant
                     })
                     .ok()
             }
