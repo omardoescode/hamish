@@ -12,7 +12,7 @@
 | `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
 | `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). It keeps the Document `Caret` and makes its `CaretEdit`s. The Editor and all views change the Document only through it. |
 | `crates/core/src/caret.rs` | `Caret`: selection, caret end, input method composed text over a plain text. Grapheme moves (`Motion`), edits at the caret (`CaretEdit`), clamp to a changed text, UTF-16 ranges (`utf16_range`, `byte_range`), `follow_change`. No pixels. |
-| `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`. |
+| `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`; edits in the Document text and in Overflow never join. `EditKind`: Typing, Deleting, Other. |
 | `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time (FR-83, issue #32). |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples (issue #27). |
 | `crates/core/src/markdown.rs` | Markdown styles of the active text (pulldown-cmark, byte ranges). |
@@ -25,6 +25,11 @@
 | `crates/app/src/effects.rs` | `EffectPlayer`: the particle Effects of one view (Editor, Alternatives panel); `PlayingEffect` (a core `Effect` at a text range); paints the Explosion and the Undo burst. |
 | `crates/app/src/alternatives_panel.rs` | Alternatives panel: Variant rows, live preview of the empty row (FR-68), Quick fill (FR-69 to FR-73, FR-82). |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `ka-teb`. |
+| `crates/app/src/editor.rs` | `Editor` entity: view state (hover, Markers, preview, spotlight, fade-in, Effects), its actions, `EditorEvent`s, `CaretView` adapter. |
+| `crates/app/src/editor/painted_text.rs` | `PaintedText`: the text as last painted (`shape`, positions, offsets, rows, selection quads). Shared by the Editor, Overflow and `CaretView`. |
+| `crates/app/src/editor/runs.rs` | Editor text runs: styled spans (title, Slot, Ghost, Trim cut, Markdown, dim), heading sizes, fade-in. |
+| `crates/app/src/editor/pen.rs` | Slot underlines as pen strokes: rows, wobble seeded per Slot. |
+| `crates/app/src/editor/element.rs` | `EditorElement`: layout, prepaint, paint; Markers, hover box, Lab marks, Slot hit test. |
 | `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
 | `crates/app/src/settings.rs` | Settings global: `use_settings`, `is_on` (how views read a setting), the start notice. |
 | `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, save on the background executor. |
