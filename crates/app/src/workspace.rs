@@ -2,10 +2,10 @@
 //! actions between them.
 
 use gpui::{
-    Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div, linear_color_stop,
-    linear_gradient, prelude::*, px,
+    App, Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div,
+    linear_color_stop, linear_gradient, prelude::*, px,
 };
-use ka_teb_core::{Document, SlotId};
+use ka_teb_core::{Document, SlotId, document_title};
 
 use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;
@@ -18,7 +18,7 @@ use crate::settings;
 use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
-/// The root view: the text column, the Counter, and the Chrome.
+/// The root view: the text column, the Document title, the Counter, and the Chrome.
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
@@ -29,6 +29,8 @@ pub struct Workspace {
     overflow_open: bool,
     pub(crate) settings_modal: Entity<SettingsModal>,
     pub(crate) settings_open: bool,
+    /// The title last set on the window, so a frame sets it only when it changes.
+    window_title: String,
     _editor_changes: Subscription,
     _settings_saves: Subscription,
     _editor_events: Subscription,
@@ -66,6 +68,7 @@ impl Workspace {
             overflow_open: false,
             settings_modal,
             settings_open: false,
+            window_title: String::new(),
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
             _editor_events: editor_events,
@@ -81,6 +84,18 @@ impl Workspace {
     #[must_use]
     pub fn lab(&self) -> &Entity<Lab> {
         &self.lab
+    }
+
+    /// The Document title at the top center and on the window, with " •" while unsaved.
+    #[must_use]
+    pub fn title_label(&self, cx: &App) -> String {
+        let editor = self.editor.read(cx);
+        let title = document_title(self.document_path(), editor.document());
+        if editor.is_unsaved() {
+            format!("{title} •")
+        } else {
+            title
+        }
     }
 
     /// Hidden on open; a click on the Counter toggles it.
@@ -214,10 +229,43 @@ fn to_lab<A: 'static>(
     move |action, window, cx| lab.update(cx, |lab, cx| handle(lab, action, window, cx))
 }
 
+/// The Document title, small at the top center.
+fn title_view(label: String, theme: &Theme) -> impl IntoElement {
+    div()
+        .absolute()
+        .top(px(22.))
+        .left_0()
+        .right_0()
+        .flex()
+        .justify_center()
+        .text_size(theme.font_size_hint)
+        .text_color(theme.text_muted)
+        .child(label)
+}
+
+/// The Counter, top left; a click toggles the Chrome.
+fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
+    div()
+        .id("counter")
+        .absolute()
+        .top(px(22.))
+        .left(px(24.))
+        .text_size(theme.font_size_hint)
+        .text_color(theme.text_muted)
+        .cursor_pointer()
+        .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
+        .child(label)
+}
+
 impl Render for Workspace {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
         let counter_label = self.editor.read(cx).counter_label();
+        let title_label = self.title_label(cx);
+        if title_label != self.window_title {
+            window.set_window_title(&title_label);
+            self.window_title.clone_from(&title_label);
+        }
         let fade = |angle| {
             linear_gradient(
                 angle,
@@ -272,18 +320,8 @@ impl Render for Workspace {
             .when_some(self.alternatives_panel().cloned(), |workspace, panel| {
                 workspace.child(panel)
             })
-            .child(
-                div()
-                    .id("counter")
-                    .absolute()
-                    .top(px(22.))
-                    .left(px(24.))
-                    .text_size(theme.font_size_hint)
-                    .text_color(theme.text_faint)
-                    .cursor_pointer()
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleChrome), cx))
-                    .child(counter_label),
-            )
+            .child(title_view(title_label, &theme))
+            .child(counter_view(counter_label, &theme))
             .when(self.chrome_visible, |workspace| {
                 workspace.child(
                     div()
