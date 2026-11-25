@@ -221,7 +221,7 @@ fn the_rows_of_a_font_select_have_one_height(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_change_saves_to_the_settings_file(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ka-teb").join("settings.json");
+    let path = dir.path().join("ketab").join("settings.json");
     let (_, cx) = open_with_file(cx, path.clone());
 
     cx.simulate_keystrokes("ctrl-,");

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use app::{Notice, Workspace};
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
 use ka_teb_core::{Document, Dropped, Level, Provenance};
 use tempfile::TempDir;
 
@@ -248,4 +248,57 @@ fn ctrl_o_with_unsaved_changes_asks_first_and_cancel_keeps_the_document(cx: &mut
 
     assert_eq!(text(&workspace, cx), "Title!");
     assert!(unsaved(&workspace, cx));
+}
+
+#[expect(clippy::unwrap_used, reason = "test fixture")]
+fn press_without_waiting(cx: &mut VisualTestContext, keystroke: &str) {
+    let keystroke = Keystroke::parse(keystroke).unwrap();
+    cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
+}
+
+#[gpui::test(iterations = 50)]
+fn a_save_that_ends_after_ctrl_n_leaves_the_new_document_untitled(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("draft.md");
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    save_new(cx, &path);
+
+    press_without_waiting(cx, "ctrl-s");
+    press_without_waiting(cx, "ctrl-n");
+    cx.run_until_parked();
+
+    assert_eq!(text(&workspace, cx), "");
+    assert_eq!(
+        cx.read(|cx| workspace.read(cx).document_path().map(Path::to_owned)),
+        None
+    );
+    cx.simulate_keystrokes("x ctrl-s");
+    assert!(cx.did_prompt_for_new_path(), "Save As dialog is open");
+}
+
+#[gpui::test(iterations = 50)]
+fn a_save_that_ends_after_an_open_keeps_the_opened_path(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let draft = dir.path().join("draft.md");
+    let other = dir.path().join("other.md");
+    Document::new("Other").save(&other).unwrap();
+    let (workspace, cx) = open(cx, Document::new("Title"));
+    save_new(cx, &draft);
+    cx.simulate_keystrokes("end !");
+
+    press_without_waiting(cx, "ctrl-s");
+    let opened = other.clone();
+    cx.update(|_, cx| workspace.update(cx, |workspace, cx| workspace.open_path(opened, cx)));
+    cx.run_until_parked();
+
+    assert_eq!(text(&workspace, cx), "Other");
+    assert_eq!(
+        cx.read(|cx| workspace.read(cx).document_path().map(Path::to_owned)),
+        Some(other.clone())
+    );
+    assert!(!unsaved(&workspace, cx));
+    cx.simulate_keystrokes("end ? ctrl-s");
+    cx.run_until_parked();
+    assert_eq!(Document::open(&draft).unwrap().document.text(), "Title!");
+    assert_eq!(Document::open(&other).unwrap().document.text(), "Other?");
 }

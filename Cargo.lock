@@ -89,16 +89,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "cpal",
- "gpui",
- "ka-teb-core",
- "tempfile",
-]
-
-[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2925,6 +2915,16 @@ checksum = "ec48937a97411dcb524a265206ccd4c90bb711fca92b2792c407f268825b9305"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "ka-teb"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "gpui",
+ "ka-teb-core",
+ "tempfile",
 ]
 
 [[package]]

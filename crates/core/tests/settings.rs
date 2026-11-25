@@ -7,7 +7,7 @@ use ka_teb_core::{Setting, Settings, ThemeName, Toggle, contrast_ratio, settings
 fn the_settings_file_is_in_xdg_config_home() {
     assert_eq!(
         settings_path(Some("/cfg".as_ref()), Some(Path::new("/home/w"))),
-        Some(PathBuf::from("/cfg/ka-teb/settings.json"))
+        Some(PathBuf::from("/cfg/ketab/settings.json"))
     );
 }
 
@@ -15,14 +15,14 @@ fn the_settings_file_is_in_xdg_config_home() {
 fn without_xdg_config_home_the_settings_file_is_in_dot_config() {
     assert_eq!(
         settings_path(None, Some(Path::new("/home/w"))),
-        Some(PathBuf::from("/home/w/.config/ka-teb/settings.json"))
+        Some(PathBuf::from("/home/w/.config/ketab/settings.json"))
     );
 }
 
 #[test]
 fn a_relative_or_empty_xdg_config_home_is_ignored() {
     let home = Some(Path::new("/home/w"));
-    let expected = Some(PathBuf::from("/home/w/.config/ka-teb/settings.json"));
+    let expected = Some(PathBuf::from("/home/w/.config/ketab/settings.json"));
     assert_eq!(settings_path(Some("cfg".as_ref()), home), expected);
     assert_eq!(settings_path(Some("".as_ref()), home), expected);
     assert_eq!(settings_path(None, None), None);
@@ -44,7 +44,7 @@ fn defaults_are_the_ka_teb_theme_and_the_bundled_font_at_the_default_sizes() {
 #[test]
 fn saved_settings_open_again_the_same() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ka-teb").join("settings.json");
+    let path = dir.path().join("ketab").join("settings.json");
     let settings = Settings {
         theme: ThemeName::KaTebLight,
         ui_scale: 1.2,

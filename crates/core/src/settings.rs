@@ -188,7 +188,7 @@ impl std::error::Error for SettingsError {
     }
 }
 
-/// `$XDG_CONFIG_HOME/ka-teb/settings.json`; `~/.config` when `XDG_CONFIG_HOME` is not an
+/// `$XDG_CONFIG_HOME/ketab/settings.json`; `~/.config` when `XDG_CONFIG_HOME` is not an
 /// absolute path (XDG Base Directory Specification). `None` without either.
 #[must_use]
 pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
@@ -197,7 +197,7 @@ pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Op
         .filter(|path| path.is_absolute())
         .map(Path::to_owned)
         .or_else(|| home.map(|home| home.join(".config")))?;
-    Some(config.join("ka-teb").join("settings.json"))
+    Some(config.join("ketab").join("settings.json"))
 }
 
 impl Settings {

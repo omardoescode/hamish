@@ -8,4 +8,6 @@ Stack: Rust + GPUI. Storage: one `.md` file; Slots and other state in a comment 
 - Decisions: [docs/adr/](docs/adr/README.md)
 - Code rules: [CODING_STANDARDS.md](CODING_STANDARDS.md)
 
+Install: `cargo install --path crates/app`
+
 Status: iteration 1 in progress.
