@@ -1,9 +1,13 @@
-//! The Settings global: the settings in use, where they save, and how views read them.
+//! The Settings global: the settings in use, where they save, how saves queue, and how
+//! views read them.
 
 use std::path::PathBuf;
 
-use gpui::{App, Global};
+use gpui::{App, AppContext, Global};
 use ka_teb_core::{LoadedSettings, Settings, SettingsError};
+
+/// What a save does when it fails.
+type OnSaveFailed = Box<dyn FnOnce(&SettingsError, &mut App)>;
 
 use crate::{Notice, Theme};
 
@@ -15,6 +19,9 @@ pub(crate) struct SettingsStore {
     pub(crate) path: Option<PathBuf>,
     /// Why the file at start did not load; the first Workspace shows it.
     problem: Option<SettingsError>,
+    saving: bool,
+    /// A save asked for while one runs; it starts when that one ends.
+    queued: Option<OnSaveFailed>,
 }
 
 impl Global for SettingsStore {}
@@ -26,7 +33,47 @@ pub fn use_settings(path: Option<PathBuf>, loaded: LoadedSettings, cx: &mut App)
         settings: loaded.settings,
         path,
         problem: loaded.problem,
+        saving: false,
+        queued: None,
     });
+}
+
+/// Saves the settings in use on the background executor; `failed` gets the error. A save
+/// asked for while one runs waits, and then saves the settings in use at that time.
+/// Without a path, nothing saves.
+pub(crate) fn save(cx: &mut App, failed: impl FnOnce(&SettingsError, &mut App) + 'static) {
+    let store = cx.global_mut::<SettingsStore>();
+    let Some(path) = store.path.clone() else {
+        return;
+    };
+    if store.saving {
+        store.queued = Some(Box::new(failed));
+        return;
+    }
+    store.saving = true;
+    let settings = store.settings.clone();
+    let saving = cx.background_spawn(async move { settings.save(&path) });
+    cx.spawn(async move |cx| {
+        let result = saving.await;
+        cx.update(|cx| saved(&result, failed, cx))
+    })
+    .detach();
+}
+
+fn saved(
+    result: &Result<(), SettingsError>,
+    failed: impl FnOnce(&SettingsError, &mut App),
+    cx: &mut App,
+) {
+    let store = cx.global_mut::<SettingsStore>();
+    store.saving = false;
+    let queued = store.queued.take();
+    if let Err(error) = result {
+        failed(error, cx);
+    }
+    if let Some(next) = queued {
+        save(cx, next);
+    }
 }
 
 /// The on/off setting that `pick` reads. `false` when no settings are set.
