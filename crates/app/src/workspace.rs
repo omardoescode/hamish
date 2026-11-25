@@ -7,6 +7,7 @@ use ka_teb_core::{Document, SlotId};
 use crate::actions::{OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
+use crate::lab::Lab;
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
 use crate::save_open::SaveOpen;
 use crate::{AlternativesPanel, Editor, Theme};
@@ -15,6 +16,7 @@ use crate::{AlternativesPanel, Editor, Theme};
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
+    pub(crate) lab: Lab,
     overflow_panel: Entity<OverflowPanel>,
     chrome_visible: bool,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
@@ -40,6 +42,7 @@ impl Workspace {
             editor,
             overflow_panel,
             save_open: SaveOpen::default(),
+            lab: Lab::new(cx),
             chrome_visible: false,
             alternatives: None,
             overflow_open: false,
@@ -177,6 +180,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::save_as))
             .on_action(cx.listener(Self::open))
+            .on_action(cx.listener(Self::toggle_lab))
             .child(
                 div()
                     .absolute()
@@ -228,6 +232,7 @@ impl Render for Workspace {
                         .child(overflow_panel::overflow_button(self.overflow_open, &theme)),
                 )
             })
+            .children(self.lab_view(&theme, cx))
             .children(self.notice_view(&theme, cx))
     }
 }

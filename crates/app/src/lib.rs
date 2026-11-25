@@ -5,10 +5,12 @@
     reason = "gpui's Action derive builds actions from key binding JSON"
 )]
 mod actions;
+mod ai;
 mod alternatives_panel;
 mod context_menu;
 mod edit_history;
 mod editor;
+mod lab;
 mod overflow_panel;
 mod save_open;
 mod theme;
@@ -29,9 +31,11 @@ pub use actions::{
     SelectToLineStart, SelectUp, Stash, ToggleChrome, ToggleGhost, ToggleOverflow, Undo,
     UseOverflowBlock,
 };
+pub use ai::Ai;
 pub use alternatives_panel::{AlternativesPanel, VariantRow};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
+pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use theme::Theme;
@@ -89,6 +93,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-s", Save, None),
         KeyBinding::new("ctrl-shift-s", SaveAs, None),
         KeyBinding::new("ctrl-o", Open, None),
+        KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
     let panel = Some("AlternativesPanel");
     cx.bind_keys([

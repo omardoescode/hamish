@@ -8,7 +8,7 @@ use gpui::{
     Size, Style, TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point,
     prelude::*, px, relative, size,
 };
-use ka_teb_core::{Cycle, Document, Level, MarkdownSpan, MarkdownStyle, SlotId};
+use ka_teb_core::{Cycle, Document, LabError, Level, MarkdownSpan, MarkdownStyle, SlotId};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::Theme;
@@ -372,6 +372,32 @@ impl Editor {
         self.history.close();
         cx.notify();
         Ok(done)
+    }
+
+    /// Runs a Lab `step` on the Document as one undo step; the selection follows a text
+    /// change. A step that changes nothing records no undo step.
+    pub(crate) fn lab_step<T>(
+        &mut self,
+        step: impl FnOnce(&mut Document) -> Result<T, LabError>,
+        cx: &mut Context<Self>,
+    ) -> Result<T, LabError> {
+        let old_text = self.document.text().to_owned();
+        let old_marks = self.document.lab_marks().to_vec();
+        let result = step(&mut self.document)?;
+        let new_text = self.document.text();
+        if new_text == old_text && self.document.lab_marks() == old_marks.as_slice() {
+            return Ok(result);
+        }
+        let before = self.selection.clone();
+        self.selection = follow_change(before.start, &old_text, new_text)
+            ..follow_change(before.end, &old_text, new_text);
+        self.reversed = false;
+        self.history.close();
+        self.history
+            .record(EditKind::Other, before, self.selection.clone());
+        self.history.close();
+        cx.notify();
+        Ok(result)
     }
 
     fn move_to_line_start(&mut self, _: &MoveToLineStart, _: &mut Window, cx: &mut Context<Self>) {
@@ -1141,6 +1167,7 @@ struct EditorElement {
 struct EditorPrepaint {
     lines: Vec<PaintedLine>,
     hover: Vec<PaintQuad>,
+    lab_marks: Vec<PaintQuad>,
     selection: Vec<PaintQuad>,
     marker_quads: Vec<PaintQuad>,
     cursor: Option<PaintQuad>,
@@ -1426,6 +1453,12 @@ impl Element for EditorElement {
         let theme = *cx.global::<Theme>();
         let editor = self.editor.read(cx);
         let selection = painted.selection_quads(&editor.selection, theme.selection);
+        let lab_marks = editor
+            .document
+            .lab_marks()
+            .iter()
+            .flat_map(|mark| painted.selection_quads(&mark.range, theme.lab_mark))
+            .collect();
         let slots = editor.document.slots();
         let hover = editor
             .hovered
@@ -1483,6 +1516,7 @@ impl Element for EditorElement {
         EditorPrepaint {
             lines: painted.lines,
             hover,
+            lab_marks,
             selection,
             marker_quads,
             cursor,
@@ -1508,6 +1542,7 @@ impl Element for EditorElement {
         for quad in prepaint
             .hover
             .drain(..)
+            .chain(prepaint.lab_marks.drain(..))
             .chain(prepaint.selection.drain(..))
             .chain(prepaint.marker_quads.drain(..))
         {
