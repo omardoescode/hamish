@@ -3,7 +3,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, MouseButton, Pixels, Point, TestAppContext,
     VisualTestContext, point, px,
 };
-use ka_teb_core::Document;
+use hamish_core::Document;
 
 fn open(
     cx: &mut TestAppContext,

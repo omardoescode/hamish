@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
     Provenance, TrimCut, TrimError, TrimLevel, TrimRequest,
 };

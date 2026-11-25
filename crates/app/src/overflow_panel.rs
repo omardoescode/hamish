@@ -7,7 +7,7 @@ use gpui::{
     MouseButton, MouseDownEvent, PaintQuad, Pixels, Render, ScrollHandle, SharedString, Size,
     Style, Subscription, TextRun, Window, div, prelude::*, px, relative,
 };
-use ka_teb_core::{Caret, CaretEdit};
+use hamish_core::{Caret, CaretEdit};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
 use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};

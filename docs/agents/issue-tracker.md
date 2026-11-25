@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues for this repo live as GitHub issues in `omardoescode/ka-teb`. Use the `gh` CLI for all operations.
+Issues for this repo live as GitHub issues in `omardoescode/hamish`. Use the `gh` CLI for all operations.
 
 ## Conventions
 

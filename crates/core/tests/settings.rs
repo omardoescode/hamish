@@ -1,13 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ka_teb_core::{Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
+use hamish_core::{Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
 
 #[test]
 fn the_settings_file_is_in_xdg_config_home() {
     assert_eq!(
         settings_path(Some("/cfg".as_ref()), Some(Path::new("/home/w"))),
-        Some(PathBuf::from("/cfg/ketab/settings.json"))
+        Some(PathBuf::from("/cfg/hamish/settings.json"))
     );
 }
 
@@ -15,23 +15,23 @@ fn the_settings_file_is_in_xdg_config_home() {
 fn without_xdg_config_home_the_settings_file_is_in_dot_config() {
     assert_eq!(
         settings_path(None, Some(Path::new("/home/w"))),
-        Some(PathBuf::from("/home/w/.config/ketab/settings.json"))
+        Some(PathBuf::from("/home/w/.config/hamish/settings.json"))
     );
 }
 
 #[test]
 fn a_relative_or_empty_xdg_config_home_is_ignored() {
     let home = Some(Path::new("/home/w"));
-    let expected = Some(PathBuf::from("/home/w/.config/ketab/settings.json"));
+    let expected = Some(PathBuf::from("/home/w/.config/hamish/settings.json"));
     assert_eq!(settings_path(Some("cfg".as_ref()), home), expected);
     assert_eq!(settings_path(Some("".as_ref()), home), expected);
     assert_eq!(settings_path(None, None), None);
 }
 
 #[test]
-fn defaults_are_the_ka_teb_theme_and_the_bundled_font_at_the_default_sizes() {
+fn defaults_are_the_hamish_theme_and_the_bundled_font_at_the_default_sizes() {
     let settings = Settings::default();
-    assert_eq!(settings.theme, ThemeName::KaTeb);
+    assert_eq!(settings.theme, ThemeName::Hamish);
     assert!((settings.ui_scale - 1.0).abs() < 1e-6);
     assert_eq!(settings.ui_font, "IBM Plex Mono");
     assert_eq!(settings.text_font, None);
@@ -44,9 +44,9 @@ fn defaults_are_the_ka_teb_theme_and_the_bundled_font_at_the_default_sizes() {
 #[test]
 fn saved_settings_open_again_the_same() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ketab").join("settings.json");
+    let path = dir.path().join("hamish").join("settings.json");
     let settings = Settings {
-        theme: ThemeName::KaTebLight,
+        theme: ThemeName::HamishLight,
         ui_scale: 1.2,
         ui_font: "DejaVu Sans".to_owned(),
         text_font: Some("DejaVu Serif".to_owned()),
@@ -140,7 +140,7 @@ fn a_field_not_in_the_file_takes_its_default() {
     assert_eq!(
         loaded.settings,
         Settings {
-            theme: ThemeName::KaTebLight,
+            theme: ThemeName::HamishLight,
             font_size: 20.0,
             ..Settings::default()
         }
@@ -310,15 +310,15 @@ fn focus_zoom_is_on_by_default_and_in_a_file_without_it() {
 }
 
 #[test]
-fn the_old_dark_and_light_names_load_as_ka_teb_and_ka_teb_light() {
+fn the_old_dark_and_light_names_load_as_hamish_and_hamish_light() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
 
     fs::write(&path, r#"{ "theme": "dark" }"#).unwrap();
-    assert_eq!(Settings::load(&path).settings.theme, ThemeName::KaTeb);
+    assert_eq!(Settings::load(&path).settings.theme, ThemeName::Hamish);
 
     fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
-    assert_eq!(Settings::load(&path).settings.theme, ThemeName::KaTebLight);
+    assert_eq!(Settings::load(&path).settings.theme, ThemeName::HamishLight);
 }
 
 #[test]
@@ -349,8 +349,8 @@ fn the_theme_list_names_each_theme_in_order() {
     assert_eq!(
         labels,
         [
-            "Ka-teb",
-            "Ka-teb Light",
+            "Hamish",
+            "Hamish Light",
             "Rosé Pine",
             "Rosé Pine Dawn",
             "One Dark",

@@ -11,7 +11,7 @@ use gpui::{
     ScrollStrategy, SharedString, Stateful, UniformListScrollHandle, Window, anchored, deferred,
     div, prelude::*, px, rgb, uniform_list,
 };
-use ka_teb_core::{SelectSearch, Setting, Settings, ThemeName, Toggle};
+use hamish_core::{SelectSearch, Setting, Settings, ThemeName, Toggle};
 
 use crate::actions::{
     CloseSelect, CloseSettings, DeleteQueryBackward, NextRow, OpenSettings, PickRow, PreviousRow,

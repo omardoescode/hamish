@@ -3,7 +3,7 @@
     reason = "a list of one Ghost range is the expected value"
 )]
 
-use ka_teb_core::{Document, Level, MarkdownSpan, MarkdownStyle, Provenance};
+use hamish_core::{Document, Level, MarkdownSpan, MarkdownStyle, Provenance};
 
 fn styles(text: &str) -> Vec<(std::ops::Range<usize>, MarkdownStyle)> {
     styles_of(&Document::new(text))

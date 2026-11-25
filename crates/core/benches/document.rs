@@ -13,7 +13,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use fixture::fixture;
-use ka_teb_core::{AlternativesList, Caret, Cycle, Document, EditSession, Motion};
+use hamish_core::{AlternativesList, Caret, Cycle, Document, EditSession, Motion};
 
 /// Runs `step` `count` times and prints the mean time of one run.
 fn time(name: &str, count: u32, mut step: impl FnMut()) -> Duration {

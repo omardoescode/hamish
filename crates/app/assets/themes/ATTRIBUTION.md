@@ -1,7 +1,7 @@
 # Theme palettes
 
 The named themes in `crates/core/src/theme.rs` use the published colors of these themes.
-Ka-teb and Ka-teb Light are the project's own.
+Hamish and Hamish Light are the project's own.
 
 | Theme | Source | License |
 |---|---|---|

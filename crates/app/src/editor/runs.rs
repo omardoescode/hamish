@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use gpui::{App, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window};
-use ka_teb_core::{Level, MarkdownSpan, MarkdownStyle};
+use hamish_core::{Level, MarkdownSpan, MarkdownStyle};
 
 use super::Editor;
 use crate::Theme;
@@ -284,7 +284,7 @@ fn faded_runs(runs: &[TextRun], range: &Range<usize>, opacity: f32) -> Vec<TextR
 
 #[cfg(test)]
 mod tests {
-    use ka_teb_core::{MarkdownSpan, MarkdownStyle};
+    use hamish_core::{MarkdownSpan, MarkdownStyle};
 
     use gpui::{TextRun, font, hsla};
 
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn heading_lines_start_at_the_line_of_each_heading() {
         let text = "# Top\nbody\n> ## Quoted\n### Low";
-        let styles = ka_teb_core::Document::new(text).markdown_styles();
+        let styles = hamish_core::Document::new(text).markdown_styles();
         assert_eq!(
             heading_lines(text, &styles),
             vec![

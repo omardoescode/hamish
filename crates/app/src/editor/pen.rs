@@ -6,7 +6,7 @@ use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
 
 use gpui::{Hsla, Path, PathBuilder, Pixels, Point, point, px};
-use ka_teb_core::{Level, Slot, SlotId};
+use hamish_core::{Level, Slot, SlotId};
 
 use super::Editor;
 use super::painted_text::PaintedText;

@@ -1,4 +1,4 @@
-use ka_teb_core::{Document, Level, OverflowError, Provenance};
+use hamish_core::{Document, Level, OverflowError, Provenance};
 
 #[test]
 fn overflow_text_can_be_typed_pasted_and_edited() {

@@ -8,7 +8,7 @@ use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
     Modifiers, Render, ScrollHandle, Subscription, Task, Window, canvas, div, prelude::*, px,
 };
-use ka_teb_core::{
+use hamish_core::{
     AiAlternativesError, AiRequest, AiTrigger, AlternativesList, Document, Effect, Level,
     ListEditor, ListOutcome, ListTarget, Provenance, SlotError, SlotId, VariantRow,
 };

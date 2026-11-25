@@ -3,16 +3,16 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A named theme. Ka-teb is the default. A settings file with the names `dark` or `light`
-/// loads as Ka-teb or Ka-teb Light.
+/// A named theme. Hamish is the default. A settings file with the names `dark` or `light`
+/// loads as Hamish or Hamish Light.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeName {
     #[default]
     #[serde(alias = "dark")]
-    KaTeb,
+    Hamish,
     #[serde(alias = "light")]
-    KaTebLight,
+    HamishLight,
     RosePine,
     RosePineDawn,
     OneDark,
@@ -55,8 +55,8 @@ pub struct Palette {
 impl ThemeName {
     /// Each theme, in the order the Settings modal lists them.
     pub const ALL: [Self; 10] = [
-        Self::KaTeb,
-        Self::KaTebLight,
+        Self::Hamish,
+        Self::HamishLight,
         Self::RosePine,
         Self::RosePineDawn,
         Self::OneDark,
@@ -71,8 +71,8 @@ impl ThemeName {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::KaTeb => "Ka-teb",
-            Self::KaTebLight => "Ka-teb Light",
+            Self::Hamish => "Hamish",
+            Self::HamishLight => "Hamish Light",
             Self::RosePine => "Rosé Pine",
             Self::RosePineDawn => "Rosé Pine Dawn",
             Self::OneDark => "One Dark",
@@ -88,8 +88,8 @@ impl ThemeName {
     #[must_use]
     pub const fn slug(self) -> &'static str {
         match self {
-            Self::KaTeb => "ka-teb",
-            Self::KaTebLight => "ka-teb-light",
+            Self::Hamish => "hamish",
+            Self::HamishLight => "hamish-light",
             Self::RosePine => "rose-pine",
             Self::RosePineDawn => "rose-pine-dawn",
             Self::OneDark => "one-dark",
@@ -105,8 +105,8 @@ impl ThemeName {
     #[must_use]
     pub const fn palette(self) -> Palette {
         match self {
-            Self::KaTeb => KA_TEB,
-            Self::KaTebLight => KA_TEB_LIGHT,
+            Self::Hamish => HAMISH,
+            Self::HamishLight => HAMISH_LIGHT,
             Self::RosePine => ROSE_PINE,
             Self::RosePineDawn => ROSE_PINE_DAWN,
             Self::OneDark => ONE_DARK,
@@ -119,7 +119,7 @@ impl ThemeName {
     }
 }
 
-const KA_TEB: Palette = Palette {
+const HAMISH: Palette = Palette {
     dark: true,
     background: 0x0007_0a1e,
     panel_background: 0x000c_0f21,
@@ -141,7 +141,7 @@ const KA_TEB: Palette = Palette {
     lab_mark: 0x008b_86cb,
 };
 
-const KA_TEB_LIGHT: Palette = Palette {
+const HAMISH_LIGHT: Palette = Palette {
     dark: false,
     background: 0x00f7_f3ec,
     panel_background: 0x00ef_eae1,
@@ -343,7 +343,7 @@ const NORD: Palette = Palette {
 /// white). The order of the two colors does not matter.
 ///
 /// ```
-/// let ratio = ka_teb_core::contrast_ratio(0x0077_7777, 0x00ff_ffff);
+/// let ratio = hamish_core::contrast_ratio(0x0077_7777, 0x00ff_ffff);
 /// assert!((ratio - 4.48).abs() < 0.01);
 /// ```
 #[must_use]

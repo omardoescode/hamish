@@ -5,7 +5,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, ScrollDelta,
     ScrollWheelEvent, TestAppContext, VisualTestContext, point, px,
 };
-use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -279,7 +279,7 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span(cx: &mut TestAppC
     assert_eq!(
         effects,
         vec![app::PlayingEffect {
-            effect: ka_teb_core::Effect::Explosion,
+            effect: hamish_core::Effect::Explosion,
             range: 10..16
         }]
     );

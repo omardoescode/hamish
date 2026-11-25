@@ -3,7 +3,7 @@ use std::path::Path;
 
 use app::{Notice, Workspace};
 use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, Dropped, Level, Provenance};
+use hamish_core::{Document, Dropped, Level, Provenance};
 use tempfile::TempDir;
 
 fn open(
@@ -54,7 +54,7 @@ fn first_save_of_a_new_document_asks_for_a_path_and_writes_one_md_file(cx: &mut 
     assert!(
         fs::read_to_string(&path)
             .unwrap()
-            .starts_with("Title\nThe customer waits.\n\n<!-- ka-teb\n")
+            .starts_with("Title\nThe customer waits.\n\n<!-- hamish\n")
     );
     let names: Vec<_> = fs::read_dir(dir.path())
         .unwrap()

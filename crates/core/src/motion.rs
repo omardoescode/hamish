@@ -35,7 +35,7 @@ impl Effect {
     ///
     /// ```
     /// use std::time::Duration;
-    /// use ka_teb_core::Effect;
+    /// use hamish_core::Effect;
     ///
     /// let half = Effect::VariantFadeIn.progress(Duration::from_millis(75), false);
     /// assert!((half - 0.5).abs() < 1e-6);

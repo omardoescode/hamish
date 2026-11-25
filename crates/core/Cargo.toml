@@ -1,5 +1,5 @@
 [package]
-name = "ka-teb-core"
+name = "hamish-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

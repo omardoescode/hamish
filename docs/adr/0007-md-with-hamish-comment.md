@@ -2,12 +2,12 @@
 status: accepted
 supersedes: 0003
 ---
-# Storage: one .md file with a ka-teb comment
+# Storage: one .md file with a Hamish comment
 
-A Document saves as one `.md` file: the active text, then a blank line, then the ka-teb comment as the last thing in the file:
+A Document saves as one `.md` file: the active text, then a blank line, then the Hamish comment as the last thing in the file:
 
 ```
-<!-- ka-teb
+<!-- hamish
 {json}
 -->
 ```
@@ -16,7 +16,7 @@ The JSON holds Slots, Variants, Provenance, Ghost ranges, Overflow, Lab marks, a
 
 ## Reading
 
-Only the last HTML comment of the file counts, and only when it carries the `ka-teb` tag and nothing but whitespace follows it. All other content (other HTML comments, a comment with no tag) is Document text and shows in the editor. The ka-teb comment is never Document text: the editor, the Counter, and AI requests do not see it. A file with no ka-teb comment opens as plain text with no Slots.
+Only the last HTML comment of the file counts, and only when it carries the `hamish` tag and nothing but whitespace follows it. All other content (other HTML comments, a comment with no tag) is Document text and shows in the editor. The Hamish comment is never Document text: the editor, the Counter, and AI requests do not see it. A file with no Hamish comment opens as plain text with no Slots.
 
 ## Consequences
 

@@ -1,4 +1,4 @@
-//! Ka-teb core: the Document editing API. No GPUI.
+//! Hamish core: the Document editing API. No GPUI.
 
 mod ai;
 mod alternatives_list;

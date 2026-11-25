@@ -135,7 +135,7 @@ impl Default for Settings {
     /// 15 px Text font on 27 px lines, a 585 px column.
     fn default() -> Self {
         Self {
-            theme: ThemeName::KaTeb,
+            theme: ThemeName::Hamish,
             ui_scale: 1.0,
             ui_font: "IBM Plex Mono".to_owned(),
             text_font: None,
@@ -188,7 +188,7 @@ impl std::error::Error for SettingsError {
     }
 }
 
-/// `$XDG_CONFIG_HOME/ketab/settings.json`; `~/.config` when `XDG_CONFIG_HOME` is not an
+/// `$XDG_CONFIG_HOME/hamish/settings.json`; `~/.config` when `XDG_CONFIG_HOME` is not an
 /// absolute path (XDG Base Directory Specification). `None` without either.
 #[must_use]
 pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
@@ -197,7 +197,7 @@ pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Op
         .filter(|path| path.is_absolute())
         .map(Path::to_owned)
         .or_else(|| home.map(|home| home.join(".config")))?;
-    Some(config.join("ketab").join("settings.json"))
+    Some(config.join("hamish").join("settings.json"))
 }
 
 impl Settings {

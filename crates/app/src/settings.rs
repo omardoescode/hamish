@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use gpui::{App, AppContext, Global};
-use ka_teb_core::{LoadedSettings, Settings, SettingsError};
+use hamish_core::{LoadedSettings, Settings, SettingsError};
 
 /// What a save does when it fails.
 type OnSaveFailed = Box<dyn FnOnce(&SettingsError, &mut App)>;

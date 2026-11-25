@@ -1,4 +1,4 @@
-# Ka-teb: Agent Instructions
+# Hamish: Agent Instructions
 
 ## GitHub Issues workflow
 For work that is a GitHub issue (skip for a small fix the user asks for directly):
@@ -8,11 +8,11 @@ For work that is a GitHub issue (skip for a small fix the user asks for directly
 
 ## Conflict prevention
 - Before you touch a file, check for an open assigned issue in the same area. If one exists, pick other work.
-- Changes to the Ka-teb comment JSON schema or the core document model are serialized: 1 in progress at a time.
+- Changes to the Hamish comment JSON schema or the core document model are serialized: 1 in progress at a time.
 - If the task needs changes to >3 files outside its scope, stop and ask the user.
 
 ## Project process
-- Repo: private GitHub `omardoescode/ka-teb`. Work merges through PRs.
+- Repo: private GitHub `omardoescode/hamish`. Work merges through PRs.
 - Max 3 sub-agents at the same time (more in total is OK).
 - Agent worktrees: `.claude/hooks/worktree-create.sh` copies `target/` with btrfs reflink. WorktreeRemove does not fire for subagent worktrees: clean them with `git worktree remove` + `git branch -D`.
 - Merges: a subagent merges `origin/dev` into its own branch. Only the main session merges into `dev`.
@@ -30,7 +30,7 @@ For work that is a GitHub issue (skip for a small fix the user asks for directly
 ## Agent skills
 ### Issue tracker
 
-GitHub Issues in `omardoescode/ka-teb` via `gh`, native blocking edges. See `docs/agents/issue-tracker.md`.
+GitHub Issues in `omardoescode/hamish` via `gh`, native blocking edges. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

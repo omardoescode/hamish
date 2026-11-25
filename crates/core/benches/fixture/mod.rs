@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use ka_teb_core::{Document, LabCheck, LabFinding, Level, Provenance, SlotId};
+use hamish_core::{Document, LabCheck, LabFinding, Level, Provenance, SlotId};
 
 const WORDS: [&str; 12] = [
     "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet",

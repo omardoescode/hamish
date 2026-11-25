@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use ka_teb_core::{FocusZoom, paragraph_index, paragraph_range};
+use hamish_core::{FocusZoom, paragraph_index, paragraph_range};
 
 fn ms(millis: u64) -> Duration {
     Duration::from_millis(millis)

@@ -5,7 +5,7 @@ use gpui::{
     App, Context, DragMoveEvent, Entity, Focusable, IntoElement, Pixels, Render, SharedString,
     Subscription, Window, canvas, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
-use ka_teb_core::{Document, SlotId, document_title};
+use hamish_core::{Document, SlotId, document_title};
 
 use crate::actions::{AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleOverflow};
 use crate::alternatives_panel::PanelEvent;

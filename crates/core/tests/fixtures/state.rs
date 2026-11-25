@@ -1,4 +1,4 @@
-use ka_teb_core::{Document, SlotId};
+use hamish_core::{Document, SlotId};
 
 /// Variant texts of a Slot, the Original first; empty when the Slot does not show.
 pub fn variant_texts(document: &Document, slot: SlotId) -> Vec<String> {

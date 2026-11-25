@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ka_teb_core::{Document, document_title};
+use hamish_core::{Document, document_title};
 
 #[test]
 fn a_saved_document_shows_its_file_name_without_md() {

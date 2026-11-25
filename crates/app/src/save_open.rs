@@ -7,7 +7,7 @@ use gpui::{
     AnyElement, Context, IntoElement, PathPromptOptions, PromptLevel, SharedString, Window, div,
     prelude::*, px,
 };
-use ka_teb_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
+use hamish_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
 
 use crate::actions::{NewDocument, Open, Save, SaveAs};
 use crate::chrome::elevated_surface;
@@ -224,7 +224,7 @@ impl Workspace {
         .detach();
     }
 
-    /// Opens the `.md` file `path` with its ka-teb comment in place of the Document. Unsaved
+    /// Opens the `.md` file `path` with its Hamish comment in place of the Document. Unsaved
     /// changes are lost: [`Open`] asks first.
     pub fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let source = path.clone();
@@ -337,7 +337,7 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
         }
         Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
         Notice::Dropped(dropped) => {
-            std::iter::once("The .md file changed outside Ka-teb. Not found again:".into())
+            std::iter::once("The .md file changed outside Hamish. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))
                 .collect()
         }
@@ -373,7 +373,7 @@ fn check_name(check: LabCheck) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use ka_teb_core::{Dropped, LabCheck, Level};
+    use hamish_core::{Dropped, LabCheck, Level};
 
     use super::{Notice, notice_lines};
 
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(
             notice_lines(&notice),
             [
-                "The .md file changed outside Ka-teb. Not found again:",
+                "The .md file changed outside Hamish. Not found again:",
                 "Sentence Slot \"It rains.\"",
                 "Ghost \"maybe\"",
                 "Hedges and filler mark \"really\"",

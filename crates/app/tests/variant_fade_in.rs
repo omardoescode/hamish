@@ -6,7 +6,7 @@ use app::{Ai, AiAlternatives, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px,
 };
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
     LoadedSettings, Provenance, Settings, SlotId, TrimRequest,
 };

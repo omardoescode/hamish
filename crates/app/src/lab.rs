@@ -7,7 +7,7 @@ use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, MouseButton, Render,
     SharedString, Subscription, Window, anchored, deferred, div, point, prelude::*, px,
 };
-use ka_teb_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
+use hamish_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
 
 use crate::actions::{Redo, Undo};
 use crate::ai::{AiFailure, AiRun, AiStatus};
@@ -20,7 +20,7 @@ use crate::{Editor, Theme};
 )]
 mod actions {
     use gpui::Action;
-    use ka_teb_core::LabCheck;
+    use hamish_core::LabCheck;
 
     gpui::actions!(lab, [ToggleLab, CloseLab]);
 
@@ -162,7 +162,7 @@ impl Lab {
             .collect()
     }
 
-    /// The Lab mark at the caret (see [`ka_teb_core::Document::lab_mark_at`]). `None` when
+    /// The Lab mark at the caret (see [`hamish_core::Document::lab_mark_at`]). `None` when
     /// text is selected.
     #[must_use]
     pub fn mark_at_caret(&self, cx: &App) -> Option<LabMark> {

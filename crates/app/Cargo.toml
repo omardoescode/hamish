@@ -1,5 +1,5 @@
 [package]
-name = "ka-teb"
+name = "hamish"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,13 +10,13 @@ publish = false
 name = "app"
 
 [[bin]]
-name = "ka-teb"
+name = "hamish"
 path = "src/main.rs"
 
 [dependencies]
 cpal = "0.18.2"
 gpui.workspace = true
-ka-teb-core = { path = "../core", version = "0.1.0" }
+hamish-core = { path = "../core", version = "0.1.0" }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

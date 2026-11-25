@@ -3,7 +3,7 @@
     reason = "a list of one Ghost range is the expected value"
 )]
 
-use ka_teb_core::{Document, GhostError, Level, Provenance, SlotError};
+use hamish_core::{Document, GhostError, Level, Provenance, SlotError};
 
 #[test]
 fn ghost_keeps_the_text_and_marks_the_range() {

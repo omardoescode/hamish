@@ -1,6 +1,6 @@
 use app::{ToggleOverflow, Workspace};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use ka_teb_core::{Document, LoadedSettings, Settings};
+use hamish_core::{Document, LoadedSettings, Settings};
 
 /// Opens a window with `settings` and `text`, and shows the Chrome and Overflow.
 fn open<'a>(

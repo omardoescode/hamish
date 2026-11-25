@@ -3,7 +3,7 @@ mod fixtures {
 }
 
 use fixtures::slot::writer_slot;
-use ka_teb_core::{Document, Level, Provenance};
+use hamish_core::{Document, Level, Provenance};
 
 #[test]
 fn slot_at_a_caret_is_the_innermost_slot_that_holds_it_edges_included() {

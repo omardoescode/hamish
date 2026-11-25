@@ -6,7 +6,7 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "UNLICENSED"
-repository = "https://github.com/omardoescode/ka-teb"
+repository = "https://github.com/omardoescode/hamish"
 
 [workspace.dependencies]
 gpui = "=0.2.2"

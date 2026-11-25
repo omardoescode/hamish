@@ -5,7 +5,7 @@ mod fixtures {
 
 use fixtures::slot::writer_slot;
 use fixtures::state::{SlotState, expect_state, variant_texts};
-use ka_teb_core::{Cycle, Document, Level, Provenance, SlotError, Switch};
+use hamish_core::{Cycle, Document, Level, Provenance, SlotError, Switch};
 
 #[test]
 fn create_slot_at_each_level_keeps_the_range_text_as_the_original() {
@@ -252,7 +252,7 @@ fn writer_edit_makes_an_ai_variant_mixed_and_keeps_other_provenance() {
         .unwrap()
         .variants
         .iter()
-        .map(ka_teb_core::Variant::provenance)
+        .map(hamish_core::Variant::provenance)
         .collect();
     assert_eq!(
         provenance,

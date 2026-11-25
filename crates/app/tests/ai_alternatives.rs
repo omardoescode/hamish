@@ -8,7 +8,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Keystroke, Modifiers, MouseButton, TestAppContext,
     VisualTestContext, point, px,
 };
-use ka_teb_core::{
+use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, LoadedSettings,
     Provenance, Settings, TrimRequest,
 };
