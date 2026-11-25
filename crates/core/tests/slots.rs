@@ -337,3 +337,110 @@ fn ending_a_slot_keeps_the_slots_nested_in_its_remaining_variant() {
     document.set_active(word, 1).unwrap();
     assert_eq!(document.text(), "The lion sat.");
 }
+
+#[test]
+fn text_edit_before_a_slot_moves_it_and_after_leaves_it() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.insert(0, "See: ").unwrap();
+    assert_eq!(document.slot(id).unwrap().range, 9..12);
+    document.insert(16, " Yes.").unwrap();
+    assert_eq!(document.slot(id).unwrap().range, 9..12);
+    assert_eq!(variant_texts(&document, id), ["cat", "dog"]);
+}
+
+#[test]
+fn insert_at_a_slot_edge_goes_outside_the_slot() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.insert(4, "big ").unwrap();
+    document.insert(11, "s").unwrap();
+    assert_eq!(document.text(), "The big cats sat.");
+    assert_eq!(document.slot(id).unwrap().range, 8..11);
+    assert_eq!(variant_texts(&document, id), ["cat", "dog"]);
+}
+
+#[test]
+fn text_edit_inside_a_slot_changes_its_active_variant() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.replace(4..7, "kitten").unwrap();
+    document.insert(5, "-").unwrap();
+    assert_eq!(document.text(), "The k-itten sat.");
+    assert_eq!(document.slot(id).unwrap().range, 4..11);
+    assert_eq!(variant_texts(&document, id), ["k-itten", "dog"]);
+}
+
+#[test]
+fn text_edit_over_part_of_a_slot_trims_it() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.replace(2..5, "ose b").unwrap();
+    assert_eq!(document.text(), "Those bat sat.");
+    assert_eq!(document.slot(id).unwrap().range, 7..9);
+    assert_eq!(variant_texts(&document, id), ["at", "dog"]);
+    document.delete(8..10).unwrap();
+    assert_eq!(document.text(), "Those basat.");
+    assert_eq!(variant_texts(&document, id), ["a", "dog"]);
+}
+
+#[test]
+fn deleting_all_of_a_slot_and_more_ends_it() {
+    let mut document = Document::new("The cat sat.");
+    document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.delete(3..8).unwrap();
+    assert_eq!(document.text(), "Thesat.");
+    assert_eq!(document.slots(), Vec::new());
+}
+
+#[test]
+fn writer_typing_in_an_active_ai_variant_makes_it_mixed() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Ai)
+        .unwrap();
+    document.set_active(id, 1).unwrap();
+    assert_eq!(
+        document.slot(id).unwrap().variants[1].provenance(),
+        Provenance::Ai
+    );
+    document.insert(7, "s").unwrap();
+    assert_eq!(
+        document.slot(id).unwrap().variants[1].provenance(),
+        Provenance::Ai
+    );
+    document.insert(5, "o").unwrap();
+    assert_eq!(document.text(), "The doogs sat.");
+    assert_eq!(
+        document.slot(id).unwrap().variants[1].provenance(),
+        Provenance::Mixed
+    );
+}
+
+#[test]
+fn typing_in_a_nested_slot_changes_both_active_variants() {
+    let mut document = Document::new("The cat sat.");
+    let paragraph = document
+        .create_slot(0..12, Level::Paragraph, "A dog ran.", Provenance::Writer)
+        .unwrap();
+    let word = document
+        .create_slot(4..7, Level::Word, "lion", Provenance::Writer)
+        .unwrap();
+    document.insert(5, "h").unwrap();
+    assert_eq!(variant_texts(&document, word), ["chat", "lion"]);
+    assert_eq!(
+        variant_texts(&document, paragraph),
+        ["The chat sat.", "A dog ran."]
+    );
+    assert_eq!(document.slot(paragraph).unwrap().range, 0..13);
+}

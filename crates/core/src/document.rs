@@ -252,7 +252,9 @@ impl Document {
         if removed.is_empty() && text.is_empty() {
             return Ok(());
         }
-        let slots = self.slots.clone();
+        let changed = removed != text;
+        let mut slots = self.slots.clone();
+        slot::shift(&mut slots, &range, text.len(), changed, None);
         self.commit(range, text, slots)
     }
 
