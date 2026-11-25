@@ -58,6 +58,15 @@ impl Caret {
         }
     }
 
+    /// A selection of byte `range`, the caret at its end.
+    #[must_use]
+    pub fn over(range: Range<usize>) -> Self {
+        Self {
+            selection: range,
+            ..Self::default()
+        }
+    }
+
     /// The whole of `text` selected, the caret at its end.
     #[must_use]
     pub fn all(text: &str) -> Self {

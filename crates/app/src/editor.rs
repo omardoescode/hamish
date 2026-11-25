@@ -6,31 +6,27 @@ use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight,
-    GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, Path, PathBuilder, Pixels, Point, Render,
-    ScrollHandle, SharedString, Size, Style, TextRun, UTF16Selection, Window, WrappedLine, div,
-    fill, point, prelude::*, px, relative, size,
-};
-use ka_teb_core::{
-    Cycle, Document, EditKind, EditSession, Effect, FocusZoom, Level, MarkdownSpan, MarkdownStyle,
-    Slot, SlotError, SlotId, Sound, follow_change, paragraph_around,
-};
-use unicode_segmentation::UnicodeSegmentation;
-
 use crate::Theme;
 use crate::actions::{
-    AiAlternatives, Backspace, CloseMenu, Copy, Cut, Delete, DeleteActiveVariant, MoveDown,
-    MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp, Newline, OpenAlternatives, Paste,
-    Redo, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart,
-    SelectUp, Stash, ToggleGhost, Undo,
+    AiAlternatives, CloseMenu, DeleteActiveVariant, OpenAlternatives, Redo, Stash, ToggleGhost,
+    Undo,
 };
+use crate::caret::{self, CaretView, caret_actions, caret_input_handler};
 use crate::context_menu::{self, ContextMenu, ContextMenuItem};
 use crate::effects::{self, Particles, PlayingEffect};
 use crate::settings_modal;
 use crate::sounds;
+use gpui::{
+    App, Bounds, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity,
+    EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hsla,
+    InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, PaintQuad, Path, PathBuilder, Pixels, Point, Render, ScrollHandle, SharedString,
+    Size, Style, TextRun, Window, WrappedLine, div, fill, point, prelude::*, px, relative, size,
+};
+use ka_teb_core::{
+    Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, Level, MarkdownSpan,
+    MarkdownStyle, Slot, SlotError, SlotId, Sound, follow_change, paragraph_around,
+};
 
 mod focus_zoom;
 
@@ -80,7 +76,6 @@ const FADE_IN_START_OPACITY: f32 = 0.2;
 /// The text column: our own GPUI editor element over a core [`Document`] (ADR 0002).
 pub struct Editor {
     session: EditSession,
-    marked: Option<Range<usize>>,
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     painted: Option<PaintedText>,
@@ -141,7 +136,6 @@ impl Editor {
     pub fn new(document: Document, cx: &mut Context<Self>) -> Self {
         Self {
             session: EditSession::new(document),
-            marked: None,
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             painted: None,
@@ -391,120 +385,7 @@ impl Editor {
     }
 
     fn cursor(&self) -> usize {
-        self.session.cursor()
-    }
-
-    fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        self.session.select(offset..offset, false);
-        self.autoscroll = true;
-        cx.notify();
-    }
-
-    fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let mut selection = self.session.selection();
-        let mut reversed = self.session.is_reversed();
-        if reversed {
-            selection.start = offset;
-        } else {
-            selection.end = offset;
-        }
-        if selection.end < selection.start {
-            reversed = !reversed;
-            selection = selection.end..selection.start;
-        }
-        self.session.select(selection, reversed);
-        self.autoscroll = true;
-        cx.notify();
-    }
-
-    fn edit(&mut self, range: Range<usize>, text: &str, kind: EditKind, cx: &mut Context<Self>) {
-        if !self.session.edit(range, text, kind) {
-            return;
-        }
-        self.context_menu = None;
-        self.autoscroll = true;
-        cx.notify();
-    }
-
-    fn previous_boundary(&self, offset: usize) -> usize {
-        self.session
-            .document()
-            .text()
-            .grapheme_indices(true)
-            .rev()
-            .find_map(|(index, _)| (index < offset).then_some(index))
-            .unwrap_or(0)
-    }
-
-    fn next_boundary(&self, offset: usize) -> usize {
-        let text = self.session.document().text();
-        text.grapheme_indices(true)
-            .find_map(|(index, _)| (index > offset).then_some(index))
-            .unwrap_or(text.len())
-    }
-
-    /// The offset `rows` visual rows above (negative) or below the cursor.
-    fn offset_rows_away(&self, rows: f32) -> usize {
-        let cursor = self.cursor();
-        let Some(painted) = self.painted.as_ref() else {
-            return cursor;
-        };
-        let Some(position) = painted.position_for(cursor) else {
-            return cursor;
-        };
-        let y = position.y + painted.line_height * (rows + 0.5);
-        painted.offset_for_local(point(position.x, y), self.session.document().text().len())
-    }
-
-    /// The offset at the start (`x` = 0) or end (`x` = MAX) of the cursor's visual row.
-    fn offset_in_row(&self, x: Pixels) -> usize {
-        let cursor = self.cursor();
-        let Some(painted) = self.painted.as_ref() else {
-            return cursor;
-        };
-        let Some(position) = painted.position_for(cursor) else {
-            return cursor;
-        };
-        let y = position.y + painted.line_height * 0.5;
-        painted.offset_for_local(point(x, y), self.session.document().text().len())
-    }
-
-    fn offset_for_mouse(&self, position: Point<Pixels>) -> usize {
-        let Some(painted) = self.painted.as_ref() else {
-            return self.cursor();
-        };
-        let local = self.unzoomed(position) - painted.bounds.origin;
-        painted.offset_for_local(local, self.session.document().text().len())
-    }
-
-    fn move_left(&mut self, _: &MoveLeft, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = if self.session.selection().is_empty() {
-            self.previous_boundary(self.cursor())
-        } else {
-            self.session.selection().start
-        };
-        self.move_to(offset, cx);
-    }
-
-    fn move_right(&mut self, _: &MoveRight, _: &mut Window, cx: &mut Context<Self>) {
-        let offset = if self.session.selection().is_empty() {
-            self.next_boundary(self.cursor())
-        } else {
-            self.session.selection().end
-        };
-        self.move_to(offset, cx);
-    }
-
-    fn move_up(&mut self, _: &MoveUp, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.cycle_hovered(Cycle::Previous, cx) {
-            self.move_to(self.offset_rows_away(-1.), cx);
-        }
-    }
-
-    fn move_down(&mut self, _: &MoveDown, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.cycle_hovered(Cycle::Next, cx) {
-            self.move_to(self.offset_rows_away(1.), cx);
-        }
+        self.session.caret().offset()
     }
 
     /// Up/Down over a Slot, or with the caret in a Slot span, cycle its Active variant
@@ -593,101 +474,6 @@ impl Editor {
         })
     }
 
-    fn move_to_line_start(&mut self, _: &MoveToLineStart, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.offset_in_row(px(0.)), cx);
-    }
-
-    fn move_to_line_end(&mut self, _: &MoveToLineEnd, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.offset_in_row(Pixels::MAX), cx);
-    }
-
-    fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.previous_boundary(self.cursor()), cx);
-    }
-
-    fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.next_boundary(self.cursor()), cx);
-    }
-
-    fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.offset_rows_away(-1.), cx);
-    }
-
-    fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.offset_rows_away(1.), cx);
-    }
-
-    fn select_to_line_start(
-        &mut self,
-        _: &SelectToLineStart,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.select_to(self.offset_in_row(px(0.)), cx);
-    }
-
-    fn select_to_line_end(&mut self, _: &SelectToLineEnd, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.offset_in_row(Pixels::MAX), cx);
-    }
-
-    fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, cx);
-        self.select_to(self.session.document().text().len(), cx);
-    }
-
-    fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.session.selection().is_empty() {
-            self.edit(self.session.selection(), "", EditKind::Other, cx);
-            return;
-        }
-        let cursor = self.cursor();
-        self.edit(
-            self.previous_boundary(cursor)..cursor,
-            "",
-            EditKind::Deleting,
-            cx,
-        );
-    }
-
-    fn delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.session.selection().is_empty() {
-            self.edit(self.session.selection(), "", EditKind::Other, cx);
-            return;
-        }
-        let cursor = self.cursor();
-        self.edit(
-            cursor..self.next_boundary(cursor),
-            "",
-            EditKind::Deleting,
-            cx,
-        );
-    }
-
-    fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
-        self.edit(self.session.selection(), "\n", EditKind::Other, cx);
-    }
-
-    fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = self.session.document().text().get(self.session.selection()) else {
-            return;
-        };
-        if !text.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
-        }
-    }
-
-    fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        self.copy(&Copy, window, cx);
-        self.edit(self.session.selection(), "", EditKind::Other, cx);
-    }
-
-    fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
-            return;
-        };
-        self.edit(self.session.selection(), &text, EditKind::Other, cx);
-    }
-
     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         self.undo_step(cx);
     }
@@ -731,15 +517,9 @@ impl Editor {
         cx.notify();
     }
 
-    /// Replaces `range` of the Overflow text with `text`. `false` when refused.
-    pub(crate) fn edit_overflow(
-        &mut self,
-        range: Range<usize>,
-        text: &str,
-        kind: EditKind,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        if !self.session.edit_overflow(range, text, kind) {
+    /// Makes `edit` in the Overflow text. `false` when refused.
+    pub(crate) fn edit_overflow(&mut self, edit: &CaretEdit, cx: &mut Context<Self>) -> bool {
+        if !self.session.edit_overflow(edit) {
             return false;
         }
         cx.notify();
@@ -763,7 +543,7 @@ impl Editor {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.insert_overflow_block(caret, self.offset_for_mouse(position), cx)
+        self.insert_overflow_block(caret, caret::offset_at(self, position, cx), cx)
     }
 
     /// Inserts a copy of the block at Overflow offset `caret` at `at`, as one undo step;
@@ -793,12 +573,7 @@ impl Editor {
         window.focus(&self.focus_handle);
         self.keep_trim_cut_at(event.position, cx);
         self.selecting = true;
-        let offset = self.offset_for_mouse(event.position);
-        if event.modifiers.shift {
-            self.select_to(offset, cx);
-        } else {
-            self.move_to(offset, cx);
-        }
+        caret::press(self, event.position, event.modifiers.shift, cx);
         if let Some(slot) = self.slot_at(event.position) {
             cx.emit(EditorEvent::SlotClicked(slot));
         }
@@ -806,7 +581,7 @@ impl Editor {
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         if self.selecting {
-            self.select_to(self.offset_for_mouse(event.position), cx);
+            caret::press(self, event.position, true, cx);
         }
         let hovered = self.slot_at(event.position);
         if hovered != self.hovered {
@@ -846,11 +621,11 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        let offset = self.offset_for_mouse(event.position);
+        let offset = caret::offset_at(self, event.position, cx);
         let in_selection =
             self.session.selection().start <= offset && offset <= self.session.selection().end;
         if self.session.selection().is_empty() || !in_selection {
-            self.move_to(offset, cx);
+            caret::press(self, event.position, false, cx);
         }
         let target = self.target();
         let in_ghost =
@@ -934,47 +709,6 @@ impl Editor {
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
         self.selecting = false;
-    }
-
-    fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-        for ch in self.session.document().text().chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += ch.len_utf16();
-            utf8_offset += ch.len_utf8();
-        }
-        utf8_offset
-    }
-
-    fn offset_to_utf16(&self, offset: usize) -> usize {
-        let mut utf16_offset = 0;
-        let mut utf8_count = 0;
-        for ch in self.session.document().text().chars() {
-            if utf8_count >= offset {
-                break;
-            }
-            utf8_count += ch.len_utf8();
-            utf16_offset += ch.len_utf16();
-        }
-        utf16_offset
-    }
-
-    fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
-        self.offset_to_utf16(range.start)..self.offset_to_utf16(range.end)
-    }
-
-    fn range_from_utf16(&self, range: &Range<usize>) -> Range<usize> {
-        self.offset_from_utf16(range.start)..self.offset_from_utf16(range.end)
-    }
-
-    fn input_range(&self, range_utf16: Option<&Range<usize>>) -> Range<usize> {
-        range_utf16
-            .map(|range| self.range_from_utf16(range))
-            .or_else(|| self.marked.clone())
-            .unwrap_or_else(|| self.session.selection())
     }
 }
 
@@ -1295,103 +1029,48 @@ impl PaintedText {
     }
 }
 
-impl EntityInputHandler for Editor {
-    fn text_for_range(
-        &mut self,
-        range_utf16: Range<usize>,
-        actual_range: &mut Option<Range<usize>>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<String> {
-        let range = self.range_from_utf16(&range_utf16);
-        actual_range.replace(self.range_to_utf16(&range));
-        self.session.document().text().get(range).map(str::to_owned)
+impl CaretView for Editor {
+    fn read_text<R>(&self, _: &App, read: impl FnOnce(&str, &Caret) -> R) -> R {
+        read(self.session.document().text(), self.session.caret())
     }
 
-    fn selected_text_range(
-        &mut self,
-        _ignore_disabled_input: bool,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<UTF16Selection> {
-        Some(UTF16Selection {
-            range: self.range_to_utf16(&self.session.selection()),
-            reversed: self.session.is_reversed(),
-        })
+    fn select(&mut self, caret: Caret, cx: &mut Context<Self>) {
+        self.session.select(caret);
+        self.autoscroll = true;
+        cx.notify();
     }
 
-    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.marked.as_ref().map(|range| self.range_to_utf16(range))
+    fn unmark(&mut self, _: &mut Context<Self>) {
+        self.session.unmark();
     }
 
-    fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
-        self.marked = None;
-    }
-
-    fn replace_text_in_range(
-        &mut self,
-        range_utf16: Option<Range<usize>>,
-        text: &str,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let range = self.input_range(range_utf16.as_ref());
-        let kind = if range.is_empty() {
-            EditKind::Typing
-        } else {
-            EditKind::Other
-        };
-        self.marked = None;
-        self.edit(range, text, kind, cx);
-    }
-
-    fn replace_and_mark_text_in_range(
-        &mut self,
-        range_utf16: Option<Range<usize>>,
-        text: &str,
-        new_selected_range_utf16: Option<Range<usize>>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let range = self.input_range(range_utf16.as_ref());
-        self.edit(range.clone(), text, EditKind::Typing, cx);
-        self.marked = (!text.is_empty()).then(|| range.start..range.start + text.len());
-        if let Some(selected) = new_selected_range_utf16 {
-            let selected = self.range_from_utf16(&selected);
-            self.session.select_in_edit(
-                range.start + selected.start..range.start + selected.end,
-                false,
-            );
+    fn edit(&mut self, edit: &CaretEdit, cx: &mut Context<Self>) {
+        if !self.session.edit(edit) {
+            return;
         }
+        self.context_menu = None;
+        self.autoscroll = true;
+        cx.notify();
     }
 
-    fn bounds_for_range(
-        &mut self,
-        range_utf16: Range<usize>,
-        _element_bounds: Bounds<Pixels>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<Bounds<Pixels>> {
-        let painted = self.painted.as_ref()?;
-        let range = self.range_from_utf16(&range_utf16);
-        let start = painted.position_for(range.start)?;
-        let origin = painted.bounds.origin;
-        Some(self.zoomed(Bounds::new(
-            origin + start,
-            size(px(1.), painted.line_height),
-        )))
+    fn painted(&self) -> Option<&PaintedText> {
+        self.painted.as_ref()
     }
 
-    fn character_index_for_point(
-        &mut self,
-        point: Point<Pixels>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<usize> {
-        let offset = self.offset_for_mouse(point);
-        Some(self.offset_to_utf16(offset))
+    fn to_painted(&self, position: Point<Pixels>) -> Point<Pixels> {
+        self.unzoomed(position)
+    }
+
+    fn to_window(&self, bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+        self.zoomed(bounds)
+    }
+
+    fn take_vertical_key(&mut self, cycle: Cycle, cx: &mut Context<Self>) -> bool {
+        self.cycle_hovered(cycle, cx)
     }
 }
+
+caret_input_handler!(Editor);
 
 impl Focusable for Editor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -1402,30 +1081,12 @@ impl Focusable for Editor {
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
-        div()
+        let editor = div()
             .id("editor")
             .key_context("Editor")
             .track_focus(&self.focus_handle)
-            .cursor(CursorStyle::IBeam)
-            .on_action(cx.listener(Self::move_left))
-            .on_action(cx.listener(Self::move_right))
-            .on_action(cx.listener(Self::move_up))
-            .on_action(cx.listener(Self::move_down))
-            .on_action(cx.listener(Self::move_to_line_start))
-            .on_action(cx.listener(Self::move_to_line_end))
-            .on_action(cx.listener(Self::select_left))
-            .on_action(cx.listener(Self::select_right))
-            .on_action(cx.listener(Self::select_up))
-            .on_action(cx.listener(Self::select_down))
-            .on_action(cx.listener(Self::select_to_line_start))
-            .on_action(cx.listener(Self::select_to_line_end))
-            .on_action(cx.listener(Self::select_all))
-            .on_action(cx.listener(Self::backspace))
-            .on_action(cx.listener(Self::delete))
-            .on_action(cx.listener(Self::newline))
-            .on_action(cx.listener(Self::copy))
-            .on_action(cx.listener(Self::cut))
-            .on_action(cx.listener(Self::paste))
+            .cursor(CursorStyle::IBeam);
+        caret_actions(editor, cx)
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::toggle_ghost))
@@ -1864,21 +1525,12 @@ impl Element for EditorElement {
             .selection()
             .is_empty()
             .then(|| {
-                painted.position_for(editor.to_shown(&(editor.cursor()..editor.cursor())).start)
+                let shown = editor.to_shown(&(editor.cursor()..editor.cursor())).start;
+                caret::caret_quad(&painted, shown, theme.accent)
             })
-            .flatten()
-            .map(|position| {
-                fill(
-                    Bounds::new(bounds.origin + position, size(px(2.), line_height)),
-                    theme.accent,
-                )
-            });
+            .flatten();
         if editor.autoscroll {
-            scroll_into_view(
-                &editor.scroll_handle,
-                cursor.as_ref(),
-                theme.edge_fade_height,
-            );
+            caret::scroll_to_caret(&editor.scroll_handle, cursor.as_ref(), cx);
             window.request_animation_frame();
         }
         self.editor.update(cx, |editor, _| {
@@ -2154,29 +1806,6 @@ fn pen(seed: u64, along: f32) -> (f32, f32) {
 /// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
 fn as_factor(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
-}
-
-/// Scrolls the least amount that keeps the cursor out of the edge fade.
-pub(crate) fn scroll_into_view(
-    scroll_handle: &ScrollHandle,
-    cursor: Option<&PaintQuad>,
-    margin: Pixels,
-) {
-    let Some(cursor) = cursor else {
-        return;
-    };
-    let viewport = scroll_handle.bounds();
-    let mut offset = scroll_handle.offset();
-    let above = viewport.top() + margin - cursor.bounds.top();
-    let below = cursor.bounds.bottom() - (viewport.bottom() - margin);
-    if above > px(0.) {
-        offset.y += above;
-    }
-    if below > px(0.) {
-        offset.y -= below;
-    }
-    offset.y = offset.y.min(px(0.));
-    scroll_handle.set_offset(offset);
 }
 
 #[cfg(test)]

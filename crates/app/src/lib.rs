@@ -7,6 +7,7 @@
 mod actions;
 mod ai;
 mod alternatives_panel;
+mod caret;
 mod context_menu;
 mod editor;
 mod effects;
