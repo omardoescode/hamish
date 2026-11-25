@@ -29,7 +29,7 @@ fn a_relative_or_empty_xdg_config_home_is_ignored() {
 }
 
 #[test]
-fn defaults_are_the_dark_theme_and_the_bundled_font_at_spec_sizes() {
+fn defaults_are_the_dark_theme_and_the_bundled_font_at_the_default_sizes() {
     let settings = Settings::default();
     assert_eq!(settings.theme, ThemeName::Dark);
     assert!((settings.ui_scale - 1.0).abs() < 1e-6);
