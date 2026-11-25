@@ -1,4 +1,4 @@
-use gpui::{Global, Hsla, Pixels, px, rgb};
+use gpui::{Global, Hsla, Pixels, hsla, px, rgb};
 
 /// Theme values from the spec "Theme Mapping" table (estimates).
 #[derive(Debug, Clone, Copy)]
@@ -18,6 +18,8 @@ pub struct Theme {
     pub slot_dot: Hsla,
     pub slot_dot_filled: Hsla,
     pub slot_paragraph_line: Hsla,
+    /// Background + about 4% white.
+    pub slot_hover_background: Hsla,
     pub selection: Hsla,
     pub ghost_opacity: f32,
     pub edge_fade_height: Pixels,
@@ -49,6 +51,7 @@ impl Default for Theme {
             slot_dot: rgb(0x0065_6b97).into(),
             slot_dot_filled: rgb(0x008a_8eba).into(),
             slot_paragraph_line: rgb(0x0082_6359).into(),
+            slot_hover_background: hsla(0., 0., 1., 0.04),
             selection: rgb(0x0026_2a54).into(),
             ghost_opacity: 0.10,
             edge_fade_height: px(30.),
