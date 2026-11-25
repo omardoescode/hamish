@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use ka_teb_core::{
     AiAdapter, AiError, AiRequest, Document, LabCheck, LabError, LabFinding, LabMark, LabMarkId,
-    LabRequest,
+    LabRequest, Level, Provenance,
 };
 
 /// Returns fixed findings, as an AI backend would.
@@ -299,4 +299,125 @@ fn accept_of_a_mark_without_a_fix_is_refused_and_changes_nothing() {
     assert_eq!(document.lab_marks().len(), 1);
     assert!(document.undo());
     assert!(!document.undo());
+}
+
+#[test]
+fn marks_move_with_edits_before_them_and_stay_for_edits_after_them() {
+    let mut document = Document::new(TEXT);
+    run(
+        &mut document,
+        LabCheck::HedgesFiller,
+        vec![finding(2..7, None, None)],
+    )
+    .unwrap();
+
+    document.insert(0, "So ").unwrap();
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::HedgesFiller, 5..10, None, None)]
+    );
+    document.insert(5, "I ").unwrap();
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::HedgesFiller, 7..12, None, None)]
+    );
+    document.insert(12, "!").unwrap();
+    document.delete(20..24).unwrap();
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::HedgesFiller, 7..12, None, None)]
+    );
+    assert_eq!(&document.text()[7..12], "think");
+}
+
+#[test]
+fn a_mark_stretches_or_shrinks_with_edits_in_its_text() {
+    let mut document = Document::new(TEXT);
+    run(
+        &mut document,
+        LabCheck::WeakestSentences,
+        vec![finding(21..38, None, None)],
+    )
+    .unwrap();
+
+    document.replace(28..32, "really very").unwrap();
+    assert_eq!(
+        document.text(),
+        "I think the cat sat. It was really very good."
+    );
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::WeakestSentences, 21..45, None, None)]
+    );
+    document.delete(16..24).unwrap();
+    assert_eq!(document.text(), "I think the cat was really very good.");
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::WeakestSentences, 16..37, None, None)]
+    );
+    document.delete(26..37).unwrap();
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::WeakestSentences, 16..26, None, None)]
+    );
+}
+
+#[test]
+fn a_mark_whose_text_is_deleted_ends() {
+    let mut document = Document::new(TEXT);
+    run(
+        &mut document,
+        LabCheck::HedgesFiller,
+        vec![finding(28..32, None, None)],
+    )
+    .unwrap();
+
+    document.delete(27..32).unwrap();
+
+    assert_eq!(document.lab_marks(), []);
+    assert!(document.undo());
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::HedgesFiller, 28..32, None, None)]
+    );
+}
+
+#[test]
+fn a_mark_with_a_fix_ends_when_its_text_changes() {
+    let mut document = Document::new("Teh cat sat");
+    run(
+        &mut document,
+        LabCheck::PunctuationTypos,
+        vec![finding(0..3, None, Some("The"))],
+    )
+    .unwrap();
+
+    document.insert(3, "e").unwrap();
+    assert_eq!(document.lab_marks().len(), 1);
+    document.replace(1..3, "h").unwrap();
+
+    assert_eq!(document.text(), "The cat sat");
+    assert_eq!(document.lab_marks(), []);
+}
+
+#[test]
+fn marks_follow_a_variant_switch_like_a_text_edit() {
+    let mut document = Document::new("The cat sat. It was very good.");
+    run(
+        &mut document,
+        LabCheck::OffToneWords,
+        vec![finding(4..7, None, None), finding(20..24, None, None)],
+    )
+    .unwrap();
+    let slot = document
+        .create_slot(4..7, Level::Word, "kitten", Provenance::Writer)
+        .unwrap();
+
+    document.set_active(slot, 1).unwrap();
+
+    assert_eq!(document.text(), "The kitten sat. It was very good.");
+    assert_eq!(
+        marks(&document),
+        vec![mark(LabCheck::OffToneWords, 23..27, None, None)]
+    );
 }
