@@ -175,3 +175,55 @@ fn escape_while_editing_drops_the_edit_and_keeps_the_panel_open(cx: &mut TestApp
     assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
     assert!(panel(&workspace, cx).is_some());
 }
+
+#[gpui::test]
+fn ctrl_backspace_deletes_the_selected_variant_and_the_original_shows(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up ctrl-backspace");
+
+    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![row("customer", true), row("client", false)]
+    );
+}
+
+#[gpui::test]
+fn the_original_cannot_be_deleted(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up up up ctrl-backspace");
+
+    assert_eq!(rows(&workspace, cx).len(), 3);
+}
+
+#[gpui::test]
+fn deleting_all_but_one_variant_ends_the_slot_and_the_panel_keeps_its_text(
+    cx: &mut TestAppContext,
+) {
+    let (workspace, cx) = open(cx, slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up ctrl-backspace up ctrl-backspace");
+    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
+    let slots = cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .document()
+            .slots()
+            .len()
+    });
+    assert_eq!(slots, 0);
+
+    cx.simulate_input("buyer");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![row("customer", true), row("buyer", false)]
+    );
+}
