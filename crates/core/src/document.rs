@@ -1,22 +1,28 @@
 use std::fmt;
 use std::ops::Range;
 
-use crate::Counter;
+use crate::slot::{self, SlotNode};
+use crate::{Counter, Level, Provenance, Slot, SlotError, SlotId, Variant};
 
-/// One piece of writing and its edit history.
+/// One piece of writing: its text, Slots, and edit history.
 #[derive(Debug, Clone, Default)]
 pub struct Document {
     text: String,
+    slots: Vec<SlotNode>,
+    next_slot: SlotId,
     undo_steps: Vec<Step>,
     redo_steps: Vec<Step>,
 }
 
-/// One undoable change: `removed` at `at` was swapped for `inserted`.
+/// One undoable change: `removed` at `at` was swapped for `inserted`,
+/// and the Slots went from `slots_before` to `slots_after`.
 #[derive(Debug, Clone)]
 struct Step {
     at: usize,
     removed: String,
     inserted: String,
+    slots_before: Vec<SlotNode>,
+    slots_after: Vec<SlotNode>,
 }
 
 impl Step {
@@ -25,6 +31,8 @@ impl Step {
             at: self.at,
             removed: self.inserted,
             inserted: self.removed,
+            slots_before: self.slots_after,
+            slots_after: self.slots_before,
         }
     }
 }
@@ -86,6 +94,57 @@ impl Document {
             .ok_or(RangeError { range: selection })
     }
 
+    /// The visible Slots in document order, each parent before the Slots nested in it.
+    #[must_use]
+    pub fn slots(&self) -> Vec<Slot<'_>> {
+        let mut out = Vec::new();
+        slot::collect(&self.slots, 0, &mut out);
+        out
+    }
+
+    /// The visible Slot `id`. `None` when it ended or sits in an inactive Variant.
+    #[must_use]
+    pub fn slot(&self, id: SlotId) -> Option<Slot<'_>> {
+        self.slots().into_iter().find(|slot| slot.id == id)
+    }
+
+    /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.
+    /// The Original stays the Active variant.
+    ///
+    /// # Errors
+    /// [`SlotError::Range`] for an invalid range, [`SlotError::EmptyRange`] for an empty one,
+    /// [`SlotError::PartialOverlap`] when `range` partly overlaps another Slot.
+    pub fn create_slot(
+        &mut self,
+        range: Range<usize>,
+        level: Level,
+        text: &str,
+        provenance: Provenance,
+    ) -> Result<SlotId, SlotError> {
+        let original = self.text.get(range.clone()).ok_or(RangeError {
+            range: range.clone(),
+        })?;
+        if range.is_empty() {
+            return Err(SlotError::EmptyRange);
+        }
+        let id = self.next_slot;
+        let node = SlotNode {
+            id,
+            level,
+            range: range.clone(),
+            variants: vec![
+                Variant::new(original, Provenance::Writer),
+                Variant::new(text, provenance),
+            ],
+            active: 0,
+        };
+        let mut slots = self.slots.clone();
+        slot::place(&mut slots, node)?;
+        self.commit(range.start..range.start, "", slots)?;
+        self.next_slot = id.next();
+        Ok(id)
+    }
+
     /// Inserts `text` at byte offset `at`.
     ///
     /// # Errors
@@ -107,6 +166,23 @@ impl Document {
     /// # Errors
     /// [`RangeError`] when `range` is out of bounds, reversed, or not on char boundaries.
     pub fn replace(&mut self, range: Range<usize>, text: &str) -> Result<(), RangeError> {
+        let removed = self.text.get(range.clone()).ok_or(RangeError {
+            range: range.clone(),
+        })?;
+        if removed.is_empty() && text.is_empty() {
+            return Ok(());
+        }
+        let slots = self.slots.clone();
+        self.commit(range, text, slots)
+    }
+
+    /// Replaces `range` with `inserted` and sets the Slots to `slots`, as one undoable step.
+    fn commit(
+        &mut self,
+        range: Range<usize>,
+        inserted: &str,
+        mut slots: Vec<SlotNode>,
+    ) -> Result<(), RangeError> {
         let removed = self
             .text
             .get(range.clone())
@@ -114,14 +190,15 @@ impl Document {
                 range: range.clone(),
             })?
             .to_owned();
-        if removed.is_empty() && text.is_empty() {
-            return Ok(());
-        }
-        self.text.replace_range(range.clone(), text);
+        self.text.replace_range(range.clone(), inserted);
+        slot::sync(&mut slots, &self.text, 0);
+        let slots_before = std::mem::replace(&mut self.slots, slots);
         self.undo_steps.push(Step {
             at: range.start,
             removed,
-            inserted: text.to_owned(),
+            inserted: inserted.to_owned(),
+            slots_before,
+            slots_after: self.slots.clone(),
         });
         self.redo_steps.clear();
         Ok(())
@@ -151,6 +228,7 @@ impl Document {
     fn apply(&mut self, step: Step) -> Step {
         let end = step.at + step.inserted.len();
         self.text.replace_range(step.at..end, &step.removed);
+        self.slots.clone_from(&step.slots_before);
         step.inverse()
     }
 }
