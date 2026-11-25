@@ -7,6 +7,9 @@ pub(crate) fn agreeing(article: &str, word: &str) -> Option<&'static str> {
     match (article, an) {
         ("a" | "an", false) => Some("a"),
         ("a" | "an", true) => Some("an"),
+        ("A" | "An" | "AN", false) => Some("A"),
+        ("A" | "An", true) => Some("An"),
+        ("AN", true) => Some("AN"),
         _ => None,
     }
 }
