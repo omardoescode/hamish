@@ -10,7 +10,7 @@ use crate::markdown;
 use crate::slot::{self, SlotNode};
 use crate::{
     Counter, Cycle, GhostError, LabMark, LabMarkId, Level, MarkdownSpan, Overflow, OverflowError,
-    Provenance, Slot, SlotError, SlotId, Switch, TrimProposal, Variant,
+    Provenance, Slot, SlotError, SlotId, Switch, TrimProposal, Variant, paragraph_around,
 };
 
 /// One piece of writing: its text, Slots, Ghost ranges, Overflow, Lab marks, Trim proposal,
@@ -235,6 +235,25 @@ impl Document {
             .rev()
             .find(|slot| slot.range.start <= caret && caret <= slot.range.end)
             .map(|slot| slot.id)
+    }
+
+    /// The Level a new Slot over `range` gets: Paragraph for a whole paragraph or more,
+    /// Sentence for text with sentence-end punctuation, else Word (a word or short phrase).
+    #[must_use]
+    pub fn level_for(&self, range: &Range<usize>) -> Level {
+        let selected = self.text.get(range.clone()).unwrap_or_default();
+        let paragraph = self
+            .text
+            .get(paragraph_around(&self.text, range))
+            .unwrap_or_default()
+            .trim();
+        if selected.contains('\n') || (!paragraph.is_empty() && selected.trim() == paragraph) {
+            return Level::Paragraph;
+        }
+        if selected.contains(['.', '!', '?']) {
+            return Level::Sentence;
+        }
+        Level::Word
     }
 
     /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.

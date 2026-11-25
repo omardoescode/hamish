@@ -909,3 +909,23 @@ The dog sat."
     );
     assert!(document.slot(sentence).is_some());
 }
+
+#[test]
+fn a_new_slot_over_a_word_or_short_phrase_is_word_level() {
+    let document = Document::new("Title\nThe customer waits. She leaves.\nNext one.");
+    assert_eq!(document.level_for(&(10..18)), Level::Word);
+    assert_eq!(document.level_for(&(6..18)), Level::Word);
+}
+
+#[test]
+fn a_new_slot_over_text_with_sentence_end_punctuation_is_sentence_level() {
+    let document = Document::new("Title\nThe customer waits. She leaves.\nNext one.");
+    assert_eq!(document.level_for(&(6..25)), Level::Sentence);
+}
+
+#[test]
+fn a_new_slot_over_a_whole_paragraph_or_across_lines_is_paragraph_level() {
+    let document = Document::new("Title\nThe customer waits. She leaves.\nNext one.");
+    assert_eq!(document.level_for(&(6..37)), Level::Paragraph);
+    assert_eq!(document.level_for(&(26..42)), Level::Paragraph);
+}

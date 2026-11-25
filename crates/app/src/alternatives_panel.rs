@@ -139,7 +139,7 @@ impl AlternativesPanel {
         if range.is_empty() {
             return Target::Nothing;
         }
-        let level = level_for(document.text(), &range);
+        let level = document.level_for(&range);
         Target::Text { range, level }
     }
 
@@ -730,23 +730,6 @@ impl AlternativesPanel {
     }
 }
 
-/// The Level a new Slot over `range` of `text` gets: Paragraph for a whole paragraph or
-/// more, Sentence for text with sentence-end punctuation, else Word (a word or short phrase).
-fn level_for(text: &str, range: &Range<usize>) -> Level {
-    let selected = text.get(range.clone()).unwrap_or_default();
-    let paragraph = text
-        .get(paragraph_around(text, range))
-        .unwrap_or_default()
-        .trim();
-    if selected.contains('\n') || (!paragraph.is_empty() && selected.trim() == paragraph) {
-        return Level::Paragraph;
-    }
-    if selected.contains(['.', '!', '?']) {
-        return Level::Sentence;
-    }
-    Level::Word
-}
-
 impl EventEmitter<PanelEvent> for AlternativesPanel {}
 
 /// What the panel asks of the Workspace.
@@ -1017,31 +1000,5 @@ impl Render for AlternativesPanel {
                     .text_color(theme.text_muted)
                     .child("return adds \u{b7} esc closes"),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use ka_teb_core::Level;
-
-    use super::level_for;
-
-    const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
-
-    #[test]
-    fn a_word_or_short_phrase_is_word_level() {
-        assert_eq!(level_for(TEXT, &(10..18)), Level::Word);
-        assert_eq!(level_for(TEXT, &(6..18)), Level::Word);
-    }
-
-    #[test]
-    fn text_with_sentence_end_punctuation_is_sentence_level() {
-        assert_eq!(level_for(TEXT, &(6..25)), Level::Sentence);
-    }
-
-    #[test]
-    fn a_whole_paragraph_or_text_across_lines_is_paragraph_level() {
-        assert_eq!(level_for(TEXT, &(6..37)), Level::Paragraph);
-        assert_eq!(level_for(TEXT, &(26..42)), Level::Paragraph);
     }
 }
