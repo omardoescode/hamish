@@ -11,7 +11,10 @@ use gpui::{
 };
 use ka_teb_core::{paragraph_index, paragraph_range};
 
-use super::{Editor, EditorElement, EditorPrepaint, PaintedLine, PaintedText, PenStroke};
+use super::Editor;
+use super::element::{EditorElement, EditorPrepaint};
+use super::painted_text::{PaintedLine, PaintedText};
+use super::pen::PenStroke;
 use crate::settings;
 
 /// One paragraph painted at `scale` about `centre`. `top` and `bottom` bound its rows
@@ -221,7 +224,8 @@ impl Editor {
     fn focus_zoom_step(&mut self, cx: &App) -> bool {
         let on = settings::is_on(cx, |settings| settings.focus_zoom)
             && self.bright_paragraph().is_none();
-        let paragraph = on.then(|| paragraph_index(self.session.document().text(), self.cursor()));
+        let paragraph =
+            on.then(|| paragraph_index(self.session.document().text(), self.caret_offset()));
         let now = cx.background_executor().now();
         let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
         self.focus_zoom.focus(paragraph, now, reduced_motion);
@@ -295,7 +299,7 @@ impl EditorPrepaint {
                 *quad = zoomed_quad(&zooms, quad);
             }
         }
-        self.cursor = self.cursor.take().map(|quad| zoomed_quad(&zooms, &quad));
+        self.caret = self.caret.take().map(|quad| zoomed_quad(&zooms, &quad));
         for stroke in &mut self.underlines {
             *stroke = zoomed_stroke(&zooms, stroke);
         }

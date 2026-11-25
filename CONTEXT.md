@@ -105,7 +105,7 @@ The particle burst that plays at a span (or panel row) when a Variant is deleted
 _Avoid_: Animation, boom
 
 **Undo step**:
-One writer action as one undo: a change from any view, or typing (or deleting) in a row at the cursor. Undo puts the text and the selection back as they were before it.
+One writer action as one undo: a change from any view, or typing (or deleting) in a row at the caret. Undo puts the text and the selection back as they were before it.
 _Avoid_: History entry, undo group
 
 **Undo burst**:
@@ -121,6 +121,7 @@ _Avoid_: Format, rich text
 
 **Caret**:
 The insertion point in the Document text or in Overflow, with the selection around it and the text an input method composes. One rule for both texts: a caret clamps to its text before it acts.
+_Avoid_: cursor
 
 ### Chrome
 

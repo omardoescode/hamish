@@ -1,5 +1,5 @@
 //! Groups core edits into the undo steps the writer sees: consecutive typing or deleting at
-//! the cursor is one step.
+//! the caret is one step.
 
 use std::ops::Range;
 
@@ -8,12 +8,15 @@ use std::ops::Range;
 pub enum EditKind {
     Typing,
     Deleting,
-    /// Typing in Overflow. `EditSession::edit_overflow` makes it from `Typing`.
-    OverflowTyping,
-    /// Deleting in Overflow. `EditSession::edit_overflow` makes it from `Deleting`.
-    OverflowDeleting,
     /// An edit that joins no other.
     Other,
+}
+
+/// The text an edit changed. Edits in different texts never join.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditedText {
+    Document,
+    Overflow,
 }
 
 /// One undo step of the editor: `steps` core undo steps, and the selection around them.
@@ -21,6 +24,7 @@ pub enum EditKind {
 pub struct EditGroup {
     id: u64,
     kind: EditKind,
+    text: EditedText,
     /// How many core undo steps the group holds.
     pub steps: usize,
     /// Byte range of the selection before the first edit.
@@ -39,14 +43,23 @@ pub struct EditHistory {
 }
 
 impl EditHistory {
-    /// Records one core undo step of `kind`. It joins the last group when that group is
-    /// open, has the same kind (not [`EditKind::Other`]), and ends where this edit starts.
-    /// The redo stack clears.
-    pub fn record(&mut self, kind: EditKind, before: Range<usize>, after: Range<usize>) {
+    /// Records one core undo step of `kind` in `text`. It joins the last group when that
+    /// group is open, has the same kind (not [`EditKind::Other`]) in the same text, and ends
+    /// where this edit starts. The redo stack clears.
+    pub fn record(
+        &mut self,
+        kind: EditKind,
+        text: EditedText,
+        before: Range<usize>,
+        after: Range<usize>,
+    ) {
         self.redo.clear();
         let open = self.open;
         let joins = |group: &&mut EditGroup| {
-            open && kind != EditKind::Other && group.kind == kind && group.after == before
+            open && kind != EditKind::Other
+                && group.kind == kind
+                && group.text == text
+                && group.after == before
         };
         if let Some(group) = self.undo.last_mut().filter(joins) {
             group.steps += 1;
@@ -57,6 +70,7 @@ impl EditHistory {
         self.undo.push(EditGroup {
             id: self.next_id,
             kind,
+            text,
             steps: 1,
             before,
             after,
@@ -67,7 +81,7 @@ impl EditHistory {
     /// Records `steps` core undo steps as one editor undo step that joins no other.
     pub fn record_steps(&mut self, steps: usize, before: Range<usize>, after: Range<usize>) {
         self.close();
-        self.record(EditKind::Other, before, after);
+        self.record(EditKind::Other, EditedText::Document, before, after);
         if let Some(group) = self.undo.last_mut() {
             group.steps = steps;
         }
