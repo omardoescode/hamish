@@ -218,6 +218,17 @@ impl Document {
         self.slots().into_iter().find(|slot| slot.id == id)
     }
 
+    /// The innermost visible Slot whose span holds byte offset `caret`, edges included
+    /// (FR-14, FR-77: the caret at the end of a span is in it).
+    #[must_use]
+    pub fn slot_at(&self, caret: usize) -> Option<SlotId> {
+        self.slots()
+            .iter()
+            .rev()
+            .find(|slot| slot.range.start <= caret && caret <= slot.range.end)
+            .map(|slot| slot.id)
+    }
+
     /// Makes a Slot over `range`: its text becomes the Original, `text` the second Variant.
     /// The Original stays the Active variant. A range inside a visible Slot makes a Slot
     /// nested in that Slot's Active variant (ADR 0006): it shows only while that Variant does.

@@ -140,6 +140,66 @@ fn delete_the_active_variant_shows_the_next_one() {
 }
 
 #[test]
+fn undo_of_a_variant_delete_puts_it_back_at_its_position_as_active() {
+    let mut document = Document::new("Oh, it takes over the room.");
+    let id = document
+        .create_slot(7..17, Level::Word, "commands attention", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "reigns", Provenance::Ai).unwrap();
+    document.set_active(id, 1).unwrap();
+    document.delete_variant(id, 1).unwrap();
+    assert_eq!(document.text(), "Oh, it reigns the room.");
+    assert!(document.undo());
+    assert_eq!(
+        variant_texts(&document, id),
+        ["takes over", "commands attention", "reigns"]
+    );
+    let slot = document.slot(id).unwrap();
+    assert_eq!(slot.active, 1);
+    assert_eq!(slot.range, 7..25);
+    assert_eq!(document.text(), "Oh, it commands attention the room.");
+}
+
+#[test]
+fn undo_of_the_delete_that_ended_a_slot_brings_the_slot_back() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.delete_variant(id, 0).unwrap();
+    assert_eq!(document.slots(), Vec::new());
+    assert!(document.undo());
+    assert_eq!(variant_texts(&document, id), ["cat", "dog"]);
+    assert_eq!(document.slot(id).unwrap().active, 0);
+    assert_eq!(document.text(), "The cat sat.");
+}
+
+#[test]
+fn slot_at_a_caret_is_the_innermost_slot_that_holds_it_edges_included() {
+    let mut document = Document::new("The cat sat. It purred.");
+    let sentence = document
+        .create_slot(0..12, Level::Sentence, "A dog ran.", Provenance::Writer)
+        .unwrap();
+    let word = document
+        .create_slot(4..7, Level::Word, "fox", Provenance::Writer)
+        .unwrap();
+    let examples = [
+        (0, Some(sentence)),
+        (3, Some(sentence)),
+        (4, Some(word)),
+        (5, Some(word)),
+        (7, Some(word)),
+        (8, Some(sentence)),
+        (12, Some(sentence)),
+        (13, None),
+        (23, None),
+    ];
+    for (caret, expected) in examples {
+        assert_eq!(document.slot_at(caret), expected, "caret {caret}");
+    }
+}
+
+#[test]
 fn delete_the_active_last_variant_wraps_to_the_original() {
     let mut document = Document::new("The cat sat.");
     let id = document
