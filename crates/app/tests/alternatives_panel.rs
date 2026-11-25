@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use app::{AlternativesPanel, Workspace};
 use gpui::{
-    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, TestAppContext,
-    VisualTestContext, point, px,
+    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, ScrollDelta,
+    ScrollWheelEvent, TestAppContext, VisualTestContext, point, px,
 };
 use ka_teb_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
@@ -523,4 +523,111 @@ fn with_reduced_motion_a_row_delete_plays_no_explosion(cx: &mut TestAppContext) 
     assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), None);
     let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
     assert_eq!(effects, Vec::new());
+}
+
+#[gpui::test]
+fn a_long_variant_row_wraps_inside_the_panel(cx: &mut TestAppContext) {
+    let sentence = "The customer waits at the counter for a long time while the clerk counts every coin twice.";
+    let (_workspace, cx) = open(cx, Document::new(&format!("Title\n{sentence}")));
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let tab = cx
+        .debug_bounds("alternatives-tab-sentence")
+        .expect("the panel shows the Sentence tab");
+    cx.simulate_click(tab.center(), Modifiers::none());
+    cx.run_until_parked();
+
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let row = cx
+        .debug_bounds("alternatives-row-0")
+        .expect("the panel shows the Original");
+    let text = cx
+        .debug_bounds("alternatives-row-text-0")
+        .expect("the row shows its text");
+    assert!(row.right() <= panel.right(), "row {row:?} panel {panel:?}");
+    assert!(text.right() <= row.right(), "text {text:?} row {row:?}");
+    assert!(
+        row.size.height > px(46.),
+        "the row has more than one line: {row:?}"
+    );
+}
+
+/// "customer" as a Word Slot with 40 long AI Variants after the Original: more rows than
+/// the panel height.
+#[expect(clippy::expect_used, reason = "test fixture")]
+fn long_slot_document() -> Document {
+    let mut document = customer_document();
+    let long =
+        "a patient buyer who stands at the counter and counts every coin twice before paying";
+    let slot = document
+        .create_slot(10..18, Level::Word, long, Provenance::Ai)
+        .expect("valid range");
+    for _ in 0..39 {
+        document
+            .add_variant(slot, long, Provenance::Ai)
+            .expect("the Slot exists");
+    }
+    document
+}
+
+#[gpui::test]
+fn the_wheel_scrolls_the_panel_rows(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, long_slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let before = cx
+        .debug_bounds("alternatives-row-1")
+        .expect("the panel shows the second Variant");
+    let last = cx
+        .debug_bounds("alternatives-row-41")
+        .expect("the panel has the last row");
+    assert!(
+        last.bottom() > panel.bottom(),
+        "the rows do not fit: {last:?}"
+    );
+    cx.simulate_mouse_move(before.center(), None, Modifiers::none());
+    cx.simulate_event(ScrollWheelEvent {
+        position: before.center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-100.))),
+        ..ScrollWheelEvent::default()
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+
+    let after = cx
+        .debug_bounds("alternatives-row-1")
+        .expect("the panel shows the second Variant");
+    assert_eq!(
+        after.origin.y,
+        before.origin.y - px(100.),
+        "panel {panel:?}"
+    );
+}
+
+#[gpui::test]
+fn typing_scrolls_the_last_row_into_the_panel(cx: &mut TestAppContext) {
+    let (_workspace, cx) = open(cx, long_slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a up");
+    cx.simulate_input("buyer");
+    cx.run_until_parked();
+
+    let panel = cx
+        .debug_bounds("alternatives-panel")
+        .expect("the panel is on screen");
+    let row = cx
+        .debug_bounds("alternatives-row-41")
+        .expect("the panel shows the last row");
+    assert!(
+        row.bottom() <= panel.bottom(),
+        "row {row:?} panel {panel:?}"
+    );
 }
