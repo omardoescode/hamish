@@ -20,6 +20,9 @@ pub struct EditSession {
 pub struct SlotChanges {
     /// Slots whose deleted Variant came back, in undo order.
     pub restored: Vec<SlotId>,
+    /// Spans whose Active variant a redo deleted, as they were before the redo, in redo
+    /// order.
+    pub deleted: Vec<Range<usize>>,
     /// The Slot that shows a different Active variant (a cycle, a delete, an undo).
     pub switched: Option<SlotId>,
 }
@@ -231,6 +234,7 @@ impl EditSession {
         self.caret = Caret::over(group.before.clone());
         Some(SlotChanges {
             restored,
+            deleted: Vec::new(),
             switched: ShownVariant::switched(&shown, &self.document),
         })
     }
@@ -240,12 +244,20 @@ impl EditSession {
     pub fn redo(&mut self) -> Option<SlotChanges> {
         let group = self.history.redo()?;
         let shown = ShownVariant::of(&self.document);
+        let mut deleted = Vec::new();
         for _ in 0..group.steps {
+            let span = self
+                .document
+                .redo_deletes_variant()
+                .and_then(|id| self.document.slot(id))
+                .map(|slot| slot.range);
+            deleted.extend(span);
             self.document.redo();
         }
         self.caret = Caret::over(group.after.clone());
         Some(SlotChanges {
             restored: Vec::new(),
+            deleted,
             switched: ShownVariant::switched(&shown, &self.document),
         })
     }

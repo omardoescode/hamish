@@ -447,6 +447,13 @@ impl Document {
         self.undo_steps.last()?.variant_deleted
     }
 
+    /// The Slot whose Variant the next [`Document::redo`] deletes again: `Some` when the
+    /// last undone step is a Variant delete.
+    #[must_use]
+    pub fn redo_deletes_variant(&self) -> Option<SlotId> {
+        self.redo_steps.last()?.variant_deleted
+    }
+
     /// Sets the text of Variant `index` of Slot `id`, as a writer edit:
     /// an AI Variant becomes Mixed. Slots nested in that Variant end.
     ///

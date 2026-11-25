@@ -212,6 +212,22 @@ fn escape_closes_the_panel_and_the_editor_takes_the_keys_again(cx: &mut TestAppC
     assert!(focused_on_editor(&workspace, cx));
 }
 
+#[gpui::test]
+fn escape_in_the_editor_closes_the_open_panel(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+
+    let title = point_at(&workspace, cx, 2);
+    cx.simulate_click(title, Modifiers::none());
+    assert!(focused_on_editor(&workspace, cx));
+    assert!(panel(&workspace, cx).is_some());
+
+    cx.simulate_keystrokes("escape");
+
+    assert!(panel(&workspace, cx).is_none());
+}
+
 /// "Title\nThe customer waits." with a Word Slot on "customer": "customer", "client", "patron".
 #[expect(clippy::expect_used, reason = "test fixture")]
 fn slot_document() -> Document {

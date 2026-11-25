@@ -2,12 +2,14 @@
 //! actions between them.
 
 use gpui::{
-    App, Context, Entity, Focusable, IntoElement, Pixels, Render, Subscription, Window, div,
-    linear_color_stop, linear_gradient, prelude::*, px,
+    App, Context, DragMoveEvent, Entity, Focusable, IntoElement, Pixels, Render, Subscription,
+    Window, div, linear_color_stop, linear_gradient, prelude::*, px,
 };
 use ka_teb_core::{Document, SlotId, document_title};
 
-use crate::actions::{AiAlternatives, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow};
+use crate::actions::{
+    AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleChrome, ToggleOverflow,
+};
 use crate::alternatives_panel::PanelEvent;
 use crate::editor::EditorEvent;
 use crate::lab::{self, Lab};
@@ -172,6 +174,13 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Esc in the editor with no context menu open closes the Alternatives panel.
+    fn close_menu(&mut self, _: &CloseMenu, window: &mut Window, cx: &mut Context<Self>) {
+        if self.alternatives.is_some() {
+            self.close_alternatives(window, cx);
+        }
+    }
+
     /// The Overflow panel is open.
     #[must_use]
     pub fn overflow_open(&self) -> bool {
@@ -208,6 +217,19 @@ impl Workspace {
         self.editor.update(cx, |editor, cx| {
             editor.drop_overflow_block(caret, position, cx);
         });
+    }
+
+    /// A block dragged over the page shows where it goes in.
+    fn drag_block_over(
+        &mut self,
+        event: &DragMoveEvent<OverflowBlockDrag>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let position = event.event.position;
+        let over = event.bounds.contains(&position).then_some(position);
+        self.editor
+            .update(cx, |editor, cx| editor.drag_block_over(over, cx));
     }
 
     /// Lab actions that reach the Workspace (the focus is outside the Lab) go to the Lab.
@@ -326,9 +348,11 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_stash))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::close_settings))
+            .on_action(cx.listener(Self::close_menu))
             .child(
                 div()
                     .size_full()
+                    .on_drag_move(cx.listener(Self::drag_block_over))
                     .on_drop(cx.listener(Self::drop_block))
                     .child(self.editor.clone()),
             )

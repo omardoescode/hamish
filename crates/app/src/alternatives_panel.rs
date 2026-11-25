@@ -857,7 +857,7 @@ impl AlternativesPanel {
                 list.child(
                     div()
                         .text_color(theme.text_muted)
-                        .child("Select text, or put the cursor in a word."),
+                        .child("Select text, or click in a word."),
                 )
             })
     }

@@ -1,5 +1,10 @@
+use std::ops::Range;
+
 use app::Workspace;
-use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px};
+use gpui::{
+    Bounds, Entity, EntityInputHandler, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
+    Pixels, Point, TestAppContext, VisualTestContext, point, px,
+};
 use ka_teb_core::Document;
 
 fn open<'a>(
@@ -21,6 +26,28 @@ fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
             .text()
             .to_owned()
     })
+}
+
+fn selection(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Range<usize> {
+    cx.read(|cx| workspace.read(cx).editor().read(cx).selection())
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+/// A window point in the middle of the Document row of byte `offset`, just right of it.
+fn document_point(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    offset: usize,
+) -> Point<Pixels> {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    let bounds = cx
+        .update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.bounds_for_range(offset..offset, Bounds::default(), window, cx)
+            })
+        })
+        .expect("the editor painted the text");
+    bounds.origin + point(px(3.), bounds.size.height / 2.)
 }
 
 fn counter(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
@@ -116,4 +143,70 @@ fn a_click_on_the_counter_toggles_the_chrome(cx: &mut TestAppContext) {
 
     cx.simulate_click(point(px(30.), px(28.)), Modifiers::none());
     assert!(!chrome_visible(&workspace, cx));
+}
+
+#[gpui::test]
+fn ctrl_left_and_right_move_the_caret_by_word_and_shift_selects(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, "Title\nThe red cat.");
+
+    cx.simulate_keystrokes("down ctrl-right ctrl-right");
+    assert_eq!(selection(&workspace, cx), 13..13);
+
+    cx.simulate_keystrokes("ctrl-left");
+    assert_eq!(selection(&workspace, cx), 10..10);
+
+    cx.simulate_keystrokes("ctrl-shift-right");
+    assert_eq!(selection(&workspace, cx), 10..13);
+}
+
+#[gpui::test]
+fn home_and_end_go_to_the_start_and_end_of_a_wrapped_paragraph(cx: &mut TestAppContext) {
+    let paragraph = format!("{}end", "word ".repeat(80));
+    let (workspace, cx) = open(cx, &format!("Title\n{paragraph}"));
+    cx.run_until_parked();
+
+    cx.simulate_keystrokes("down end");
+    assert_eq!(selection(&workspace, cx), 409..409);
+
+    cx.simulate_keystrokes("home");
+    assert_eq!(selection(&workspace, cx), 6..6);
+
+    cx.simulate_keystrokes("shift-end");
+    assert_eq!(selection(&workspace, cx), 6..409);
+}
+
+#[gpui::test]
+fn up_and_down_keep_the_column_over_a_shorter_line(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, "T\nabcdefgh\nab\nabcdefgh");
+
+    cx.simulate_keystrokes("down right right right right right right down");
+    assert_eq!(selection(&workspace, cx), 13..13);
+
+    cx.simulate_keystrokes("down");
+    assert_eq!(selection(&workspace, cx), 20..20);
+
+    cx.simulate_keystrokes("up up");
+    assert_eq!(selection(&workspace, cx), 8..8);
+}
+
+#[gpui::test]
+fn a_double_click_selects_the_word(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, "Title\nThe red cat.");
+    let at = document_point(&workspace, cx, 11);
+
+    cx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position: at,
+        modifiers: Modifiers::none(),
+        click_count: 2,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        button: MouseButton::Left,
+        position: at,
+        modifiers: Modifiers::none(),
+        click_count: 2,
+    });
+
+    assert_eq!(selection(&workspace, cx), 10..13);
 }

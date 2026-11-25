@@ -141,6 +141,25 @@ fn undo_puts_the_deleted_variant_back_as_active_with_a_burst(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+fn redo_of_a_delete_plays_the_explosion_again(cx: &mut TestAppContext) {
+    let (document, slot) = slot_document();
+    let (workspace, cx) = open(cx, document);
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("down ctrl-shift-backspace ctrl-z ctrl-shift-z");
+
+    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
+    assert_eq!(
+        variants(&workspace, cx, slot),
+        Some((strings(&["customer", "patron"]), 1))
+    );
+    assert_eq!(
+        effects(&workspace, cx).last(),
+        Some(&effect(Effect::Explosion, 10..16))
+    );
+}
+
+#[gpui::test]
 fn deleting_one_of_two_variants_ends_the_slot_and_undo_brings_it_back(cx: &mut TestAppContext) {
     let mut document = Document::new("Title\nThe customer waits.");
     let slot = document
