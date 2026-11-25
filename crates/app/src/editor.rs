@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, FontWeight, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, FontWeight, GlobalElementId,
+    Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, PaintQuad, Pixels, Point, Render, ScrollHandle, SharedString, Size, Style,
     TextRun, UTF16Selection, UnderlineStyle, Window, WrappedLine, div, fill, point, prelude::*, px,
     relative, size,
@@ -68,6 +68,15 @@ pub struct Editor {
     markers: Vec<Marker>,
     context_menu: Option<ContextMenu>,
 }
+
+/// What the editor tells the views around it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditorEvent {
+    /// A click on the text of a visible Slot (FR-21).
+    SlotClicked(SlotId),
+}
+
+impl EventEmitter<EditorEvent> for Editor {}
 
 /// The text as last painted, for mouse and vertical cursor moves.
 struct PaintedText {
@@ -441,6 +450,9 @@ impl Editor {
             self.select_to(offset, cx);
         } else {
             self.move_to(offset, cx);
+        }
+        if let Some(slot) = self.slot_at(event.position) {
+            cx.emit(EditorEvent::SlotClicked(slot));
         }
     }
 

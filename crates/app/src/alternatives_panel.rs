@@ -84,6 +84,15 @@ impl AlternativesPanel {
         Target::Text { range, level }
     }
 
+    /// FR-21: shows Slot `id`, with the last row selected.
+    pub(crate) fn show_slot(&mut self, id: SlotId, cx: &mut Context<Self>) {
+        self.target = Target::Slot(id);
+        self.editing = None;
+        self.draft.clear();
+        self.row = self.rows(cx).len();
+        cx.notify();
+    }
+
     /// The Level tab that is active (FR-20). `None` with nothing to show.
     #[must_use]
     pub fn level(&self, cx: &App) -> Option<Level> {

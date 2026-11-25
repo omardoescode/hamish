@@ -2,10 +2,11 @@ use gpui::{
     Context, Entity, Focusable, IntoElement, Render, Subscription, Window, div, linear_color_stop,
     linear_gradient, prelude::*, px,
 };
-use ka_teb_core::Document;
+use ka_teb_core::{Document, SlotId};
 
 use crate::actions::{OpenAlternatives, ToggleChrome};
 use crate::alternatives_panel::PanelEvent;
+use crate::editor::EditorEvent;
 use crate::{AlternativesPanel, Editor, Theme};
 
 /// The root view: the text column, the Counter, and the Chrome.
@@ -14,6 +15,7 @@ pub struct Workspace {
     chrome_visible: bool,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
     _editor_changes: Subscription,
+    _editor_events: Subscription,
 }
 
 impl Workspace {
@@ -21,11 +23,19 @@ impl Workspace {
         let editor = cx.new(|cx| Editor::new(document, cx));
         window.focus(&editor.focus_handle(cx));
         let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
+        let editor_events = cx.subscribe_in(
+            &editor,
+            window,
+            |workspace, _, event: &EditorEvent, window, cx| match *event {
+                EditorEvent::SlotClicked(slot) => workspace.show_slot(slot, window, cx),
+            },
+        );
         Self {
             editor,
             chrome_visible: false,
             alternatives: None,
             _editor_changes: editor_changes,
+            _editor_events: editor_events,
         }
     }
 
@@ -65,6 +75,15 @@ impl Workspace {
         window.focus(&panel.focus_handle(cx));
         self.alternatives = Some((panel, events));
         cx.notify();
+    }
+
+    /// FR-21: a click on a Slot while the panel is open shows that Slot in the panel.
+    fn show_slot(&mut self, slot: SlotId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.alternatives_panel() else {
+            return;
+        };
+        panel.update(cx, |panel, cx| panel.show_slot(slot, cx));
+        window.focus(&panel.focus_handle(cx));
     }
 
     fn close_alternatives(&mut self, window: &mut Window, cx: &mut Context<Self>) {

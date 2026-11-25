@@ -1,5 +1,8 @@
 use app::{AlternativesPanel, Workspace};
-use gpui::{Entity, Focusable, TestAppContext, VisualTestContext};
+use gpui::{
+    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, Point, TestAppContext,
+    VisualTestContext, point, px,
+};
 use ka_teb_core::{Document, Level, Provenance};
 
 fn open(
@@ -226,4 +229,46 @@ fn deleting_all_but_one_variant_ends_the_slot_and_the_panel_keeps_its_text(
         rows(&workspace, cx),
         vec![row("customer", true), row("buyer", false)]
     );
+}
+
+#[expect(clippy::expect_used, reason = "test fixture")]
+/// A window point in the middle of the row of byte `offset`, just right of it.
+fn point_at(
+    workspace: &Entity<Workspace>,
+    cx: &mut VisualTestContext,
+    offset: usize,
+) -> Point<gpui::Pixels> {
+    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+    let bounds = cx
+        .update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.bounds_for_range(offset..offset, Bounds::default(), window, cx)
+            })
+        })
+        .expect("the editor painted the text");
+    bounds.origin + point(px(3.), bounds.size.height / 2.)
+}
+
+#[gpui::test]
+fn a_click_on_a_slot_while_the_panel_is_open_shows_its_variants(cx: &mut TestAppContext) {
+    let mut document = slot_document();
+    assert!(
+        document
+            .create_slot(19..24, Level::Word, "stays", Provenance::Writer)
+            .is_ok(),
+        "valid range"
+    );
+    let (workspace, cx) = open(cx, document);
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let waits = point_at(&workspace, cx, 21);
+    cx.simulate_click(waits, Modifiers::none());
+    assert_eq!(
+        rows(&workspace, cx),
+        vec![row("waits", true), row("stays", false)]
+    );
+
+    cx.simulate_keystrokes("up");
+    assert_eq!(text(&workspace, cx), "Title\nThe customer stays.");
 }
