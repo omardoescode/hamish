@@ -1,4 +1,4 @@
-//! Settings (issue #21): theme, UI scale, and editor font values, with their defaults,
+//! Settings (issue #21): theme, UI scale, editor font values, and cycle sounds, with their defaults,
 //! limits, and the JSON file in the XDG config dir.
 
 use std::ffi::{OsStr, OsString};
@@ -71,6 +71,8 @@ pub struct Settings {
     pub font_size: f32,
     pub line_height: f32,
     pub column_width: f32,
+    /// A tone on each Active variant switch and a sound on a Variant delete (issue #27).
+    pub cycle_sounds: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +85,7 @@ impl Default for Settings {
             font_size: 15.0,
             line_height: 1.8,
             column_width: 585.0,
+            cycle_sounds: true,
         }
     }
 }
