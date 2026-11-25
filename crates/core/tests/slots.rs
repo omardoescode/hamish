@@ -656,3 +656,76 @@ fn nested_slot_with_an_empty_variant_at_the_paragraph_edge_stays_inside_it() {
     document.set_active(paragraph, 1).unwrap();
     assert_eq!(document.text(), "Intro.\nDogs run\nEnd.");
 }
+
+#[test]
+fn partial_overlap_is_refused_inside_a_paragraph_variant_and_across_its_edge() {
+    let mut document = Document::new("Intro. The cat sat on the mat. End.");
+    let paragraph = document
+        .create_slot(
+            7..30,
+            Level::Paragraph,
+            "A dog ran far.",
+            Provenance::Writer,
+        )
+        .unwrap();
+    document.set_active(paragraph, 1).unwrap();
+    let inner = document
+        .create_slot(9..16, Level::Word, "fox sped", Provenance::Writer)
+        .unwrap();
+    let refused = [3..10, 12..19, 18..24];
+    for range in refused {
+        assert_eq!(
+            document.create_slot(range.clone(), Level::Word, "x", Provenance::Writer),
+            Err(SlotError::PartialOverlap),
+            "{range:?}"
+        );
+    }
+    let ids: Vec<_> = document.slots().iter().map(|slot| slot.id).collect();
+    assert_eq!(ids, [paragraph, inner]);
+    assert_eq!(document.text(), "Intro. A dog ran far. End.");
+}
+
+#[test]
+fn undo_restores_nested_slots_and_their_choices() {
+    let mut document = Document::new("The cat sat.");
+    let paragraph = document
+        .create_slot(0..12, Level::Paragraph, "A dog ran.", Provenance::Writer)
+        .unwrap();
+    document.set_active(paragraph, 1).unwrap();
+    let dog = document
+        .create_slot(2..5, Level::Word, "wolf", Provenance::Writer)
+        .unwrap();
+    document.set_active(dog, 1).unwrap();
+    document.set_active(paragraph, 0).unwrap();
+    expect_state(
+        &document,
+        "The cat sat.",
+        &[(0, &["The cat sat.", "A wolf ran."])],
+    );
+
+    let history: [(&str, &[SlotState<'_>]); 3] = [
+        (
+            "A wolf ran.",
+            &[(1, &["The cat sat.", "A wolf ran."]), (1, &["dog", "wolf"])],
+        ),
+        (
+            "A dog ran.",
+            &[(1, &["The cat sat.", "A dog ran."]), (0, &["dog", "wolf"])],
+        ),
+        ("A dog ran.", &[(1, &["The cat sat.", "A dog ran."])]),
+    ];
+    for (text, slots) in history {
+        assert!(document.undo());
+        expect_state(&document, text, slots);
+    }
+    assert!(document.redo());
+    assert!(document.redo());
+    assert!(document.redo());
+    expect_state(
+        &document,
+        "The cat sat.",
+        &[(0, &["The cat sat.", "A wolf ran."])],
+    );
+    document.set_active(paragraph, 1).unwrap();
+    assert_eq!(document.slot(dog).unwrap().active, 1);
+}
