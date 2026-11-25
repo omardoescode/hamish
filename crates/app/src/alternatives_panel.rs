@@ -13,8 +13,8 @@ use ka_teb_core::{
 };
 
 use crate::actions::{
-    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
-    SelectPreviousVariant,
+    ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, Redo, SelectNextVariant,
+    SelectPreviousVariant, Undo,
 };
 use crate::editor::Spotlight;
 use crate::effects::{self, Particles, PlayingEffect};
@@ -659,6 +659,30 @@ impl AlternativesPanel {
         cx.notify();
     }
 
+    fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, Editor::undo_step);
+        self.after_history_step(cx);
+    }
+
+    fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, Editor::redo_step);
+        self.after_history_step(cx);
+    }
+
+    /// After an undo or redo the edit in progress ends. A Slot that the step removed gives
+    /// way to the target at the editor selection.
+    fn after_history_step(&mut self, cx: &mut Context<Self>) {
+        self.editing = None;
+        if let Target::Slot(id) = self.target
+            && self.editor.read(cx).document().slot(id).is_none()
+        {
+            let target = self.target_at_editor(cx);
+            self.set_target(target, cx);
+        }
+        self.row = self.row.min(self.rows(cx).len());
+        cx.notify();
+    }
+
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
@@ -980,6 +1004,8 @@ impl Render for AlternativesPanel {
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::delete_backward))
             .on_action(cx.listener(Self::paste))
+            .on_action(cx.listener(Self::undo))
+            .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::delete_variant))
             .on_key_down(cx.listener(Self::on_key_down))
             .occlude()

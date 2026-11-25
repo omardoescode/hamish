@@ -13,9 +13,10 @@ use ka_teb_core::{AiError, LabCheck, LabError, LabFinding, LabMark, LabMarkId, L
 
 use gpui::Focusable;
 
+use crate::actions::{Redo, Undo};
 use crate::ai::AiFailure;
 use crate::trim::TrimRun;
-use crate::{Ai, Theme, Workspace};
+use crate::{Ai, Editor, Theme, Workspace};
 
 #[expect(
     clippy::disallowed_types,
@@ -200,6 +201,14 @@ impl Workspace {
         self.lab.open = false;
         window.focus(&self.editor.read(cx).focus_handle(cx));
         cx.notify();
+    }
+
+    fn lab_undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, Editor::undo_step);
+    }
+
+    fn lab_redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, Editor::redo_step);
     }
 
     fn toggle_guide(&mut self, cx: &mut Context<Self>) {
@@ -407,6 +416,8 @@ impl Workspace {
             .track_focus(&self.lab.focus_handle)
             .on_action(cx.listener(Self::close_lab))
             .on_action(cx.listener(Self::run_lab_check))
+            .on_action(cx.listener(Self::lab_undo))
+            .on_action(cx.listener(Self::lab_redo))
             .occlude()
             .w(POPOVER_WIDTH)
             .pb(px(4.))

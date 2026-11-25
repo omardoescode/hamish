@@ -91,6 +91,20 @@ fn status(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, check: LabC
 }
 
 #[gpui::test]
+fn undo_and_redo_work_while_the_lab_popover_has_focus(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+    cx.simulate_input("A ");
+    click(cx, "lab-button");
+
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(text(&workspace, cx), TEXT);
+    assert!(lab_open(&workspace, cx));
+
+    cx.simulate_keystrokes("ctrl-shift-z");
+    assert_eq!(text(&workspace, cx), format!("A {TEXT}"));
+}
+
+#[gpui::test]
 fn the_lab_button_opens_and_closes_the_popover_and_escape_closes_it(cx: &mut TestAppContext) {
     let (workspace, cx) = open(cx, Some(typo_and_hedge()));
     assert!(!lab_open(&workspace, cx));

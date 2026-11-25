@@ -114,6 +114,13 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
+    for context in ["AlternativesPanel", "Lab"] {
+        let context = Some(context);
+        cx.bind_keys([
+            KeyBinding::new("ctrl-z", Undo, context),
+            KeyBinding::new("ctrl-shift-z", Redo, context),
+        ]);
+    }
     let panel = Some("AlternativesPanel");
     cx.bind_keys([
         KeyBinding::new("up", SelectPreviousVariant, panel),
