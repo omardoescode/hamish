@@ -10,11 +10,14 @@ use crate::actions::{
     ClosePanel, ConfirmVariant, DeleteBackward, DeleteVariant, Paste, SelectNextVariant,
     SelectPreviousVariant,
 };
+use crate::context_menu;
 use crate::editor::{Spotlight, paragraph_around};
 use crate::{Editor, Theme};
 
 /// Width of the left Alternatives panel (spec "Theme Mapping": about 205 px).
 const PANEL_WIDTH: f32 = 205.;
+/// Alternatives list text (spec: about 12 px).
+const LIST_FONT_SIZE: f32 = 12.;
 
 /// One Variant row of the Alternatives panel (FR-22, FR-23).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,6 +395,174 @@ impl Focusable for AlternativesPanel {
     }
 }
 
+impl AlternativesPanel {
+    /// A click on a Level tab shows the word, sentence, or paragraph around the target.
+    fn choose_level(&mut self, level: Level, cx: &mut Context<Self>) {
+        let document = self.editor.read(cx).document();
+        let anchor = match &self.target {
+            Target::Slot(id) => document.slot(*id).map(|slot| slot.range),
+            Target::Text { range, .. } => Some(range.clone()),
+            Target::Nothing => None,
+        };
+        let Some(anchor) = anchor else {
+            return;
+        };
+        let text = document.text();
+        let range = match level {
+            Level::Word => context_menu::word_at(text, anchor.start).unwrap_or(anchor),
+            Level::Sentence => sentence_around(text, &anchor),
+            Level::Paragraph => paragraph_around(text, &anchor),
+        };
+        let slot = document
+            .slots()
+            .into_iter()
+            .rev()
+            .find(|slot| slot.range == range && slot.level == level)
+            .map(|slot| slot.id);
+        let target = slot.map_or(Target::Text { range, level }, Target::Slot);
+        self.set_target(target, cx);
+        self.editing = None;
+        self.row = self.rows(cx).len();
+        cx.notify();
+    }
+
+    fn render_tabs(&self, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let current = self.level(cx);
+        let tabs = [
+            (Level::Word, "Word", "alternatives-tab-word"),
+            (Level::Sentence, "Sentence", "alternatives-tab-sentence"),
+            (Level::Paragraph, "Paragraph", "alternatives-tab-paragraph"),
+        ];
+        div()
+            .flex()
+            .gap(px(10.))
+            .italic()
+            .children(tabs.into_iter().map(|(level, label, id)| {
+                let color = if current == Some(level) {
+                    theme.accent
+                } else {
+                    theme.text_muted
+                };
+                div()
+                    .id(id)
+                    .debug_selector(|| id.to_owned())
+                    .cursor_pointer()
+                    .text_color(color)
+                    .on_click(cx.listener(move |panel, _, _, cx| panel.choose_level(level, cx)))
+                    .child(label)
+            }))
+    }
+
+    fn render_rows(&self, theme: &Theme, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = self.rows(cx);
+        let last = rows.len();
+        let variant_rows = rows.into_iter().enumerate().map(|(index, row)| {
+            let editing = self.editing.as_ref().filter(|_| index == self.row);
+            let color = if row.active {
+                theme.text
+            } else {
+                theme.text_muted
+            };
+            let marker_color = if row.active {
+                theme.accent
+            } else {
+                theme.text_muted
+            };
+            let text = editing.map_or(row.text, |text| format!("{text}\u{258f}"));
+            row_box(theme, index == self.row)
+                .id(("alternatives-row", index))
+                .debug_selector(move || format!("alternatives-row-{index}"))
+                .cursor_pointer()
+                .on_click(cx.listener(move |panel, _, _, cx| panel.select(index, cx)))
+                .child(provenance_marker(row.provenance, marker_color))
+                .child(div().text_color(color).child(text))
+        });
+        let has_target = self.target != Target::Nothing;
+        let new_row = row_box(theme, self.row == last)
+            .id(("alternatives-row", last))
+            .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))
+            .child(provenance_marker(Provenance::Writer, theme.text_faint))
+            .child(
+                div()
+                    .text_color(theme.text)
+                    .child(format!("{}\u{258f}", self.draft)),
+            );
+        div()
+            .mt(px(35.))
+            .flex()
+            .flex_col()
+            .children(variant_rows)
+            .when(has_target, |list| list.child(new_row))
+            .when(!has_target, |list| {
+                list.child(
+                    div()
+                        .text_color(theme.text_muted)
+                        .child("Select text, or put the cursor in a word."),
+                )
+            })
+    }
+}
+
+/// A list row: about 23 px apart (spec); the selected row has the hover background.
+fn row_box(theme: &Theme, selected: bool) -> gpui::Div {
+    div()
+        .flex()
+        .items_start()
+        .gap(px(8.))
+        .min_h(px(23.))
+        .py(px(3.))
+        .px(px(4.))
+        .rounded(theme.elevated_radius)
+        .when(selected, |row| row.bg(theme.elevated_row_hover))
+}
+
+/// FR-23: Bullet point (Writer), Bot point (AI), or the Mixed marker: a Bot point outline
+/// with a Bullet point in it.
+fn provenance_marker(provenance: Provenance, color: gpui::Hsla) -> gpui::Div {
+    let marker = div()
+        .mt(px(6.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center();
+    match provenance {
+        Provenance::Writer => marker.size(px(5.)).rounded_full().bg(color),
+        Provenance::Ai => marker.size(px(7.)).rounded(px(1.5)).bg(color),
+        Provenance::Mixed => marker
+            .size(px(7.))
+            .rounded(px(1.5))
+            .border_1()
+            .border_color(color)
+            .child(div().size(px(3.)).rounded_full().bg(color)),
+    }
+}
+
+/// The sentence of `text` that holds `range`: from after the sentence end before it to the
+/// next sentence end, inside its paragraph.
+fn sentence_around(text: &str, range: &Range<usize>) -> Range<usize> {
+    let paragraph = paragraph_around(text, range);
+    let is_end = |c: char| matches!(c, '.' | '!' | '?');
+    let before = text.get(paragraph.start..range.start).unwrap_or_default();
+    let start = before
+        .rfind(is_end)
+        .map_or(paragraph.start, |end| paragraph.start + end + 1);
+    let start = start
+        + text
+            .get(start..range.start)
+            .map_or(0, |gap| gap.len() - gap.trim_start().len());
+    let ends_sentence = text
+        .get(..range.end)
+        .is_some_and(|head| head.ends_with(is_end));
+    if ends_sentence {
+        return start..range.end;
+    }
+    let after = text.get(range.end..paragraph.end).unwrap_or_default();
+    let end = after
+        .find(is_end)
+        .map_or(paragraph.end, |end| range.end + end + 1);
+    start..end
+}
+
 impl Render for AlternativesPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = *cx.global::<Theme>();
@@ -413,9 +584,23 @@ impl Render for AlternativesPanel {
             .bottom_0()
             .left_0()
             .w(px(PANEL_WIDTH))
+            .pt(px(22.))
+            .px(px(16.))
             .bg(theme.panel_background)
             .border_r_1()
             .border_color(theme.panel_border)
+            .text_size(px(LIST_FONT_SIZE))
+            .child(self.render_tabs(&theme, cx))
+            .child(self.render_rows(&theme, cx))
+            .child(
+                div()
+                    .absolute()
+                    .bottom(px(24.))
+                    .left(px(16.))
+                    .text_size(theme.font_size_hint)
+                    .text_color(theme.text_muted)
+                    .child("return adds \u{b7} esc closes"),
+            )
     }
 }
 
@@ -423,7 +608,7 @@ impl Render for AlternativesPanel {
 mod tests {
     use ka_teb_core::Level;
 
-    use super::{ended_slot_text, level_for};
+    use super::{ended_slot_text, level_for, sentence_around};
 
     const TEXT: &str = "Title\nThe customer waits. She leaves.\nNext one.";
 
@@ -433,6 +618,14 @@ mod tests {
         assert_eq!(ended_slot_text(text, 14, "eraser"), Some(15..21));
         assert_eq!(ended_slot_text(text, 15, "eraser"), Some(15..21));
         assert_eq!(ended_slot_text(text, 14, "thumbtack"), None);
+    }
+
+    #[test]
+    fn the_sentence_around_a_word_runs_from_the_last_sentence_end_to_the_next() {
+        assert_eq!(sentence_around(TEXT, &(10..18)), 6..25);
+        assert_eq!(sentence_around(TEXT, &(30..36)), 26..37);
+        assert_eq!(sentence_around(TEXT, &(6..25)), 6..25);
+        assert_eq!(sentence_around("Title\nno end here", &(9..12)), 6..17);
     }
 
     #[test]

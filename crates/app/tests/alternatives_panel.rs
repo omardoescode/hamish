@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use app::{AlternativesPanel, Workspace};
 use gpui::{
-    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, Point, TestAppContext,
+    Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, TestAppContext,
     VisualTestContext, point, px,
 };
 use ka_teb_core::{Document, Level, Provenance};
@@ -294,4 +294,64 @@ fn while_the_panel_is_open_only_the_paragraph_of_its_slot_stays_bright(cx: &mut 
 
     cx.simulate_keystrokes("escape");
     assert_eq!(bright(&workspace, cx), None);
+}
+
+#[gpui::test]
+fn the_text_column_does_not_move_when_the_panel_opens(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    let before = point_at(&workspace, cx, 13);
+    cx.simulate_keystrokes("ctrl-shift-a");
+
+    assert_eq!(point_at(&workspace, cx, 13), before);
+}
+
+fn right_click(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, offset: usize) {
+    let position = point_at(workspace, cx, offset);
+    cx.simulate_mouse_down(position, MouseButton::Right, Modifiers::none());
+    cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
+}
+
+#[gpui::test]
+fn the_context_menu_alternatives_row_opens_the_panel_on_the_word(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, customer_document());
+
+    right_click(&workspace, cx, 13);
+    let row_bounds = cx
+        .debug_bounds("context-menu-row-0")
+        .expect("the menu shows the Alternatives row");
+    cx.simulate_click(row_bounds.center(), Modifiers::none());
+
+    assert_eq!(rows(&workspace, cx), vec![row("customer", true)]);
+}
+
+#[gpui::test]
+fn a_click_on_a_variant_row_shows_that_variant(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, slot_document());
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let row_bounds = cx
+        .debug_bounds("alternatives-row-2")
+        .expect("the panel shows the third Variant");
+    cx.simulate_click(row_bounds.center(), Modifiers::none());
+
+    assert_eq!(text(&workspace, cx), "Title\nThe patron waits.");
+}
+
+#[gpui::test]
+fn a_click_on_the_sentence_tab_shows_the_sentence_around_the_word(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, Document::new("Title\nThe customer waits. She leaves."));
+
+    cx.simulate_keystrokes(INTO_CUSTOMER);
+    cx.simulate_keystrokes("ctrl-shift-a");
+    let tab = cx
+        .debug_bounds("alternatives-tab-sentence")
+        .expect("the panel shows the Sentence tab");
+    cx.simulate_click(tab.center(), Modifiers::none());
+
+    assert_eq!(rows(&workspace, cx), vec![row("The customer waits.", true)]);
+    let level = panel(&workspace, cx).map(|panel| cx.read(|cx| panel.read(cx).level(cx)));
+    assert_eq!(level, Some(Some(Level::Sentence)));
 }
