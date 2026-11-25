@@ -200,6 +200,28 @@ fn slot_at_a_caret_is_the_innermost_slot_that_holds_it_edges_included() {
 }
 
 #[test]
+fn undo_restores_variant_names_the_slot_when_the_last_step_is_a_variant_delete() {
+    let mut document = Document::new("The cat sat.");
+    let id = document
+        .create_slot(4..7, Level::Word, "dog", Provenance::Writer)
+        .unwrap();
+    document.add_variant(id, "fox", Provenance::Writer).unwrap();
+    assert_eq!(document.undo_restores_variant(), None);
+    document.delete_variant(id, 1).unwrap();
+    assert_eq!(document.undo_restores_variant(), Some(id));
+    document.insert(0, "So ").unwrap();
+    assert_eq!(document.undo_restores_variant(), None);
+    assert!(document.undo());
+    assert_eq!(document.undo_restores_variant(), Some(id));
+    document.delete_variant(id, 0).unwrap();
+    assert_eq!(document.slots(), Vec::new());
+    assert_eq!(document.undo_restores_variant(), Some(id));
+    assert!(document.undo());
+    assert!(document.undo());
+    assert_eq!(document.undo_restores_variant(), None);
+}
+
+#[test]
 fn delete_the_active_last_variant_wraps_to_the_original() {
     let mut document = Document::new("The cat sat.");
     let id = document
