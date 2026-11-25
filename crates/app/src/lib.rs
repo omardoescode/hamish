@@ -14,6 +14,7 @@ mod lab;
 mod overflow_panel;
 mod save_open;
 mod theme;
+mod trim;
 mod workspace;
 
 use std::borrow::Cow;
@@ -39,6 +40,7 @@ pub use lab::{CloseLab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use theme::Theme;
+pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
 pub use workspace::Workspace;
 
 /// Loads the bundled body font, sets the theme, and binds the keys.
