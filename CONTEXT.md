@@ -36,7 +36,7 @@ The granularity of a Slot: Word, Sentence, or Paragraph. Word also covers short 
 _Avoid_: Granularity, scope
 
 **Provenance**:
-Who wrote a Variant: Writer or AI.
+Who wrote a Variant: Writer, AI, or Mixed (an AI Variant the writer edited).
 _Avoid_: Author, source
 
 **Article agreement**:
@@ -72,7 +72,7 @@ The right-side panel that holds extra text near the Document, outside the main t
 _Avoid_: Scratchpad, notes, clipboard
 
 **Stash**:
-Move a selection from the Document to the end of Overflow.
+Move (not copy) a selection from the Document to the end of Overflow.
 _Avoid_: Cut, park
 
 ### Chrome

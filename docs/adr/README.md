@@ -18,3 +18,10 @@
 | [0014](0014-no-ai-attribution.md) | No Co-Authored-By or PR attribution | accepted |
 | [0015](0015-btrfs-cow-worktrees.md) | Agent worktrees use btrfs CoW | accepted |
 | [0016](0016-max-three-subagents.md) | Max 3 concurrent sub-agents | accepted |
+| [0017](0017-ghost-excluded-from-counter.md) | Ghost text is not counted | accepted |
+| [0018](0018-stash-moves-text.md) | Stash moves text | accepted |
+| [0019](0019-mixed-provenance.md) | Mixed Provenance for edited AI Variants | accepted |
+| [0020](0020-nested-slots.md) | Paragraph Variants can hold nested Slots | accepted |
+| [0021](0021-strict-nesting-overlap.md) | Strict nesting for Slots and Ghost ranges | accepted |
+| [0022](0022-sidecar-re-anchor.md) | Re-anchor sidecar on drift | accepted |
+| [0023](0023-ibm-plex-mono.md) | IBM Plex Mono as the body font | accepted |
