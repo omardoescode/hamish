@@ -7,6 +7,7 @@ use std::sync::Arc;
 use gpui::{AnyElement, Context, IntoElement, SharedString, Window, div, prelude::*, px};
 use ka_teb_core::{AiError, TrimError, TrimLevel, TrimRequest};
 
+use crate::ai::AiFailure;
 use crate::{Ai, Theme, Workspace};
 
 #[expect(
@@ -46,7 +47,7 @@ pub(crate) enum TrimRun {
     #[default]
     Idle,
     Running(TrimLevel),
-    Failed(TrimLevel, String),
+    Failed(TrimLevel, AiFailure<TrimError>),
 }
 
 /// The FR-54 label of `level`.
@@ -80,7 +81,7 @@ impl Workspace {
     pub fn trim_bar(&self, cx: &gpui::App) -> Option<TrimBar> {
         let (level, line) = match &self.lab.trim {
             TrimRun::Running(level) => (*level, format!("{}: trimming…", label(*level))),
-            TrimRun::Failed(level, message) => (*level, format!("{}: {message}", label(*level))),
+            TrimRun::Failed(level, failure) => (*level, format!("{}: {failure}", label(*level))),
             TrimRun::Idle => {
                 let proposal = self.editor.read(cx).document().trim_proposal()?;
                 let line = format!("{} {proposal}", label(proposal.level()));
@@ -114,7 +115,7 @@ impl Workspace {
             return;
         };
         let Some(ai) = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0)) else {
-            self.lab.trim = TrimRun::Failed(level, "no AI backend is set".to_owned());
+            self.lab.trim = TrimRun::Failed(level, AiFailure::NoBackend);
             cx.notify();
             return;
         };
@@ -143,16 +144,16 @@ impl Workspace {
         if self.lab.trim != TrimRun::Running(level) {
             return;
         }
-        let proposed = cuts.map_err(|error| error.to_string()).and_then(|cuts| {
+        let proposed = cuts.map_err(AiFailure::Ai).and_then(|cuts| {
             self.editor
                 .update(cx, |editor, cx| {
                     editor.trim_step(|document| document.apply_trim_result(request, &cuts), cx)
                 })
-                .map_err(|error| error.to_string())
+                .map_err(AiFailure::Refused)
         });
         self.lab.trim = match proposed {
             Ok(()) => TrimRun::Idle,
-            Err(message) => TrimRun::Failed(level, message),
+            Err(failure) => TrimRun::Failed(level, failure),
         };
         cx.notify();
     }

@@ -9,10 +9,11 @@ use gpui::{
     AnyElement, Context, FocusHandle, IntoElement, MouseButton, SharedString, Window, div,
     prelude::*, px,
 };
-use ka_teb_core::{AiError, LabCheck, LabFinding, LabMark, LabMarkId, LabRequest};
+use ka_teb_core::{AiError, LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
 
 use gpui::Focusable;
 
+use crate::ai::AiFailure;
 use crate::trim::TrimRun;
 use crate::{Ai, Theme, Workspace};
 
@@ -70,7 +71,7 @@ pub enum LabStatus {
 enum Run {
     Running,
     Done,
-    Failed(String),
+    Failed(AiFailure<LabError>),
 }
 
 /// The Lab popover state.
@@ -146,7 +147,7 @@ impl Workspace {
                 let status = match self.lab.runs.get(&check) {
                     None => LabStatus::Idle,
                     Some(Run::Running) => LabStatus::Running,
-                    Some(Run::Failed(message)) => LabStatus::Failed(message.clone()),
+                    Some(Run::Failed(failure)) => LabStatus::Failed(failure.to_string()),
                     Some(Run::Done) => {
                         LabStatus::Marked(marks.iter().filter(|mark| mark.check == check).count())
                     }
@@ -214,8 +215,9 @@ impl Workspace {
             return;
         }
         let Some(ai) = cx.try_global::<Ai>().map(|ai| Arc::clone(&ai.0)) else {
-            let message = "no AI backend is set".to_owned();
-            self.lab.runs.insert(check, Run::Failed(message));
+            self.lab
+                .runs
+                .insert(check, Run::Failed(AiFailure::NoBackend));
             cx.notify();
             return;
         };
@@ -243,19 +245,16 @@ impl Workspace {
         findings: Result<Vec<LabFinding>, AiError>,
         cx: &mut Context<Self>,
     ) {
-        let marked = findings
-            .map_err(|error| error.to_string())
-            .and_then(|findings| {
-                self.editor
-                    .update(cx, |editor, cx| {
-                        editor
-                            .lab_step(|document| document.apply_lab_result(request, &findings), cx)
-                    })
-                    .map_err(|error| error.to_string())
-            });
+        let marked = findings.map_err(AiFailure::Ai).and_then(|findings| {
+            self.editor
+                .update(cx, |editor, cx| {
+                    editor.lab_step(|document| document.apply_lab_result(request, &findings), cx)
+                })
+                .map_err(AiFailure::Refused)
+        });
         let run = match marked {
             Ok(_) => Run::Done,
-            Err(message) => Run::Failed(message),
+            Err(failure) => Run::Failed(failure),
         };
         self.lab.runs.insert(request.check(), run);
         cx.notify();
