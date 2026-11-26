@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{Action, App, AppContext, Context, Global, InteractiveElement, Window};
-use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, Toggle};
+use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, Toggle, TrimLevel};
 
 use crate::actions::{
     AiAlternatives, Copy, Cut, DeleteActiveVariant, EditHamishrc, FocusEditor, FocusOverflow,
@@ -25,7 +25,9 @@ use crate::{
 type MakeAction = fn() -> Box<dyn Action>;
 
 /// The Hamish actions that `:Name` in a hamishrc map runs, by name.
-const NAMED_ACTIONS: [(&str, MakeAction); 34] = [
+/// `RunTrim1` to `RunTrim4` run the Trim level that the count of the leader `t` picks:
+/// Slight trim to Cut in half. `RunTrim` runs Slight trim.
+const NAMED_ACTIONS: [(&str, MakeAction); 38] = [
     ("OpenAlternatives", || Box::new(OpenAlternatives)),
     ("AiAlternatives", || Box::new(AiAlternatives)),
     ("ToggleGhost", || Box::new(ToggleGhost)),
@@ -38,9 +40,11 @@ const NAMED_ACTIONS: [(&str, MakeAction); 34] = [
     ("ToggleLab", || Box::new(ToggleLab)),
     ("AcceptLabMark", || Box::new(AcceptLabMark)),
     ("DismissLabMark", || Box::new(DismissLabMark)),
-    ("RunTrim", || {
-        Box::new(RunTrim(hamish_core::TrimLevel::SlightTrim))
-    }),
+    ("RunTrim", || Box::new(RunTrim(TrimLevel::SlightTrim))),
+    ("RunTrim1", || Box::new(RunTrim(TrimLevel::SlightTrim))),
+    ("RunTrim2", || Box::new(RunTrim(TrimLevel::TightenMore))),
+    ("RunTrim3", || Box::new(RunTrim(TrimLevel::EvenSharper))),
+    ("RunTrim4", || Box::new(RunTrim(TrimLevel::CutInHalf))),
     ("KeepTrimCut", || Box::new(KeepTrimCut)),
     ("MakeTrimCuts", || Box::new(MakeTrimCuts)),
     ("CloseTrim", || Box::new(CloseTrim)),
@@ -259,6 +263,7 @@ mod tests {
     fn each_named_action_has_the_name_of_its_gpui_action() {
         for (name, action) in NAMED_ACTIONS {
             let gpui_name = action().name();
+            let name = name.trim_end_matches(|typed: char| typed.is_ascii_digit());
             assert_eq!(gpui_name.rsplit("::").next(), Some(name), "{gpui_name}");
         }
     }

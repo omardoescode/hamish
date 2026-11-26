@@ -29,7 +29,7 @@ pub use hamishrc::{
 };
 use key_feed::KeyFeed;
 pub use key_feed::{Fed, MAX_MAP_DEPTH};
-pub use keys::VIM_KEYS;
+pub use keys::{VIM_KEYS, vim_keys};
 use motion::normal_offset;
 use operator::Operator;
 pub use panel::{AlternativesCommand, AlternativesKeys, LabCommand, RowCommand, SettingsCommand};

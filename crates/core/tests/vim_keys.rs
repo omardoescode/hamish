@@ -318,3 +318,25 @@ fn each_vim_mode_row_of_the_shortcuts_sheet_lists_keys_that_vim_mode_uses() {
         }
     }
 }
+
+#[test]
+fn the_vim_key_rows_show_the_leader_in_use_in_place_of_space() {
+    let comma = hamish_core::vim_keys(',');
+    let space = hamish_core::vim_keys(' ');
+    let keys_of = |rows: &[(&str, String)], label: &str| {
+        rows.iter()
+            .find(|(row, _)| *row == label)
+            .map(|(_, keys)| keys.clone())
+    };
+    let label = "Alternatives panel, Lab, Trim (a count 1 to 4: the Trim level)";
+
+    assert_eq!(keys_of(&comma, label).as_deref(), Some(", a  , l  , t"));
+    assert_eq!(
+        keys_of(&space, label).as_deref(),
+        Some("Space a  Space l  Space t")
+    );
+    assert_eq!(
+        keys_of(&comma, "Move left, down, up, right").as_deref(),
+        Some("h j k l")
+    );
+}

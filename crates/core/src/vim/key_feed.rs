@@ -58,6 +58,18 @@ impl Vim {
     /// grow into a longer map (Vim mode waits with no time limit). Give a `Key` to
     /// [`Vim::key`] before the next call: the mode it gives selects the maps.
     pub fn next_key(&mut self, rc: &Hamishrc) -> Option<Fed> {
+        self.feed_next(rc, true)
+    }
+
+    /// As [`Vim::next_key`], but keys that can still grow into a longer map do not wait:
+    /// the longest map they hold applies, else they go to Vim mode as typed. Vim does the
+    /// same when a key comes that a map cannot take, such as Escape or Tab.
+    pub fn flush_key(&mut self, rc: &Hamishrc) -> Option<Fed> {
+        self.feed_next(rc, false)
+    }
+
+    /// `wait`: keys that can still grow into a longer map give `None`.
+    fn feed_next(&mut self, rc: &Hamishrc, wait: bool) -> Option<Fed> {
         self.leader = Leader(rc.leader());
         loop {
             let front = *self.feed.queue.front()?;
@@ -74,7 +86,8 @@ impl Vim {
                 .map(|queued| queued.key)
                 .collect();
             let all_typed = typed.len() == self.feed.queue.len();
-            if all_typed
+            if wait
+                && all_typed
                 && rc
                     .maps(mode)
                     .any(|map| map.keys.len() > typed.len() && map.keys.starts_with(&typed))

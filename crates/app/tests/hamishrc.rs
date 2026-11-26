@@ -107,6 +107,29 @@ fn an_insert_mode_map_holds_its_first_key_and_types_it_when_the_next_key_differs
 }
 
 #[test]
+fn escape_after_a_held_map_key_types_that_key_then_goes_to_normal_mode() {
+    system_text::run(1, |cx| {
+        let (workspace, cx, _dir) = open(cx, "", "inoremap jj <Esc>\n", true);
+
+        keys(cx, "i j escape");
+
+        assert_eq!(text(&workspace, cx), "j");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+    });
+}
+
+#[test]
+fn a_key_vim_mode_does_not_read_after_a_held_map_key_types_that_key_then_its_own_text() {
+    system_text::run(1, |cx| {
+        let (workspace, cx, _dir) = open(cx, "", "inoremap jj <Esc>\n", true);
+
+        keys(cx, "i alt-a->x j alt-a->x");
+
+        assert_eq!(text(&workspace, cx), "xjx");
+    });
+}
+
+#[test]
 fn a_map_to_an_action_name_runs_that_action() {
     system_text::run(1, |cx| {
         let (workspace, cx, _dir) = open(cx, "one", "nnoremap <leader>o :ToggleOverflow\n", true);
