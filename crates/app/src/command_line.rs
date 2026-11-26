@@ -12,7 +12,7 @@ use hamish_core::{
     CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, resolve_path,
 };
 
-use crate::actions::{OpenCommandLine, OpenSettings, Save};
+use crate::actions::{OpenCommandLine, OpenSettings, Quit, Save};
 use crate::caret::{CARET_WIDTH, CaretBlink};
 use crate::save_open::Notice;
 use crate::{Theme, Workspace};
@@ -137,8 +137,8 @@ impl Workspace {
             | LineCommand::WriteQuit {
                 path: None,
                 only_unsaved: true,
-            } if !unsaved => cx.quit(),
-            LineCommand::Quit { .. } => cx.quit(),
+            } if !unsaved => window.dispatch_action(Box::new(Quit), cx),
+            LineCommand::Quit { .. } => window.dispatch_action(Box::new(Quit), cx),
             LineCommand::WriteQuit { path, .. } => self.write_quit(path, cx),
             LineCommand::Edit { path, .. } => self.edit(path, cx),
             LineCommand::SetVimMode(on) => {

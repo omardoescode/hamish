@@ -9,7 +9,7 @@ use gpui::{
 };
 use hamish_core::{Document, Dropped, LabCheck, Level, LineError, Opened, StorageError};
 
-use crate::actions::{NewDocument, Open, Save, SaveAs};
+use crate::actions::{NewDocument, Open, Quit, Save, SaveAs};
 use crate::chrome::elevated_surface;
 use crate::{Theme, Workspace};
 
@@ -160,7 +160,7 @@ impl Workspace {
             self.save_to(queued, cx);
         }
         if quit {
-            cx.quit();
+            cx.defer(|cx| cx.dispatch_action(&Quit));
         }
         cx.notify();
     }
