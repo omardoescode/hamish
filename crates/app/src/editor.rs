@@ -28,7 +28,8 @@ use element::EditorElement;
 use pen::PenStroke;
 use runs::{Span, spans};
 pub(crate) use vim::{
-    VimView, flush_held, gpui_action, run_text_command, run_vim, vim_key, vim_key_down, vim_on,
+    KeyPress, VimView, flush_held, gpui_action, key_press, run_text_command, run_vim, vim_key,
+    vim_key_down, vim_on,
 };
 
 mod element;

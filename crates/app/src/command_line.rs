@@ -9,12 +9,12 @@ use gpui::{
     px,
 };
 use hamish_core::{
-    CommandLine, LineCommand, LineError, LineKey, LineStep, directory_entries, one_char,
-    resolve_path,
+    CommandLine, LineCommand, LineError, LineKey, LineStep, directory_entries, resolve_path,
 };
 
 use crate::actions::{OpenCommandLine, OpenSettings, Quit, QuitIfSaved, Save};
 use crate::caret::{CARET_WIDTH, CaretBlink};
+use crate::editor::{KeyPress, key_press};
 use crate::save_open::Notice;
 use crate::{Theme, Workspace};
 
@@ -255,14 +255,11 @@ impl Workspace {
 
 /// `keystroke` as the Command line reads it; `None` for a key it does not use.
 fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
-    let modifiers = keystroke.modifiers;
-    if modifiers.alt || modifiers.platform || modifiers.function {
-        return None;
-    }
-    if modifiers.control {
-        return LineKey::ctrl(&keystroke.key);
-    }
-    let key = match keystroke.key.as_str() {
+    let (key, typed) = match key_press(keystroke)? {
+        KeyPress::Ctrl(key) => return LineKey::ctrl(key),
+        KeyPress::Plain { key, typed } => (key, typed),
+    };
+    let key = match key {
         "escape" => LineKey::Escape,
         "enter" => LineKey::Enter,
         "backspace" => LineKey::Backspace,
@@ -273,8 +270,7 @@ fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
         "right" => LineKey::Right,
         "home" => LineKey::Home,
         "end" => LineKey::End,
-        "space" => LineKey::Char(' '),
-        _ => return one_char(keystroke.key_char.as_deref()?).map(LineKey::Char),
+        _ => return typed.map(LineKey::Char),
     };
     Some(key)
 }

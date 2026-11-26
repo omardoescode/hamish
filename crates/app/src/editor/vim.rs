@@ -341,24 +341,44 @@ pub(crate) fn gpui_action(action: VimAction) -> Box<dyn Action> {
     }
 }
 
-/// `keystroke` as Vim mode reads it: the char it types, or a named key.
-pub(crate) fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
+/// A key press with no Alt, platform or function key, as Vim mode and the Command line read
+/// it.
+pub(crate) enum KeyPress<'a> {
+    /// Ctrl with this key name.
+    Ctrl(&'a str),
+    /// A key with no Ctrl: its name (`escape`, `tab`, ...) and the char it types, if one.
+    Plain { key: &'a str, typed: Option<char> },
+}
+
+/// `keystroke` as a [`KeyPress`]; `None` with Alt, a platform key or a function key.
+pub(crate) fn key_press(keystroke: &gpui::Keystroke) -> Option<KeyPress<'_>> {
     let modifiers = keystroke.modifiers;
     if modifiers.alt || modifiers.platform || modifiers.function {
-        return VimKey::Other;
+        return None;
     }
+    let key = keystroke.key.as_str();
     if modifiers.control {
-        return one_char(&keystroke.key).map_or(VimKey::Other, VimKey::Ctrl);
+        return Some(KeyPress::Ctrl(key));
     }
-    match keystroke.key.as_str() {
+    let typed = if key == "space" {
+        Some(' ')
+    } else {
+        keystroke.key_char.as_deref().and_then(one_char)
+    };
+    Some(KeyPress::Plain { key, typed })
+}
+
+/// `keystroke` as Vim mode reads it: the char it types, or a named key.
+pub(crate) fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
+    let (key, typed) = match key_press(keystroke) {
+        None => return VimKey::Other,
+        Some(KeyPress::Ctrl(key)) => return one_char(key).map_or(VimKey::Other, VimKey::Ctrl),
+        Some(KeyPress::Plain { key, typed }) => (key, typed),
+    };
+    match key {
         "escape" => VimKey::Escape,
         "enter" => VimKey::Enter,
         "backspace" => VimKey::Backspace,
-        "space" => VimKey::Char(' '),
-        _ => keystroke
-            .key_char
-            .as_deref()
-            .and_then(one_char)
-            .map_or(VimKey::Other, VimKey::Char),
+        _ => typed.map_or(VimKey::Other, VimKey::Char),
     }
 }
