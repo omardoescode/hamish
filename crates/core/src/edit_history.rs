@@ -10,6 +10,9 @@ pub enum EditKind {
     Deleting,
     /// An edit that joins no other.
     Other,
+    /// A Vim command that starts Insert mode. The typing and deleting after it join its undo
+    /// step until the caret moves.
+    Insert,
 }
 
 /// The text an edit changed. Edits in different texts never join.
@@ -55,11 +58,11 @@ impl EditHistory {
     ) {
         self.redo.clear();
         let open = self.open;
+        let typed = matches!(kind, EditKind::Typing | EditKind::Deleting);
         let joins = |group: &&mut EditGroup| {
-            open && kind != EditKind::Other
-                && group.kind == kind
-                && group.text == text
-                && group.after == before
+            let after_insert = group.kind == EditKind::Insert && typed;
+            let in_a_row = typed && group.kind == kind && group.after == before;
+            open && group.text == text && (after_insert || in_a_row)
         };
         if let Some(group) = self.undo.last_mut().filter(joins) {
             group.steps += 1;

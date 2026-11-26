@@ -45,7 +45,7 @@ pub use focus_zoom::{FOCUS_ZOOM_SCALE, FocusZoom, paragraph_index, paragraph_ran
 pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
 pub use markdown::{MarkdownSpan, MarkdownStyle};
-pub use motion::{Effect, caret_shown};
+pub use motion::{Effect, caret_shown, next_caret_toggle};
 pub use overflow::{Overflow, OverflowError};
 pub use particles::{Particle, ParticleArea, ParticleLook};
 pub use select_search::SelectSearch;
@@ -57,4 +57,4 @@ pub use storage::{Dropped, Opened, StorageError};
 pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
-pub use vim::{VIM_KEYS, Vim, VimCommand, VimKey, VimMode};
+pub use vim::{Put, VIM_KEYS, Vim, VimCommand, VimKey, VimMode, VimText};

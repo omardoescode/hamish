@@ -9,24 +9,25 @@ use crate::actions::{
     AiAlternatives, CloseMenu, DeleteActiveVariant, OpenAlternatives, Redo, Stash, ToggleGhost,
     Undo,
 };
-use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
+use crate::caret::{self, CaretBlink, CaretView, Column, caret_actions, caret_input_handler};
 use crate::context_menu::{ContextMenu, ContextMenuItem};
 use crate::effects::{self, EffectPlayer, PlayingEffect};
 use crate::settings;
 use crate::sounds;
 use gpui::{
     App, Bounds, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, IntoElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render,
-    ScrollHandle, SharedString, Window, div, prelude::*,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, ScrollHandle,
+    SharedString, Window, div, prelude::*,
 };
 use hamish_core::{
     Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
-    SlotId, Sound, TrimProposal, Vim, VimCommand, VimKey, VimMode, follow_change, paragraph_around,
+    SlotId, Sound, TrimProposal, Vim, VimKey, VimMode, follow_change, paragraph_around,
 };
 
 use element::EditorElement;
 use pen::PenStroke;
 use runs::{Span, spans};
+use vim::vim_on;
 
 mod element;
 mod focus_zoom;
@@ -34,6 +35,7 @@ mod painted_text;
 mod pen;
 mod runs;
 mod synthetic_bold;
+mod vim;
 
 pub(crate) use painted_text::{PaintedText, shape};
 
@@ -75,6 +77,7 @@ pub struct Editor {
     marker_dots: Vec<element::MarkerDot>,
     hover_tint: Vec<Bounds<Pixels>>,
     caret_bounds: Option<Bounds<Pixels>>,
+    blink: CaretBlink,
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
@@ -127,6 +130,7 @@ impl Editor {
             scroll_handle: ScrollHandle::new(),
             painted: None,
             caret_bounds: None,
+            blink: CaretBlink::new(cx),
             selecting: false,
             autoscroll: false,
             hovered: None,
@@ -470,6 +474,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
         let (done, switched) = self.session.change(change)?;
+        self.blink.restart(cx);
         self.fade_in(switched, Duration::ZERO, cx);
         cx.notify();
         Ok(done)
@@ -523,6 +528,7 @@ impl Editor {
             cx.emit(EditorEvent::VariantRestored(id));
         }
         self.fade_in(changes.switched, after_burst, cx);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -545,6 +551,7 @@ impl Editor {
             sounds::play(Sound::Explosion, cx);
         }
         self.fade_in(changes.switched, Duration::ZERO, cx);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -616,6 +623,7 @@ impl Editor {
         if inserted.is_err() {
             return false;
         }
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
         true
@@ -735,29 +743,6 @@ impl Editor {
         vim_on(cx).then(|| self.vim.status())
     }
 
-    /// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
-    /// so in Normal mode no key reaches the text input.
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if vim_on(cx) && self.run_vim(vim_key(&event.keystroke), cx) {
-            cx.stop_propagation();
-        }
-    }
-
-    /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key on.
-    fn run_vim(&mut self, key: VimKey, cx: &mut Context<Self>) -> bool {
-        let command = self
-            .vim
-            .key(key, self.session.document().text(), self.session.caret());
-        match command {
-            VimCommand::PassOn => return false,
-            VimCommand::Nothing => {}
-            VimCommand::Select(caret) => CaretView::select(self, caret, cx),
-            VimCommand::Edit(edit) => CaretView::edit(self, &edit, cx),
-        }
-        cx.notify();
-        true
-    }
-
     /// Ghost the target, or Revive it when it touches a Ghost range, as one
     /// undo step.
     fn toggle_ghost(&mut self, _: &ToggleGhost, _: &mut Window, cx: &mut Context<Self>) {
@@ -798,6 +783,7 @@ impl Editor {
         if stashed.is_err() {
             return;
         }
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.propagate();
     }
@@ -819,6 +805,7 @@ impl CaretView for Editor {
             caret
         };
         self.session.select(caret);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -832,6 +819,7 @@ impl CaretView for Editor {
             return;
         }
         self.context_menu = None;
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -857,33 +845,8 @@ impl CaretView for Editor {
     }
 
     fn takes_text(&self, cx: &App) -> bool {
-        self.vim_mode(cx) != Some(VimMode::Normal)
+        matches!(self.vim_mode(cx), None | Some(VimMode::Insert))
     }
-}
-
-fn vim_on(cx: &App) -> bool {
-    settings::is_on(cx, |settings| settings.vim_mode)
-}
-
-/// `keystroke` as Vim mode reads it: the char it types, or a named key.
-fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
-    let modifiers = keystroke.modifiers;
-    if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
-        return VimKey::Other;
-    }
-    match keystroke.key.as_str() {
-        "escape" => VimKey::Escape,
-        "enter" => VimKey::Enter,
-        "backspace" => VimKey::Backspace,
-        _ => one_char(keystroke.key_char.as_deref()).map_or(VimKey::Other, VimKey::Char),
-    }
-}
-
-/// The char of `typed` when it is exactly one char.
-fn one_char(typed: Option<&str>) -> Option<char> {
-    let mut chars = typed?.chars();
-    let first = chars.next()?;
-    chars.next().is_none().then_some(first)
 }
 
 caret_input_handler!(Editor);
@@ -908,6 +871,7 @@ impl Render for Editor {
             None => "Editor",
             Some(VimMode::Normal) => "Editor VimNormal",
             Some(VimMode::Insert) => "Editor VimInsert",
+            Some(VimMode::Visual | VimMode::VisualLine) => "Editor VimVisual",
         };
         let editor = div()
             .id("editor")

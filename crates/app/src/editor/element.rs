@@ -276,10 +276,10 @@ impl Element for EditorElement {
         {
             window.paint_quad(quad);
         }
-        let caret = prepaint
-            .caret
-            .take()
-            .filter(|_| focus_handle.is_focused(window) || dropping);
+        let caret = prepaint.caret.take().filter(|_| {
+            let focused = focus_handle.is_focused(window);
+            dropping || focused && self.editor.read(cx).blink.shown(window, cx)
+        });
         let caret_bounds = caret.as_ref().map(|caret| caret.bounds);
         if prepaint.caret_behind_text
             && let Some(caret) = caret.clone()

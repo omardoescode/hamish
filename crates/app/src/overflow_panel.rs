@@ -10,7 +10,7 @@ use gpui::{
 use hamish_core::{Caret, CaretEdit};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
-use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
+use crate::caret::{self, CaretBlink, CaretView, Column, caret_actions, caret_input_handler};
 use crate::chrome::elevated_surface;
 use crate::editor::{PaintedText, shape};
 use crate::{Editor, Theme};
@@ -25,6 +25,8 @@ pub struct OverflowPanel {
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     painted: Option<PaintedText>,
+    caret_bounds: Option<Bounds<Pixels>>,
+    blink: CaretBlink,
     autoscroll: bool,
     column: Option<Column>,
     /// The font family of the text as last painted.
@@ -41,6 +43,8 @@ impl OverflowPanel {
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
             painted: None,
+            caret_bounds: None,
+            blink: CaretBlink::new(cx),
             autoscroll: false,
             column: None,
             text_font: SharedString::default(),
@@ -58,6 +62,12 @@ impl OverflowPanel {
     #[must_use]
     pub fn selection(&self) -> std::ops::Range<usize> {
         self.caret.selection()
+    }
+
+    /// The caret as last painted (window coordinates); `None` when none shows.
+    #[must_use]
+    pub fn caret_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.caret_bounds
     }
 
     fn text(&self, cx: &App) -> String {
@@ -88,6 +98,7 @@ impl OverflowPanel {
             return;
         }
         self.caret = self.caret.followed(old, &new);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -146,6 +157,7 @@ impl CaretView for OverflowPanel {
     fn select(&mut self, caret: Caret, cx: &mut Context<Self>) {
         self.caret = caret;
         self.editor.update(cx, |editor, _| editor.close_history());
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -162,6 +174,7 @@ impl CaretView for OverflowPanel {
             return;
         }
         self.caret = edit.caret.clone();
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -398,9 +411,13 @@ impl Element for OverflowText {
             window.paint_quad(quad);
         }
         prepaint.painted.paint(window, cx);
-        if focus_handle.is_focused(window)
-            && let Some(caret) = prepaint.caret.take()
-        {
+        let caret = prepaint
+            .caret
+            .take()
+            .filter(|_| focus_handle.is_focused(window))
+            .filter(|_| self.panel.read(cx).blink.shown(window, cx));
+        let caret_bounds = caret.as_ref().map(|caret| caret.bounds);
+        if let Some(caret) = caret {
             window.paint_quad(caret);
         }
         let painted = std::mem::replace(
@@ -411,8 +428,10 @@ impl Element for OverflowText {
                 lines: Vec::new(),
             },
         );
-        self.panel
-            .update(cx, |panel, _| panel.painted = Some(painted));
+        self.panel.update(cx, |panel, _| {
+            panel.painted = Some(painted);
+            panel.caret_bounds = caret_bounds;
+        });
     }
 }
 
