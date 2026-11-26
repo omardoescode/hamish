@@ -45,8 +45,7 @@ Each concern has one owner tool. When two tools can check the same thing, the fi
 | Untyped values (`serde_json::Value`, `std::any::Any`) | clippy `disallowed-types`; persistence/AI boundary parsing only, with a scoped `#[expect(clippy::disallowed_types, reason = "...")]` | `clippy.toml` |
 | Process execution (`std::process::Command::new`) | clippy `disallowed-methods`; AI backend module only, with a scoped `#[expect(clippy::disallowed_methods, reason = "...")]` | `clippy.toml` |
 | Mock crates (`mockall`, `mockito`, `faux`, `mry`): test at real seams with fakes or stubs | cargo-deny `[bans]` | `deny.toml` |
-| `libc` 0.2.190 and up: it removes `ENOATTR` on Linux, and `xattr` 0.2.3 under gpui 0.2.2 needs it | cargo-deny `[bans]` | `deny.toml` |
-| Licenses (allowlist), security advisories, yanked crates, unknown sources, wildcard versions | cargo-deny | `deny.toml` |
+| Licenses (allowlist), security advisories, yanked crates, unknown sources (git: an allow list, ADR 0009), wildcard versions | cargo-deny | `deny.toml` |
 | Duplicate crate versions | cargo-deny (warn only) | `deny.toml` |
 | Unused dependencies | cargo-shear (cargo's own `unused_dependencies` lint is off: `[workspace.lints.cargo]`) | `[package.metadata.cargo-shear]` for false positives |
 | Nesting: depth > 3, nested `if`, nested `match`, `if` in `match`, `match` in `if`, long `else if` chain | pedant `check` (defaults) | `.pedant.toml` |

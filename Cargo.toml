@@ -9,8 +9,8 @@ license = "UNLICENSED"
 repository = "https://github.com/omardoescode/hamish"
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/zed-industries/zed", rev = "a0e666ae930a85ab38947e2d49222b0ea99f1c2f" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "a0e666ae930a85ab38947e2d49222b0ea99f1c2f", features = ["wayland", "x11", "font-kit"] }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed", rev = "a0e666ae930a85ab38947e2d49222b0ea99f1c2f" }
+gpui_platform = { version = "0.1.0", git = "https://github.com/zed-industries/zed", rev = "a0e666ae930a85ab38947e2d49222b0ea99f1c2f", features = ["wayland", "x11", "font-kit"] }
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal", rev = "e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7" }
@@ -41,6 +41,18 @@ exit = "deny"
 
 [workspace.lints.cargo]
 unused_dependencies = "allow"
+
+# Font parsing and layout run in every app test; at opt-level 0 a test window takes 0.3 s.
+[profile.dev.package]
+cosmic-text = { opt-level = 3 }
+fontdb = { opt-level = 3 }
+font-types = { opt-level = 3 }
+harfrust = { opt-level = 3 }
+read-fonts = { opt-level = 3 }
+skrifa = { opt-level = 3 }
+swash = { opt-level = 3 }
+taffy = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
 
 # The profile that 'dist' will build with
 [profile.dist]
