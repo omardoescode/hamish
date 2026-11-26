@@ -5,13 +5,10 @@ use std::ops::Range;
 
 use super::motion::lines_down;
 use super::operator::{Operator, Span};
-use super::{Step, Vim, VimCommand, VimKey, VimText};
+use super::{Prefix, Step, Vim, VimCommand, VimKey, VimText};
 use super::{char_of, select};
 use crate::Caret;
-use crate::{Cycle, TrimLevel};
-
-/// The prefix that `Ctrl+W` sets: the next key moves between the Editor and Overflow.
-pub(super) const WINDOW_PREFIX: char = '\u{17}';
+use crate::{Cycle, Direction, TrimLevel};
 
 /// An action of Hamish that a Vim mode key runs: the Editor runs the same GPUI action as
 /// its key binding or menu item.
@@ -48,17 +45,17 @@ impl Vim {
     /// a Hamish key. `None` leaves the key to the Vim motions and text objects.
     pub(super) fn hamish_prefix(
         &mut self,
-        prefix: char,
+        prefix: Prefix,
         key: VimKey,
         text: &VimText<'_>,
         offset: usize,
     ) -> Option<Step> {
         match prefix {
-            ' ' => Some(self.leader(key)),
-            WINDOW_PREFIX => Some(Step::Done(window_command(key))),
-            ']' | '[' => Some(self.bracket(prefix == ']', key, text, offset)),
-            'g' => self.after_g(key, text.text, offset),
-            _ => None,
+            Prefix::Leader => Some(self.leader(key)),
+            Prefix::Window => Some(Step::Done(window_command(key))),
+            Prefix::Bracket(direction) => Some(self.bracket(direction, key, text, offset)),
+            Prefix::G => self.after_g(key, text.text, offset),
+            Prefix::Inner | Prefix::Around => None,
         }
     }
 
@@ -66,27 +63,36 @@ impl Vim {
     /// Revive and Stash act on the selection.
     pub(super) fn visual_hamish_prefix(
         &mut self,
-        prefix: char,
+        prefix: Prefix,
         key: VimKey,
         text: &VimText<'_>,
         head: usize,
     ) -> Option<Step> {
-        if matches!(prefix, ']' | '[') {
-            let times = self.take_count().unwrap_or(1);
-            let Some(target) = jump_target(key, text, head, prefix == ']', times) else {
-                return Some(Step::Done(VimCommand::Nothing));
-            };
-            self.head = target;
-            return Some(Step::Done(VimCommand::Select(self.visual_caret(text.text))));
+        match prefix {
+            Prefix::Bracket(direction) => Some(self.visual_jump(direction, key, text, head)),
+            Prefix::G if key == VimKey::Char('v') => Some(Step::Done(VimCommand::Nothing)),
+            Prefix::G => {
+                let operator = char_of(key).and_then(Operator::after_g)?;
+                Some(self.visual_operate(operator, text.text, head))
+            }
+            Prefix::Inner | Prefix::Around | Prefix::Leader | Prefix::Window => None,
         }
-        if prefix != 'g' {
-            return None;
-        }
-        if key == VimKey::Char('v') {
-            return Some(Step::Done(VimCommand::Nothing));
-        }
-        let operator = char_of(key).and_then(Operator::after_g)?;
-        Some(self.visual_operate(operator, text.text, head))
+    }
+
+    /// `]s`, `[s`, `]m` and `[m` in Visual mode move the head.
+    fn visual_jump(
+        &mut self,
+        direction: Direction,
+        key: VimKey,
+        text: &VimText<'_>,
+        head: usize,
+    ) -> Step {
+        let times = self.take_count().unwrap_or(1);
+        let Some(target) = jump_target(key, text, head, direction, times) else {
+            return Step::Done(VimCommand::Nothing);
+        };
+        self.head = target;
+        Step::Done(VimCommand::Select(self.visual_caret(text.text)))
     }
 
     /// The key after the leader runs a Hamish action. A count picks the Trim level of
@@ -129,34 +135,36 @@ impl Vim {
         offset: usize,
     ) -> Option<Step> {
         let cuts = text.trim_cuts.as_ref()?;
-        let step = match key {
-            VimKey::Char(typed @ ('n' | 'N')) => {
-                let target = jump(cuts, offset, typed == 'n', count.unwrap_or(1));
-                self.column = None;
-                Step::Done(target.map_or(VimCommand::Nothing, select))
-            }
-            VimKey::Enter => Step::Done(VimCommand::Run(VimAction::MakeTrimCuts)),
-            VimKey::Char(_)
-            | VimKey::Ctrl(_)
-            | VimKey::Escape
-            | VimKey::Backspace
-            | VimKey::Other => return None,
+        if key == VimKey::Enter {
+            return Some(Step::Done(VimCommand::Run(VimAction::MakeTrimCuts)));
+        }
+        let direction = match char_of(key)? {
+            'n' => Direction::Forward,
+            'N' => Direction::Back,
+            _ => return None,
         };
-        Some(step)
+        let target = jump(cuts, offset, direction, count.unwrap_or(1));
+        self.column = None;
+        Some(Step::Done(target.map_or(VimCommand::Nothing, select)))
     }
 
     /// `]v` and `[v` cycle the Slot at the caret; `]s`, `[s`, `]m` and `[m` jump.
-    fn bracket(&mut self, forward: bool, key: VimKey, text: &VimText<'_>, offset: usize) -> Step {
+    fn bracket(
+        &mut self,
+        direction: Direction,
+        key: VimKey,
+        text: &VimText<'_>,
+        offset: usize,
+    ) -> Step {
         let times = self.take_count().unwrap_or(1);
-        let cycle = if forward {
-            Cycle::Next
-        } else {
-            Cycle::Previous
+        let cycle = match direction {
+            Direction::Forward => Cycle::Next,
+            Direction::Back => Cycle::Previous,
         };
         if key == VimKey::Char('v') {
             return Step::Done(VimCommand::CycleSlot { cycle, times });
         }
-        let Some(target) = jump_target(key, text, offset, forward, times) else {
+        let Some(target) = jump_target(key, text, offset, direction, times) else {
             return Step::Done(VimCommand::Nothing);
         };
         self.column = None;
@@ -201,15 +209,10 @@ impl Vim {
 
 /// The key after `Ctrl+W`: `h` gives the keyboard to the Editor, `l` to Overflow.
 fn window_command(key: VimKey) -> VimCommand {
-    match key {
-        VimKey::Char('h') => VimCommand::Run(VimAction::FocusEditor),
-        VimKey::Char('l') => VimCommand::Run(VimAction::FocusOverflow),
-        VimKey::Char(_)
-        | VimKey::Ctrl(_)
-        | VimKey::Escape
-        | VimKey::Enter
-        | VimKey::Backspace
-        | VimKey::Other => VimCommand::Nothing,
+    match char_of(key) {
+        Some('h') => VimCommand::Run(VimAction::FocusEditor),
+        Some('l') => VimCommand::Run(VimAction::FocusOverflow),
+        Some(_) | None => VimCommand::Nothing,
     }
 }
 
@@ -225,38 +228,37 @@ fn trim_level(count: Option<usize>) -> TrimLevel {
 /// Where `]s` and `[s` (Slots) or `]m` and `[m` (Lab marks) go from `offset`: the
 /// start `times` starts after it, or before it. Past the last start, the last one. `None`
 /// when no start lies that way, or `key` is no jump.
-pub(super) fn jump_target(
+fn jump_target(
     key: VimKey,
     text: &VimText<'_>,
     offset: usize,
-    forward: bool,
+    direction: Direction,
     times: usize,
 ) -> Option<usize> {
-    let ranges = match key {
-        VimKey::Char('s') => &text.slots,
-        VimKey::Char('m') => &text.lab_marks,
-        VimKey::Char(_)
-        | VimKey::Ctrl(_)
-        | VimKey::Escape
-        | VimKey::Enter
-        | VimKey::Backspace
-        | VimKey::Other => return None,
+    let ranges = match char_of(key)? {
+        's' => &text.slots,
+        'm' => &text.lab_marks,
+        _ => return None,
     };
-    jump(ranges, offset, forward, times)
+    jump(ranges, offset, direction, times)
 }
 
-fn jump(ranges: &[Range<usize>], offset: usize, forward: bool, times: usize) -> Option<usize> {
+fn jump(
+    ranges: &[Range<usize>],
+    offset: usize,
+    direction: Direction,
+    times: usize,
+) -> Option<usize> {
     let mut starts: Vec<usize> = ranges.iter().map(|range| range.start).collect();
     starts.sort_unstable();
     starts.dedup();
-    let ahead: Vec<usize> = if forward {
-        starts.into_iter().filter(|start| *start > offset).collect()
-    } else {
-        starts
+    let ahead: Vec<usize> = match direction {
+        Direction::Forward => starts.into_iter().filter(|start| *start > offset).collect(),
+        Direction::Back => starts
             .into_iter()
             .rev()
             .filter(|start| *start < offset)
-            .collect()
+            .collect(),
     };
     let index = times.min(ahead.len()).checked_sub(1)?;
     ahead.get(index).copied()

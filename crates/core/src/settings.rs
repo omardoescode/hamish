@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::ThemeName;
+use crate::{Direction, ThemeName};
 
 /// A numeric setting the writer steps up and down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +82,7 @@ pub enum Toggle {
     CycleSounds,
     VimMode,
     Markers,
-    Markdown,
+    MarkdownStyles,
 }
 
 impl Toggle {
@@ -95,7 +95,7 @@ impl Toggle {
             Self::CycleSounds => "Cycle sounds",
             Self::VimMode => "Vim mode",
             Self::Markers => "Markers",
-            Self::Markdown => "Markdown styles",
+            Self::MarkdownStyles => "Markdown styles",
         }
     }
 
@@ -108,7 +108,7 @@ impl Toggle {
             Self::CycleSounds => "cycle-sounds",
             Self::VimMode => "vim-mode",
             Self::Markers => "markers",
-            Self::Markdown => "markdown",
+            Self::MarkdownStyles => "markdown",
         }
     }
 }
@@ -141,12 +141,15 @@ pub struct Settings {
     pub cycle_sounds: bool,
     /// The paragraph with the caret shows a little larger.
     pub focus_zoom: bool,
-    /// The Editor has a Normal mode and an Insert mode, with Vim keys. Off by default.
+    /// The Editor has a Normal mode, an Insert mode and a Visual mode, with Vim keys. Off by
+    /// default.
     pub vim_mode: bool,
     /// Each Slot shows its Marker. On by default.
     pub markers: bool,
-    /// The Editor draws the Markdown styles. Off: the text shows plain. On by default.
-    pub markdown: bool,
+    /// The Editor draws the Markdown styles. Off: the text shows plain. On by default. An
+    /// old file's `markdown` reads as this field.
+    #[serde(alias = "markdown")]
+    pub markdown_styles: bool,
 }
 
 impl Default for Settings {
@@ -165,7 +168,7 @@ impl Default for Settings {
             focus_zoom: true,
             vim_mode: false,
             markers: true,
-            markdown: true,
+            markdown_styles: true,
         }
     }
 }
@@ -342,7 +345,7 @@ impl Settings {
             Toggle::CycleSounds => &self.cycle_sounds,
             Toggle::VimMode => &self.vim_mode,
             Toggle::Markers => &self.markers,
-            Toggle::Markdown => &self.markdown,
+            Toggle::MarkdownStyles => &self.markdown_styles,
         }
     }
 
@@ -353,7 +356,7 @@ impl Settings {
             Toggle::CycleSounds => &mut self.cycle_sounds,
             Toggle::VimMode => &mut self.vim_mode,
             Toggle::Markers => &mut self.markers,
-            Toggle::Markdown => &mut self.markdown,
+            Toggle::MarkdownStyles => &mut self.markdown_styles,
         }
     }
 
@@ -366,20 +369,31 @@ impl Settings {
         }
     }
 
+    /// Turns `toggle` on or off.
+    pub fn set(&mut self, toggle: Toggle, on: bool) {
+        *self.toggle_mut(toggle) = on;
+    }
+
     /// One step up, to at most the highest value.
     pub fn increase(&mut self, setting: Setting) {
-        self.step(setting, 1.0);
+        self.step(setting, Direction::Forward);
     }
 
     /// One step down, to at least the lowest value.
     pub fn decrease(&mut self, setting: Setting) {
-        self.step(setting, -1.0);
+        self.step(setting, Direction::Back);
     }
 
-    fn step(&mut self, setting: Setting, direction: f32) {
+    /// One step: `Forward` up, to at most the highest value; `Back` down, to at least the
+    /// lowest value.
+    pub fn step(&mut self, setting: Setting, direction: Direction) {
         let (low, high, step) = setting.limits();
+        let step = match direction {
+            Direction::Forward => step,
+            Direction::Back => -step,
+        };
         let value = self.value_mut(setting);
-        let next = (*value + direction * step).clamp(low, high);
+        let next = (*value + step).clamp(low, high);
         *value = (next * 10.0).round() / 10.0;
     }
 

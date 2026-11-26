@@ -14,6 +14,7 @@ use crate::actions::{
 };
 use crate::chrome::elevated_surface;
 use crate::lab::CloseLab;
+use crate::workspace::Visibility;
 use crate::{
     AiAlternatives, DeleteActiveVariant, OpenAlternatives, OpenSettings, Theme, ToggleGhost,
     Workspace, settings,
@@ -140,7 +141,7 @@ impl Workspace {
     /// The Shortcuts sheet is open.
     #[must_use]
     pub fn shortcuts_open(&self) -> bool {
-        self.shortcuts_open
+        self.shortcuts_shown.is_shown()
     }
 
     /// The Shortcuts icon: opens the sheet and gives it the keyboard.
@@ -150,7 +151,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.shortcuts_open = true;
+        self.shortcuts_shown = Visibility::Shown;
         window.focus(&self.shortcuts_focus, cx);
         cx.notify();
     }
@@ -162,7 +163,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.shortcuts_open = false;
+        self.shortcuts_shown = Visibility::Hidden;
         window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }

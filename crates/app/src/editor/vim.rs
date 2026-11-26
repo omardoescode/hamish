@@ -2,7 +2,7 @@
 //! here (ADR 0008). The register is the system clipboard.
 
 use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
-use hamish_core::{Caret, Document, VimAction, VimCommand, VimKey, VimMode};
+use hamish_core::{Caret, Document, Vim, VimAction, VimCommand, VimKey, VimMode, one_char};
 
 use super::Editor;
 use crate::actions::{
@@ -14,40 +14,76 @@ use crate::{
     AcceptLabMark, CloseTrim, DismissLabMark, KeepTrimCut, MakeTrimCuts, RunTrim, ToggleLab,
 };
 
-impl Editor {
-    /// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
-    /// so in Normal mode no key reaches the text input.
-    pub(super) fn on_key_down(
+/// A view with a `Vim` of its own: the Editor, or Overflow.
+pub(crate) trait VimView: Sized + 'static {
+    fn vim(&self) -> &Vim;
+
+    /// Gives `key` to the `Vim` of the view, with the text and the caret of the view.
+    fn vim_command(&mut self, key: VimKey, cx: &mut Context<Self>) -> VimCommand;
+
+    /// Runs `command`, a command other than `PassOn`. `was` is the Vim mode before its key.
+    fn run_vim_command(
         &mut self,
-        event: &KeyDownEvent,
+        command: VimCommand,
+        was: VimMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    );
+}
+
+/// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
+/// so in Normal mode no key reaches the text input.
+pub(crate) fn vim_key_down<V: VimView>(
+    view: &mut V,
+    event: &KeyDownEvent,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) {
+    if vim_on(cx) && run_vim(view, vim_key(&event.keystroke), window, cx) {
+        cx.stop_propagation();
+    }
+}
+
+/// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key on.
+pub(crate) fn run_vim<V: VimView>(
+    view: &mut V,
+    key: VimKey,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) -> bool {
+    let was = view.vim().mode();
+    let command = view.vim_command(key, cx);
+    if command == VimCommand::PassOn {
+        return false;
+    }
+    view.run_vim_command(command, was, window, cx);
+    cx.notify();
+    true
+}
+
+impl VimView for Editor {
+    fn vim(&self) -> &Vim {
+        &self.vim
+    }
+
+    fn vim_command(&mut self, key: VimKey, _: &mut Context<Self>) -> VimCommand {
+        self.vim
+            .key(key, self.session.document(), self.session.caret())
+    }
+
+    fn run_vim_command(
+        &mut self,
+        command: VimCommand,
+        was: VimMode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if vim_on(cx) && self.run_vim(vim_key(&event.keystroke), window, cx) {
-            cx.stop_propagation();
-        }
-    }
-
-    /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key on.
-    pub(super) fn run_vim(
-        &mut self,
-        key: VimKey,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let was = self.vim.mode();
-        let command = self
-            .vim
-            .key(key, self.session.document(), self.session.caret());
-        if command == VimCommand::PassOn {
-            return false;
-        }
-        self.run_vim_command(command, window, cx);
+        self.run_command(command, window, cx);
         self.follow_vim_mode(was, self.vim.mode());
-        cx.notify();
-        true
     }
+}
 
+impl Editor {
     /// One Insert mode session, from the key that starts it to Escape, is one Undo step.
     pub(crate) fn follow_vim_mode(&mut self, was: VimMode, now: VimMode) {
         match (was == VimMode::Insert, now == VimMode::Insert) {
@@ -82,12 +118,7 @@ impl Editor {
     /// Runs a Vim mode command. The register is the system clipboard. Edits go through the
     /// same path as the edits of the text input; Hamish actions through the same path as
     /// their key bindings and menu items.
-    fn run_vim_command(
-        &mut self,
-        command: VimCommand,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn run_command(&mut self, command: VimCommand, window: &mut Window, cx: &mut Context<Self>) {
         let Some(command) = run_text_command(self, command, cx) else {
             return;
         };
@@ -220,20 +251,17 @@ pub(crate) fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
         return VimKey::Other;
     }
     if modifiers.control {
-        return one_char(Some(keystroke.key.as_str())).map_or(VimKey::Other, VimKey::Ctrl);
+        return one_char(&keystroke.key).map_or(VimKey::Other, VimKey::Ctrl);
     }
     match keystroke.key.as_str() {
         "escape" => VimKey::Escape,
         "enter" => VimKey::Enter,
         "backspace" => VimKey::Backspace,
         "space" => VimKey::Char(' '),
-        _ => one_char(keystroke.key_char.as_deref()).map_or(VimKey::Other, VimKey::Char),
+        _ => keystroke
+            .key_char
+            .as_deref()
+            .and_then(one_char)
+            .map_or(VimKey::Other, VimKey::Char),
     }
-}
-
-/// The char of `typed` when it is exactly one char.
-fn one_char(typed: Option<&str>) -> Option<char> {
-    let mut chars = typed?.chars();
-    let first = chars.next()?;
-    chars.next().is_none().then_some(first)
 }

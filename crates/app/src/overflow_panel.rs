@@ -4,16 +4,18 @@
 
 use gpui::{
     App, Bounds, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity,
-    FocusHandle, Focusable, GlobalElementId, InspectorElementId, IntoElement, KeyDownEvent,
-    LayoutId, MouseButton, MouseDownEvent, PaintQuad, Pixels, Render, ScrollHandle, SharedString,
-    Size, Style, Subscription, TextRun, Window, div, prelude::*, px, relative,
+    FocusHandle, Focusable, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
+    MouseButton, MouseDownEvent, PaintQuad, Pixels, Render, ScrollHandle, SharedString, Size,
+    Style, Subscription, TextRun, Window, div, prelude::*, px, relative,
 };
 use hamish_core::{Caret, CaretEdit, Vim, VimCommand, VimKey, VimMode};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
 use crate::caret::{self, CaretBlink, CaretView, Column, caret_actions, caret_input_handler};
 use crate::chrome::elevated_surface;
-use crate::editor::{PaintedText, gpui_action, run_text_command, shape, vim_key, vim_on};
+use crate::editor::{
+    PaintedText, VimView, gpui_action, run_text_command, run_vim, shape, vim_key_down, vim_on,
+};
 use crate::{Editor, Theme};
 
 /// The value a drag from the Overflow text carries: the block at the panel caret.
@@ -119,7 +121,7 @@ impl OverflowPanel {
     fn leave(&mut self, _: &LeaveOverflow, window: &mut Window, cx: &mut Context<Self>) {
         let mode = self.vim_mode(cx);
         if mode.is_some() {
-            self.run_vim(VimKey::Escape, window, cx);
+            run_vim(self, VimKey::Escape, window, cx);
         }
         if matches!(mode, None | Some(VimMode::Normal)) {
             window.focus(&self.editor.focus_handle(cx), cx);
@@ -137,36 +139,6 @@ impl OverflowPanel {
     #[must_use]
     pub fn vim_status(&self, cx: &App) -> Option<String> {
         vim_on(cx).then(|| self.vim.status())
-    }
-
-    /// A key that no key binding took goes to Vim mode, as in the Document.
-    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if vim_on(cx) && self.run_vim(vim_key(&event.keystroke), window, cx) {
-            cx.stop_propagation();
-        }
-    }
-
-    /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key
-    /// on. Ghost, Revive, Stash and the Slot cycle act on the Document only, so here they do
-    /// nothing.
-    fn run_vim(&mut self, key: VimKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let text = self.text(cx);
-        let was = self.vim.mode();
-        let command = self.vim.key(key, text.as_str(), &self.caret);
-        if command == VimCommand::PassOn {
-            return false;
-        }
-        let now = self.vim.mode();
-        self.editor
-            .update(cx, |editor, _| editor.follow_vim_mode(was, now));
-        match run_text_command(self, command, cx) {
-            Some(VimCommand::Undo(times)) => self.undo_redo(times, Editor::undo_step, cx),
-            Some(VimCommand::Redo(times)) => self.undo_redo(times, Editor::redo_step, cx),
-            Some(VimCommand::Run(action)) => window.dispatch_action(gpui_action(action), cx),
-            Some(_) | None => {}
-        }
-        cx.notify();
-        true
     }
 
     /// Runs `step` `times` times; the caret follows, then goes to the start of the selection.
@@ -328,7 +300,7 @@ impl Render for OverflowPanel {
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::use_block))
             .on_action(cx.listener(Self::leave))
-            .on_key_down(cx.listener(Self::on_key_down))
+            .on_key_down(cx.listener(vim_key_down))
             .child(
                 div()
                     .px(px(16.))
@@ -585,5 +557,36 @@ impl Render for Tooltip {
             .text_size(theme.font_size_hint)
             .text_color(theme.text_muted)
             .child(self.text.clone())
+    }
+}
+
+/// Ghost, Revive, Stash and the Slot cycle act on the Document only, so in Overflow they do
+/// nothing.
+impl VimView for OverflowPanel {
+    fn vim(&self) -> &Vim {
+        &self.vim
+    }
+
+    fn vim_command(&mut self, key: VimKey, cx: &mut Context<Self>) -> VimCommand {
+        let text = self.text(cx);
+        self.vim.key(key, text.as_str(), &self.caret)
+    }
+
+    fn run_vim_command(
+        &mut self,
+        command: VimCommand,
+        was: VimMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let now = self.vim.mode();
+        self.editor
+            .update(cx, |editor, _| editor.follow_vim_mode(was, now));
+        match run_text_command(self, command, cx) {
+            Some(VimCommand::Undo(times)) => self.undo_redo(times, Editor::undo_step, cx),
+            Some(VimCommand::Redo(times)) => self.undo_redo(times, Editor::redo_step, cx),
+            Some(VimCommand::Run(action)) => window.dispatch_action(gpui_action(action), cx),
+            Some(_) | None => {}
+        }
     }
 }

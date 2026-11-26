@@ -9,7 +9,7 @@ use gpui::{
     px,
 };
 use hamish_core::{
-    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, resolve_path,
+    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, one_char, resolve_path,
 };
 
 use crate::actions::{OpenCommandLine, OpenSettings, Save};
@@ -145,7 +145,7 @@ impl Workspace {
                 Self::change_setting(move |settings| settings.vim_mode = on, cx);
             }
             LineCommand::ToggleChrome => {
-                self.chrome_shown = !self.chrome_shown;
+                self.chrome_shown = self.chrome_shown.toggled();
                 cx.notify();
             }
             LineCommand::OpenSettings => self.open_settings(&OpenSettings, window, cx),
@@ -288,11 +288,7 @@ fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
         "home" => LineKey::Home,
         "end" => LineKey::End,
         "space" => LineKey::Char(' '),
-        _ => {
-            let mut chars = keystroke.key_char.as_deref()?.chars();
-            let typed = chars.next()?;
-            return chars.next().is_none().then_some(LineKey::Char(typed));
-        }
+        _ => return one_char(keystroke.key_char.as_deref()?).map(LineKey::Char),
     };
     Some(key)
 }

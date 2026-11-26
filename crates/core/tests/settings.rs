@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use hamish_core::{Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
+use hamish_core::{Direction, Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
 
 #[test]
 fn the_settings_file_is_in_xdg_config_home() {
@@ -58,7 +58,7 @@ fn saved_settings_open_again_the_same() {
         focus_zoom: false,
         vim_mode: true,
         markers: false,
-        markdown: false,
+        markdown_styles: false,
     };
 
     settings.save(&path).unwrap();
@@ -206,6 +206,46 @@ fn a_step_stops_at_the_limits() {
 }
 
 #[test]
+fn a_step_forward_goes_up_and_a_step_back_goes_down() {
+    let mut settings = Settings::default();
+    settings.step(Setting::FontSize, Direction::Forward);
+    settings.step(Setting::UiScale, Direction::Back);
+
+    assert!((settings.font_size - 16.0).abs() < 1e-6);
+    assert!((settings.ui_scale - 0.9).abs() < 1e-6);
+}
+
+#[test]
+fn set_turns_a_toggle_on_or_off_whatever_it_was() {
+    let mut settings = Settings::default();
+    settings.set(Toggle::Markers, true);
+    settings.set(Toggle::VimMode, true);
+    settings.set(Toggle::FocusZoom, false);
+    settings.set(Toggle::ReducedMotion, false);
+
+    assert_eq!(
+        settings,
+        Settings {
+            vim_mode: true,
+            focus_zoom: false,
+            ..Settings::default()
+        }
+    );
+}
+
+#[test]
+fn a_file_with_the_markdown_key_loads_markdown_styles() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(&path, r#"{ "markdown": false }"#).unwrap();
+
+    let loaded = Settings::load(&path);
+
+    assert!(loaded.problem.is_none());
+    assert!(!loaded.settings.markdown_styles);
+}
+
+#[test]
 fn ten_steps_of_a_tenth_land_on_the_tenth() {
     let mut settings = Settings::default();
     for _ in 0..10 {
@@ -258,7 +298,7 @@ fn each_toggle_has_a_label_and_a_slug() {
         Toggle::CycleSounds,
         Toggle::VimMode,
         Toggle::Markers,
-        Toggle::Markdown,
+        Toggle::MarkdownStyles,
     ]
     .into_iter()
     .map(|toggle| (toggle.label(), toggle.slug()))
@@ -307,9 +347,9 @@ fn markers_and_markdown_styles_are_on_by_default_and_in_a_file_without_them() {
     let loaded = Settings::load(&path).settings;
 
     assert!(Settings::default().is_on(Toggle::Markers));
-    assert!(Settings::default().is_on(Toggle::Markdown));
+    assert!(Settings::default().is_on(Toggle::MarkdownStyles));
     assert!(loaded.is_on(Toggle::Markers));
-    assert!(loaded.is_on(Toggle::Markdown));
+    assert!(loaded.is_on(Toggle::MarkdownStyles));
 }
 
 #[test]
