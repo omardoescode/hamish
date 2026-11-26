@@ -6,7 +6,7 @@ use std::ops::Range;
 use gpui::{App, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window};
 use hamish_core::{Level, MarkdownSpan, MarkdownStyle};
 
-use super::Editor;
+use super::{Editor, synthetic_bold};
 use crate::{Theme, settings};
 
 /// Text runs and the heading lines with their font size. The title line is bold in the
@@ -28,6 +28,7 @@ pub(super) fn text_runs(
     } else {
         Vec::new()
     };
+    let bold_face = synthetic_bold::has_bold_face(&style.font(), window);
     let headings = heading_lines(text, &markdown);
     let [large, medium, small] = theme.font_size_heading;
     let sized_lines = headings
@@ -41,7 +42,8 @@ pub(super) fn text_runs(
                 | MarkdownStyle::Italic
                 | MarkdownStyle::Code
                 | MarkdownStyle::Quote
-                | MarkdownStyle::ListMarker => small,
+                | MarkdownStyle::ListMarker
+                | MarkdownStyle::Link => small,
             };
             (start, size)
         })
@@ -75,7 +77,8 @@ pub(super) fn text_runs(
             font.weight = FontWeight::BOLD;
             color = theme.text_title;
         }
-        let (font, color, background) = markdown_look(&span.markdown, theme, font, color);
+        let (font, color, background) =
+            markdown_look(&span.markdown, theme, bold_face, font, color);
         let opacity = span.opacity(theme);
         TextRun {
             len: span.range.len(),
@@ -215,24 +218,33 @@ impl Span {
 }
 
 /// Font, color, and background of a run after the Markdown styles over it, outer first.
+/// With no `bold_face`, a heading shows in the accent color and normal weight, because
+/// synthetic bold smears large text.
 fn markdown_look(
     styles: &[MarkdownStyle],
     theme: &Theme,
+    bold_face: bool,
     mut font: Font,
     mut color: Hsla,
 ) -> (Font, Hsla, Option<Hsla>) {
     let mut background = None;
     for style in styles {
         match style {
-            MarkdownStyle::Heading1 | MarkdownStyle::Heading2 | MarkdownStyle::Heading3 => {
+            MarkdownStyle::Heading1 | MarkdownStyle::Heading2 | MarkdownStyle::Heading3
+                if bold_face =>
+            {
                 font.weight = FontWeight::BOLD;
                 color = theme.text_heading;
+            }
+            MarkdownStyle::Heading1 | MarkdownStyle::Heading2 | MarkdownStyle::Heading3 => {
+                color = theme.accent;
             }
             MarkdownStyle::Bold => font.weight = FontWeight::BOLD,
             MarkdownStyle::Italic => font.style = FontStyle::Italic,
             MarkdownStyle::Code => background = Some(theme.code_background),
             MarkdownStyle::Quote => color = theme.text_quote,
             MarkdownStyle::ListMarker => color = theme.list_marker,
+            MarkdownStyle::Link => color = theme.accent,
         }
     }
     (font, color, background)

@@ -121,7 +121,7 @@ The burst that plays at a span when an undo puts a deleted Variant back.
 ### Markdown
 
 **Markdown style**:
-A style the editor draws over Markdown text (heading, bold, italic, inline code, block quote, list marker). The syntax marks stay in the text and stay visible.
+A style the editor draws over Markdown text (heading, bold, italic, inline code, block quote, list marker, link). The syntax marks stay in the text and stay visible. In a Text font with no bold face, a heading shows in the accent color with no synthetic bold.
 _Avoid_: Format, rich text
 
 ### Text input

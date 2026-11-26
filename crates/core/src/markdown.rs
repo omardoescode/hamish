@@ -16,6 +16,8 @@ pub enum MarkdownStyle {
     Quote,
     /// The marker of a list item: `-`, `*`, `+`, `1.`, or `1)`.
     ListMarker,
+    /// An inline link `[text](url)` or an autolink `<url>`, with its marks.
+    Link,
 }
 
 /// One Markdown style over a byte range of the active text.
@@ -61,6 +63,7 @@ fn span(text: &str, event: &Event<'_>, range: Range<usize>) -> Option<MarkdownSp
         Event::Start(Tag::Emphasis) => MarkdownStyle::Italic,
         Event::Code(_) => MarkdownStyle::Code,
         Event::Start(Tag::BlockQuote(_)) => MarkdownStyle::Quote,
+        Event::Start(Tag::Link { .. }) => MarkdownStyle::Link,
         Event::Start(Tag::Item) => {
             return Some(MarkdownSpan {
                 range: range.start..range.start + list_marker_len(text, range.start),

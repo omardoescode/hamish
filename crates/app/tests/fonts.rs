@@ -96,7 +96,7 @@ fn the_default_text_font_follows_the_ui_font_when_it_changes() {
 }
 
 #[test]
-fn bold_text_keeps_its_weight_in_a_text_font_with_no_bold_face() {
+fn in_a_text_font_with_no_bold_face_bold_text_paints_twice_and_a_heading_does_not() {
     system_text::run(1, |cx| {
         let settings = Settings {
             text_font: Some("Adwaita Sans".to_owned()),
@@ -106,6 +106,6 @@ fn bold_text_keeps_its_weight_in_a_text_font_with_no_bold_face() {
 
         let bold = cx.read(|cx| workspace.read(cx).editor().read(cx).synthetic_bold());
 
-        assert_eq!(bold, vec![0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16]);
+        assert_eq!(bold, vec![12, 13, 14, 15, 16]);
     });
 }

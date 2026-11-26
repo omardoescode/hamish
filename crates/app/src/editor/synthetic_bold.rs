@@ -18,18 +18,13 @@ pub(super) fn spread(font_size: Pixels) -> Point<Pixels> {
 /// Byte ranges of `runs` (which cover the text from offset 0) that ask for bold in a font
 /// whose bold resolves to its regular face.
 pub(super) fn ranges(runs: &[TextRun], window: &Window) -> Vec<Range<usize>> {
-    let text_system = window.text_system();
     let mut start = 0;
     let mut ranges: Vec<Range<usize>> = Vec::new();
     for run in runs {
         let range = start..start + run.len;
         start = range.end;
-        let regular = Font {
-            weight: FontWeight::NORMAL,
-            ..run.font.clone()
-        };
-        let no_bold_face = run.font.weight >= FontWeight::SEMIBOLD
-            && text_system.resolve_font(&run.font) == text_system.resolve_font(&regular);
+        let no_bold_face =
+            run.font.weight >= FontWeight::SEMIBOLD && resolves_as_regular(&run.font, window);
         if !no_bold_face {
             continue;
         }
@@ -39,6 +34,25 @@ pub(super) fn ranges(runs: &[TextRun], window: &Window) -> Vec<Range<usize>> {
         }
     }
     ranges
+}
+
+/// True when `font` at its weight resolves to the same face as at normal weight.
+fn resolves_as_regular(font: &Font, window: &Window) -> bool {
+    let text_system = window.text_system();
+    let regular = Font {
+        weight: FontWeight::NORMAL,
+        ..font.clone()
+    };
+    text_system.resolve_font(font) == text_system.resolve_font(&regular)
+}
+
+/// True when the family of `font` has a real bold face.
+pub(super) fn has_bold_face(font: &Font, window: &Window) -> bool {
+    let bold = Font {
+        weight: FontWeight::BOLD,
+        ..font.clone()
+    };
+    !resolves_as_regular(&bold, window)
 }
 
 /// The second paint of one glyph (window coordinates).
