@@ -219,3 +219,30 @@ fn in_insert_mode_a_caret_set_on_the_line_end_stays() {
     vim.key(VimKey::Char('i'), "ab", &Caret::at(0));
     assert_eq!(vim.settle("ab", Caret::at(2)).selection(), 2..2);
 }
+
+#[test]
+fn j_then_k_in_insert_mode_goes_to_normal_mode_and_removes_the_j() {
+    assert_eq!(run("", 0, "ixjk"), ("x".to_owned(), 0, VimMode::Normal));
+    assert_eq!(run("ab", 0, "ijk"), ("ab".to_owned(), 0, VimMode::Normal));
+}
+
+#[test]
+fn j_and_k_apart_or_after_a_caret_move_type_as_usual() {
+    assert_eq!(run("", 0, "ijxk"), ("jxk".to_owned(), 3, VimMode::Insert));
+    assert_eq!(run("", 0, "ikj"), ("kj".to_owned(), 2, VimMode::Insert));
+}
+
+#[test]
+fn j_then_k_after_the_caret_moved_types_the_k() {
+    let mut vim = Vim::default();
+    vim.key(VimKey::Char('i'), "", &Caret::at(0));
+    assert_eq!(
+        vim.key(VimKey::Char('j'), "", &Caret::at(0)),
+        VimCommand::PassOn
+    );
+    assert_eq!(
+        vim.key(VimKey::Char('k'), "jaj", &Caret::at(3)),
+        VimCommand::PassOn
+    );
+    assert_eq!(vim.mode(), VimMode::Insert);
+}
