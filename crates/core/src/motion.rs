@@ -16,6 +16,8 @@ pub enum Effect {
     FocusZoom,
     /// One round of the "??" dance of a quick fill. It repeats while the AI works; with reduced motion the "??" stays still.
     QuickFillDance,
+    /// One on and off round of a caret blink. It repeats; with reduced motion the caret stays on.
+    CaretBlink,
 }
 
 impl Effect {
@@ -27,6 +29,7 @@ impl Effect {
             Self::UndoBurst => Duration::from_millis(450),
             Self::VariantFadeIn | Self::FocusZoom => Duration::from_millis(150),
             Self::QuickFillDance => Duration::from_millis(1300),
+            Self::CaretBlink => Duration::from_millis(1000),
         }
     }
 
@@ -47,4 +50,12 @@ impl Effect {
         }
         (elapsed.as_secs_f32() / self.duration().as_secs_f32()).min(1.0)
     }
+}
+
+/// A blinking caret shows `elapsed` after its blink starts: on in the first half of each
+/// [`Effect::CaretBlink`] round, off in the second half. With reduced motion it stays on.
+#[must_use]
+pub fn caret_shown(elapsed: Duration, reduced_motion: bool) -> bool {
+    let round = Effect::CaretBlink.duration().as_millis();
+    reduced_motion || elapsed.as_millis() % round < round / 2
 }

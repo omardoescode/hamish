@@ -45,7 +45,7 @@ pub use focus_zoom::{FOCUS_ZOOM_SCALE, FocusZoom, paragraph_index, paragraph_ran
 pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
 pub use markdown::{MarkdownSpan, MarkdownStyle};
-pub use motion::Effect;
+pub use motion::{Effect, caret_shown};
 pub use overflow::{Overflow, OverflowError};
 pub use particles::{Particle, ParticleArea, ParticleLook};
 pub use select_search::SelectSearch;

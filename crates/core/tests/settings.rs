@@ -428,3 +428,20 @@ fn muted_text_reads_on_the_background_in_each_theme() {
         assert!(ratio >= 4.5, "{}: {ratio:.2}", name.label());
     }
 }
+
+#[test]
+fn placeholder_text_is_halfway_from_muted_text_to_text() {
+    assert_eq!(
+        ThemeName::CatppuccinMocha.palette().text_placeholder(),
+        0x00b0_b8d3
+    );
+}
+
+#[test]
+fn placeholder_text_reads_on_a_popover_in_each_theme() {
+    for name in ThemeName::ALL {
+        let palette = name.palette();
+        let ratio = contrast_ratio(palette.text_placeholder(), palette.elevated_background);
+        assert!(ratio >= 4.5, "{}: {ratio:.2}", name.label());
+    }
+}

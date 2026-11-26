@@ -17,7 +17,7 @@ use crate::actions::{
 };
 use crate::editor::PaintedText;
 
-const CARET_WIDTH: Pixels = px(2.);
+pub(crate) const CARET_WIDTH: Pixels = px(2.);
 
 /// The x a run of Up and Down keeps, and the offset where the last of them put the caret.
 /// A caret at another offset starts a new run.

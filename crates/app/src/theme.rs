@@ -19,6 +19,8 @@ pub struct Theme {
     pub text_title: Hsla,
     pub text_muted: Hsla,
     pub text_faint: Hsla,
+    /// Placeholder text in an empty field: halfway from `text_muted` to `text`.
+    pub text_placeholder: Hsla,
     /// Markdown headings `#` to `###`, bold.
     pub text_heading: Hsla,
     pub text_quote: Hsla,
@@ -97,6 +99,7 @@ impl Theme {
             text_title: color(palette.text_title),
             text_muted: color(palette.text_muted),
             text_faint: color(palette.text_faint),
+            text_placeholder: color(palette.text_placeholder()),
             text_heading: color(palette.text_title),
             text_quote: color(palette.text_quote),
             list_marker: color(palette.list_marker),
