@@ -34,7 +34,7 @@
 | `crates/app/src/editor/runs.rs` | Editor text runs: styled spans (title, Slot, Ghost, Trim cut, Markdown, dim), heading sizes, fade-in. |
 | `crates/app/src/editor/pen.rs` | Slot underlines as pen strokes: rows, wobble seeded per Slot. |
 | `crates/app/src/editor/element.rs` | `EditorElement`: layout, prepaint, paint; Markers, hover box, Lab marks, Slot hit test. |
-| `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
+| `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI has no text transform), quads moved over it, pointer mapped back for hit tests. |
 | `crates/app/src/settings.rs` | Settings global: `use_settings`, `is_on` (how views read a setting), the start notice. |
 | `crates/app/src/fonts.rs` | Font list of the Settings selects (cached global) and the UI font and Text font faces, both loaded on the background executor at start (`load_fonts_in_background`). |
 | `crates/app/src/shortcuts_sheet.rs` | Shortcuts sheet: `shortcut_groups` (the key bindings in groups, from the keymap), the sheet view, open and close. |
@@ -46,15 +46,16 @@
 | `crates/app/src/theme.rs` | Theme: GPUI colors from the `Palette` of the chosen theme, sizes from Settings. |
 | `crates/app/assets/fonts/` | Bundled body font IBM Plex Mono (Regular, Bold, Italic, Bold Italic) and its license (`OFL.txt`). |
 | `crates/app/assets/themes/ATTRIBUTION.md` | Source and license of each named theme palette. |
-| `Cargo.toml` | Workspace, pinned `gpui`, `[workspace.lints]`, `[profile.dist]`. |
+| `Cargo.toml` | Workspace, `gpui` and `gpui_platform` from Zed git at a pinned `rev` (ADR 0009), the copied Zed `[patch.crates-io]` entries, `[workspace.lints]`, dev opt-level of the font crates, `[profile.dist]`. |
 | `rust-toolchain.toml` | Pinned Rust version and components (local and CI). |
 | `rustfmt.toml`, `clippy.toml` | Format and lint config (panic family allowed in tests; banned names, types, methods). |
-| `deny.toml` | cargo-deny: banned crates, licenses, advisories, sources. |
+| `deny.toml` | cargo-deny: banned crates, licenses, advisories, sources (the allowed git sources of GPUI). |
 | `.pedant.toml` | pedant style checks (nesting, `dead_code` suppression). |
 | `.cargo-husky/hooks/` | Git hooks: pre-commit, commit-msg, pre-push. |
 | `scripts/source-guards.pl` | Pre-commit source guards: file size (warning only), numbers and spec references in comments, glossary _Avoid_ words. Tests: `scripts/source-guards-test.sh`. |
 | `.glossary-allow` | Known false hits of the glossary guard, each with a reason. |
 | `crates/*/tests/` | Integration tests (public API, at the seams; `crates/app/tests/`: GPUI action dispatch with the GPUI test context). |
+| `crates/app/tests/system_text/mod.rs` | `system_text::run`: runs an app GPUI test (also the `app` unit tests) on the system text system, as `#[gpui::test]` does on a text system with no fonts. |
 | `.claude/settings.json` | Claude Code project settings: attribution off, permissions, worktree hooks. |
 | `.claude/hooks/` | WorktreeCreate / WorktreeRemove scripts; PostToolUse pedant check. |
 | `.github/workflows/checks.yml` | CI: parallel jobs fmt, clippy, test (unit, integration, doc), packaging (`scripts/packaging-test.sh`), guards (cargo-deny, cargo-shear, pedant). |
@@ -82,5 +83,5 @@
 - Glossary: [CONTEXT.md](../CONTEXT.md).
 - Decisions: [docs/adr/README.md](adr/README.md).
 - Code rules: [CODING_STANDARDS.md](../CODING_STANDARDS.md).
-- GPUI 0.2.2 limits, with their source in the registry: [gpui-notes.md](gpui-notes.md).
+- GPUI limits, with their source in the pinned Zed checkout: [gpui-notes.md](gpui-notes.md).
 - Agent rules: [CLAUDE.md](../CLAUDE.md).
