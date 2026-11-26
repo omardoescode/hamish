@@ -62,7 +62,9 @@ gpui::actions!(
         ToggleMarkers,
         ToggleMarkdown,
         OpenShortcuts,
-        CloseShortcuts
+        CloseShortcuts,
+        FocusEditor,
+        FocusOverflow
     ]
 );
 

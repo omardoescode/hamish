@@ -27,7 +27,7 @@ use hamish_core::{
 use element::EditorElement;
 use pen::PenStroke;
 use runs::{Span, spans};
-use vim::vim_on;
+pub(crate) use vim::{gpui_action, run_text_command, vim_key, vim_on};
 
 mod element;
 mod focus_zoom;

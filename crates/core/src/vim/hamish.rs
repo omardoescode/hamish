@@ -6,7 +6,11 @@ use std::ops::Range;
 use super::motion::lines_down;
 use super::{Operator, Span, Step, Vim, VimCommand, VimKey, VimText};
 use super::{char_of, select};
-use crate::{Caret, Cycle, TrimLevel};
+use crate::Caret;
+use crate::{Cycle, TrimLevel};
+
+/// The prefix that `Ctrl+W` sets: the next key moves between the Editor and Overflow.
+pub(super) const WINDOW_PREFIX: char = '\u{17}';
 
 /// An action of Hamish that a Vim mode key runs: the Editor runs the same GPUI action as
 /// its key binding or menu item.
@@ -24,6 +28,16 @@ pub enum VimAction {
     DismissLabMark,
     /// Keep the text of the Trim cut at the caret.
     KeepTrimCut,
+    /// Delete the cuts still in the Trim proposal.
+    MakeTrimCuts,
+    /// Close the Trim bar; the text stays.
+    CloseTrim,
+    /// Put a copy of the Overflow block at the Overflow caret in at the Editor caret.
+    UseOverflowBlock,
+    /// Give the keyboard to the Editor.
+    FocusEditor,
+    /// Give the keyboard to Overflow, when it is open.
+    FocusOverflow,
 }
 
 impl Vim {
@@ -38,6 +52,7 @@ impl Vim {
     ) -> Option<Step> {
         match prefix {
             ' ' => Some(self.leader(key)),
+            WINDOW_PREFIX => Some(Step::Done(window_command(key))),
             ']' | '[' => Some(self.bracket(prefix == ']', key, text, offset)),
             'g' => self.after_g(key, text.text, offset),
             _ => None,
@@ -85,9 +100,46 @@ impl Vim {
             'y' => return Step::Change(VimCommand::Run(VimAction::AcceptLabMark)),
             'x' => return Step::Change(VimCommand::Run(VimAction::DismissLabMark)),
             'k' => return Step::Change(VimCommand::Run(VimAction::KeepTrimCut)),
+            'p' => VimAction::UseOverflowBlock,
             _ => return Step::Done(VimCommand::Nothing),
         };
         Step::Done(VimCommand::Run(action))
+    }
+
+    /// Escape with no command pending closes the Trim bar while a Trim proposal is open.
+    pub(super) fn escape(&self, text: &VimText<'_>) -> VimCommand {
+        let pending = self.typed.len() > 1;
+        match text.trim_cuts {
+            Some(_) if !pending => VimCommand::Run(VimAction::CloseTrim),
+            Some(_) | None => VimCommand::Nothing,
+        }
+    }
+
+    /// While a Trim proposal is open: `n` and `N` go to the next and the cut before,
+    /// and Enter makes the cuts. The leader `k` keeps the cut at the caret. `None` with no proposal
+    /// or for another key.
+    pub(super) fn trim_walk(
+        &mut self,
+        key: VimKey,
+        count: Option<usize>,
+        text: &VimText<'_>,
+        offset: usize,
+    ) -> Option<Step> {
+        let cuts = text.trim_cuts.as_ref()?;
+        let step = match key {
+            VimKey::Char(typed @ ('n' | 'N')) => {
+                let target = jump(cuts, offset, typed == 'n', count.unwrap_or(1));
+                self.column = None;
+                Step::Done(target.map_or(VimCommand::Nothing, select))
+            }
+            VimKey::Enter => Step::Done(VimCommand::Run(VimAction::MakeTrimCuts)),
+            VimKey::Char(_)
+            | VimKey::Ctrl(_)
+            | VimKey::Escape
+            | VimKey::Backspace
+            | VimKey::Other => return None,
+        };
+        Some(step)
     }
 
     /// `]v` and `[v` cycle the Slot at the caret; `]s`, `[s`, `]m` and `[m` jump.
@@ -141,6 +193,20 @@ impl Vim {
         self.anchor = fit(anchor);
         self.head = fit(head);
         Step::Done(VimCommand::Select(self.visual_caret(text)))
+    }
+}
+
+/// The key after `Ctrl+W`: `h` gives the keyboard to the Editor, `l` to Overflow.
+fn window_command(key: VimKey) -> VimCommand {
+    match key {
+        VimKey::Char('h') => VimCommand::Run(VimAction::FocusEditor),
+        VimKey::Char('l') => VimCommand::Run(VimAction::FocusOverflow),
+        VimKey::Char(_)
+        | VimKey::Ctrl(_)
+        | VimKey::Escape
+        | VimKey::Enter
+        | VimKey::Backspace
+        | VimKey::Other => VimCommand::Nothing,
     }
 }
 

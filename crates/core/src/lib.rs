@@ -57,4 +57,7 @@ pub use storage::{Dropped, Opened, StorageError};
 pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
-pub use vim::{Put, VIM_KEYS, Vim, VimAction, VimCommand, VimKey, VimMode, VimText};
+pub use vim::{
+    PanelCommand, PanelKeys, Put, VIM_KEYS, Vim, VimAction, VimCommand, VimKey, VimMode, VimPanel,
+    VimText,
+};
