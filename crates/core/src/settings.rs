@@ -134,8 +134,8 @@ pub struct Settings {
     pub font_size: f32,
     pub line_height: f32,
     pub column_width: f32,
-    /// Effects are instant. Off by default: GPUI 0.2.2 does not
-    /// expose the OS setting.
+    /// Effects are instant. Off by default: GPUI does not read the OS
+    /// setting.
     pub reduced_motion: bool,
     /// A tone on each Active variant switch and a sound on a Variant delete.
     pub cycle_sounds: bool,

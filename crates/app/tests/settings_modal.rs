@@ -242,8 +242,7 @@ fn the_rows_of_a_font_select_have_one_height() {
     });
 }
 
-/// The bounds of `id` in a fresh frame. The test window keeps the bounds of elements it
-/// no longer draws, so only the bounds of a drawn element tell the truth.
+/// The bounds of `id` in a fresh frame.
 #[expect(clippy::expect_used, reason = "test fixture")]
 fn bounds(cx: &mut VisualTestContext, id: &'static str) -> Bounds<Pixels> {
     cx.update(|window, _| window.refresh());
