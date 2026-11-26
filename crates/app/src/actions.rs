@@ -67,6 +67,7 @@ gpui::actions!(
         FocusOverflow,
         OpenCommandLine,
         Quit,
+        QuitIfSaved,
         ReloadHamishrc,
         EditHamishrc,
         RecursiveMap

@@ -1,11 +1,13 @@
 mod system_text;
 
+use std::cell::Cell;
 use std::fs;
 use std::path::Path;
+use std::rc::Rc;
 
-use app::{Notice, Workspace};
+use app::{Notice, Quit, Workspace};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use hamish_core::{Document, LoadedSettings, Settings};
+use hamish_core::{Document, LineError, LoadedSettings, Settings};
 use tempfile::TempDir;
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
@@ -220,5 +222,55 @@ fn the_reload_hamishrc_button_of_settings_reads_the_changed_hamishrc() {
         keys(cx, "escape shift-x");
 
         assert_eq!(text(&workspace, cx), "two");
+    });
+}
+
+/// Counts each Quit dispatch. The test app cannot close, so Quit stops here.
+fn count_quits(cx: &mut VisualTestContext) -> Rc<Cell<usize>> {
+    let quits = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&quits);
+    cx.update(|_, cx| {
+        cx.on_action(move |_: &Quit, _| counted.set(counted.get() + 1));
+    });
+    quits
+}
+
+#[test]
+fn a_map_to_quit_refuses_with_unsaved_changes_as_q_does() {
+    system_text::run(1, |cx| {
+        let (workspace, cx, _dir) = open(cx, "one", "nnoremap Q :Quit\n", true);
+        let quits = count_quits(cx);
+
+        keys(cx, "x shift-q");
+
+        assert_eq!(
+            notice(&workspace, cx),
+            Some(Notice::CommandFailed(LineError::Unsaved))
+        );
+        assert_eq!(quits.get(), 0);
+    });
+}
+
+#[test]
+fn a_map_to_quit_with_no_unsaved_changes_closes_hamish() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx, _dir) = open(cx, "one", "nnoremap Q :Quit\n", true);
+        let quits = count_quits(cx);
+
+        keys(cx, "shift-q");
+
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn a_map_to_force_quit_closes_hamish_with_unsaved_changes() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx, _dir) = open(cx, "one", "nnoremap Q :ForceQuit\n", true);
+        let quits = count_quits(cx);
+
+        keys(cx, "x shift-q");
+
+        assert_eq!(quits.get(), 1);
     });
 }

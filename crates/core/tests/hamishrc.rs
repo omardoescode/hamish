@@ -1,12 +1,10 @@
 use hamish_core::{
-    Caret, Fed, HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, Vim,
-    VimAction, VimCommand, VimKey,
+    Caret, Fed, HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, TrimLevel,
+    Vim, VimAction, VimCommand, VimKey,
 };
 
-const ACTIONS: [&str; 2] = ["Stash", "AcceptLabMark"];
-
 fn parse(text: &str) -> Hamishrc {
-    Hamishrc::parse(text, &ACTIONS)
+    Hamishrc::parse(text)
 }
 
 /// The keys of `typed` (one char each) through the maps of `rc` in `mode`, until the feed
@@ -152,11 +150,46 @@ fn an_action_name_after_a_colon_runs_that_action() {
 
     assert_eq!(
         fed(&rc, MapMode::Normal, " s"),
-        [Fed::Action("Stash".to_owned())]
+        [Fed::Action(VimAction::Stash)]
     );
     assert_eq!(
         fed(&rc, MapMode::Normal, " y"),
-        [Fed::Action("AcceptLabMark".to_owned())]
+        [Fed::Action(VimAction::AcceptLabMark)]
+    );
+}
+
+#[test]
+fn run_trim_1_to_4_name_the_trim_levels_and_run_trim_alone_is_no_action() {
+    let rc = parse("nnoremap a :RunTrim1\nnnoremap b :RunTrim4\nnnoremap c :RunTrim\n");
+
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "a"),
+        [Fed::Action(VimAction::RunTrim(TrimLevel::SlightTrim))]
+    );
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "b"),
+        [Fed::Action(VimAction::RunTrim(TrimLevel::CutInHalf))]
+    );
+    assert_eq!(
+        rc.errors(),
+        [HamishrcError {
+            line: 3,
+            problem: HamishrcProblem::UnknownAction("RunTrim".to_owned()),
+        }]
+    );
+}
+
+#[test]
+fn quit_and_force_quit_are_two_actions() {
+    let rc = parse("nnoremap a :Quit\nnnoremap b :ForceQuit\n");
+
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "a"),
+        [Fed::Action(VimAction::Quit)]
+    );
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "b"),
+        [Fed::Action(VimAction::ForceQuit)]
     );
 }
 

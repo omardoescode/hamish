@@ -519,6 +519,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_shortcuts))
             .on_action(cx.listener(Self::close_menu))
             .on_action(cx.listener(Self::open_command_line))
+            .on_action(cx.listener(Self::quit_if_saved))
             .map(|workspace| Self::hamishrc_actions(workspace, cx))
             .child(
                 div()

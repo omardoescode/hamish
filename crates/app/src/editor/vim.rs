@@ -8,7 +8,10 @@ use hamish_core::{
 
 use super::Editor;
 use crate::actions::{
-    FocusEditor, FocusOverflow, OpenAlternatives, OpenCommandLine, RecursiveMap, UseOverflowBlock,
+    AiAlternatives, Copy, Cut, DeleteActiveVariant, EditHamishrc, FocusEditor, FocusOverflow,
+    NewDocument, Open, OpenAlternatives, OpenCommandLine, OpenSettings, OpenShortcuts, Paste, Quit,
+    QuitIfSaved, RecursiveMap, Redo, ReloadHamishrc, Save, SaveAs, SelectAll, Stash, ToggleGhost,
+    ToggleMarkdown, ToggleMarkers, ToggleOverflow, Undo, UseOverflowBlock,
 };
 use crate::caret::{self, CaretView};
 use crate::{
@@ -84,9 +87,7 @@ pub(crate) fn flush_held<V: VimView>(view: &mut V, window: &mut Window, cx: &mut
 fn run_fed<V: VimView>(view: &mut V, fed: Fed, window: &mut Window, cx: &mut Context<V>) {
     match fed {
         Fed::Key(key) => run_mapped_key(view, key, window, cx),
-        Fed::Action(name) => hamishrc::named_action(&name)
-            .into_iter()
-            .for_each(|action| window.dispatch_action(action, cx)),
+        Fed::Action(action) => window.dispatch_action(gpui_action(action), cx),
         Fed::TooDeep => window.dispatch_action(Box::new(RecursiveMap), cx),
     }
 }
@@ -298,9 +299,33 @@ fn to_register(text: String, cx: &mut App) {
     }
 }
 
-/// The GPUI action of `action`: the one its key binding or menu item dispatches.
+/// The GPUI action of `action`: the one its key binding or menu item dispatches. The one
+/// table of Hamish actions in the app (ADR 0008).
 pub(crate) fn gpui_action(action: VimAction) -> Box<dyn Action> {
     match action {
+        VimAction::AiAlternatives => Box::new(AiAlternatives),
+        VimAction::ToggleGhost => Box::new(ToggleGhost),
+        VimAction::Stash => Box::new(Stash),
+        VimAction::DeleteActiveVariant => Box::new(DeleteActiveVariant),
+        VimAction::ToggleOverflow => Box::new(ToggleOverflow),
+        VimAction::Save => Box::new(Save),
+        VimAction::SaveAs => Box::new(SaveAs),
+        VimAction::Open => Box::new(Open),
+        VimAction::NewDocument => Box::new(NewDocument),
+        VimAction::Quit => Box::new(QuitIfSaved),
+        VimAction::ForceQuit => Box::new(Quit),
+        VimAction::OpenSettings => Box::new(OpenSettings),
+        VimAction::OpenShortcuts => Box::new(OpenShortcuts),
+        VimAction::ToggleMarkers => Box::new(ToggleMarkers),
+        VimAction::ToggleMarkdown => Box::new(ToggleMarkdown),
+        VimAction::ReloadHamishrc => Box::new(ReloadHamishrc),
+        VimAction::EditHamishrc => Box::new(EditHamishrc),
+        VimAction::Undo => Box::new(Undo),
+        VimAction::Redo => Box::new(Redo),
+        VimAction::Copy => Box::new(Copy),
+        VimAction::Cut => Box::new(Cut),
+        VimAction::Paste => Box::new(Paste),
+        VimAction::SelectAll => Box::new(SelectAll),
         VimAction::OpenAlternatives => Box::new(OpenAlternatives),
         VimAction::ToggleLab => Box::new(ToggleLab),
         VimAction::RunTrim(level) => Box::new(RunTrim(level)),

@@ -12,7 +12,7 @@ use hamish_core::{
     CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, one_char, resolve_path,
 };
 
-use crate::actions::{OpenCommandLine, OpenSettings, Quit, Save};
+use crate::actions::{OpenCommandLine, OpenSettings, Quit, QuitIfSaved, Save};
 use crate::caret::{CARET_WIDTH, CaretBlink};
 use crate::save_open::Notice;
 use crate::{Theme, Workspace};
@@ -69,6 +69,17 @@ impl Workspace {
         });
         window.focus(&self.command_line.focus, cx);
         cx.notify();
+    }
+
+    /// The `:Quit` map action: closes Hamish as `:q` does, so unsaved changes refuse with a
+    /// Notice.
+    pub(crate) fn quit_if_saved(
+        &mut self,
+        _: &QuitIfSaved,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_line_result(Ok(LineCommand::Quit { force: false }), window, cx);
     }
 
     fn close_command_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {

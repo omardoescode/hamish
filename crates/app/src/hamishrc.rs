@@ -6,79 +6,12 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gpui::{Action, App, AppContext, Context, Global, InteractiveElement, Window};
-use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, Toggle, TrimLevel};
+use gpui::{App, AppContext, Context, Global, InteractiveElement, Window};
+use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, Toggle};
 
-use crate::actions::{
-    AiAlternatives, Copy, Cut, DeleteActiveVariant, EditHamishrc, FocusEditor, FocusOverflow,
-    NewDocument, Open, OpenAlternatives, OpenCommandLine, OpenSettings, OpenShortcuts, Paste, Quit,
-    RecursiveMap, Redo, ReloadHamishrc, Save, SaveAs, SelectAll, Stash, ToggleGhost,
-    ToggleMarkdown, ToggleMarkers, ToggleOverflow, Undo, UseOverflowBlock,
-};
+use crate::actions::{EditHamishrc, RecursiveMap, ReloadHamishrc};
 use crate::save_open::Notice;
-use crate::{
-    AcceptLabMark, CloseTrim, DismissLabMark, KeepTrimCut, MakeTrimCuts, RunTrim, ToggleLab,
-    Workspace, settings,
-};
-
-/// Makes one Hamish action.
-type MakeAction = fn() -> Box<dyn Action>;
-
-/// The Hamish actions that `:Name` in a hamishrc map runs, by name.
-/// `RunTrim1` to `RunTrim4` run the Trim level that the count of the leader `t` picks:
-/// Slight trim to Cut in half. `RunTrim` runs Slight trim.
-const NAMED_ACTIONS: [(&str, MakeAction); 38] = [
-    ("OpenAlternatives", || Box::new(OpenAlternatives)),
-    ("AiAlternatives", || Box::new(AiAlternatives)),
-    ("ToggleGhost", || Box::new(ToggleGhost)),
-    ("Stash", || Box::new(Stash)),
-    ("DeleteActiveVariant", || Box::new(DeleteActiveVariant)),
-    ("UseOverflowBlock", || Box::new(UseOverflowBlock)),
-    ("ToggleOverflow", || Box::new(ToggleOverflow)),
-    ("FocusEditor", || Box::new(FocusEditor)),
-    ("FocusOverflow", || Box::new(FocusOverflow)),
-    ("ToggleLab", || Box::new(ToggleLab)),
-    ("AcceptLabMark", || Box::new(AcceptLabMark)),
-    ("DismissLabMark", || Box::new(DismissLabMark)),
-    ("RunTrim", || Box::new(RunTrim(TrimLevel::SlightTrim))),
-    ("RunTrim1", || Box::new(RunTrim(TrimLevel::SlightTrim))),
-    ("RunTrim2", || Box::new(RunTrim(TrimLevel::TightenMore))),
-    ("RunTrim3", || Box::new(RunTrim(TrimLevel::EvenSharper))),
-    ("RunTrim4", || Box::new(RunTrim(TrimLevel::CutInHalf))),
-    ("KeepTrimCut", || Box::new(KeepTrimCut)),
-    ("MakeTrimCuts", || Box::new(MakeTrimCuts)),
-    ("CloseTrim", || Box::new(CloseTrim)),
-    ("Save", || Box::new(Save)),
-    ("SaveAs", || Box::new(SaveAs)),
-    ("Open", || Box::new(Open)),
-    ("NewDocument", || Box::new(NewDocument)),
-    ("Quit", || Box::new(Quit)),
-    ("OpenSettings", || Box::new(OpenSettings)),
-    ("OpenShortcuts", || Box::new(OpenShortcuts)),
-    ("OpenCommandLine", || Box::new(OpenCommandLine)),
-    ("ToggleMarkers", || Box::new(ToggleMarkers)),
-    ("ToggleMarkdown", || Box::new(ToggleMarkdown)),
-    ("ReloadHamishrc", || Box::new(ReloadHamishrc)),
-    ("EditHamishrc", || Box::new(EditHamishrc)),
-    ("Undo", || Box::new(Undo)),
-    ("Redo", || Box::new(Redo)),
-    ("Copy", || Box::new(Copy)),
-    ("Cut", || Box::new(Cut)),
-    ("Paste", || Box::new(Paste)),
-    ("SelectAll", || Box::new(SelectAll)),
-];
-
-/// The action of `name` in [`NAMED_ACTIONS`]; `None` for another name.
-pub(crate) fn named_action(name: &str) -> Option<Box<dyn Action>> {
-    NAMED_ACTIONS
-        .iter()
-        .find(|(known, _)| *known == name)
-        .map(|(_, action)| action())
-}
-
-fn action_names() -> Vec<&'static str> {
-    NAMED_ACTIONS.iter().map(|(name, _)| *name).collect()
-}
+use crate::{Workspace, settings};
 
 /// The hamishrc in use and its file; a global.
 #[derive(Default)]
@@ -149,7 +82,7 @@ impl Workspace {
         };
         let reading = cx.background_spawn(async move {
             read(&path).map(|text| {
-                let rc = Hamishrc::parse(&text, &action_names());
+                let rc = Hamishrc::parse(&text);
                 (text, rc)
             })
         });
@@ -236,7 +169,7 @@ mod tests {
 
     use hamish_core::HAMISHRC_EXAMPLE;
 
-    use super::{NAMED_ACTIONS, create_if_missing};
+    use super::create_if_missing;
 
     #[test]
     fn a_missing_hamishrc_is_made_with_the_example_and_its_directory() {
@@ -257,14 +190,5 @@ mod tests {
         create_if_missing(&path).unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "nnoremap Y y$\n");
-    }
-
-    #[test]
-    fn each_named_action_has_the_name_of_its_gpui_action() {
-        for (name, action) in NAMED_ACTIONS {
-            let gpui_name = action().name();
-            let name = name.trim_end_matches(|typed: char| typed.is_ascii_digit());
-            assert_eq!(gpui_name.rsplit("::").next(), Some(name), "{gpui_name}");
-        }
     }
 }
