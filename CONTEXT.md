@@ -97,7 +97,7 @@ _Avoid_: Cut, park
 ### Effects
 
 **Effect**:
-A timed visual change: Variant fade-in, Explosion, Undo burst, dance, focus zoom. It never blocks input. Its duration comes from one timing source (`Effect` in core).
+A timed visual change: Variant fade-in, Explosion, Undo burst, dance, focus zoom, caret blink. It never blocks input. Its duration comes from one timing source (`Effect` in core).
 _Avoid_: Animation (in code), transition
 
 **Reduced motion**:

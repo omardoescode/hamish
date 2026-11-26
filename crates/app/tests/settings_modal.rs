@@ -462,3 +462,53 @@ fn focus_zoom_turns_off_in_appearance_and_saves() {
         assert!(Settings::load(&path).settings.focus_zoom);
     });
 }
+
+#[test]
+fn an_open_select_shows_a_search_icon_then_a_caret_in_its_search_field() {
+    system_text::run(1, |cx| {
+        let (_, cx) = open(cx);
+
+        cx.simulate_keystrokes("ctrl-,");
+        click(cx, "settings-ui-font-select");
+
+        let search = bounds(cx, "settings-select-search");
+        let icon = bounds(cx, "settings-select-search-icon");
+        let caret = bounds(cx, "settings-select-caret");
+        let placeholder = bounds(cx, "settings-select-placeholder");
+        assert!(icon.left() >= search.left() && icon.right() <= caret.left());
+        assert!(caret.right() <= placeholder.left());
+        assert!(caret.top() >= search.top() && caret.bottom() <= search.bottom());
+    });
+}
+
+#[test]
+fn the_search_caret_moves_to_the_end_of_the_query() {
+    system_text::run(1, |cx| {
+        let (_, cx) = open(cx);
+
+        cx.simulate_keystrokes("ctrl-,");
+        click(cx, "settings-theme-select");
+        let empty = bounds(cx, "settings-select-caret");
+        cx.simulate_input("ros");
+        let caret = bounds(cx, "settings-select-caret");
+        let query = bounds(cx, "settings-select-query");
+
+        assert!(caret.left() > empty.left());
+        assert!(caret.left() >= query.right());
+        assert!(cx.debug_bounds("settings-select-placeholder").is_none());
+    });
+}
+
+#[test]
+fn with_reduced_motion_the_search_caret_is_still() {
+    system_text::run(1, |cx| {
+        let (_, cx) = open(cx);
+
+        cx.simulate_keystrokes("ctrl-,");
+        click(cx, "settings-reduced-motion");
+        click(cx, "settings-theme-select");
+
+        bounds(cx, "settings-select-caret-still");
+        assert!(cx.debug_bounds("settings-select-caret").is_none());
+    });
+}
