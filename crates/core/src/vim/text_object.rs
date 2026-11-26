@@ -3,7 +3,10 @@
 
 use std::ops::Range;
 
-use super::{Span, VimText, line_end, line_start, next_boundary, previous_boundary};
+use super::VimText;
+use super::motion::line_end;
+use super::operator::Span;
+use crate::caret::{line_start, next_boundary, previous_boundary};
 use crate::sentence_around;
 
 /// The kind of a grapheme for word text objects. A newline is a kind of its own.

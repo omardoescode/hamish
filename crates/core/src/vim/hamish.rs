@@ -4,7 +4,8 @@
 use std::ops::Range;
 
 use super::motion::lines_down;
-use super::{Operator, Span, Step, Vim, VimCommand, VimKey, VimText};
+use super::operator::{Operator, Span};
+use super::{Step, Vim, VimCommand, VimKey, VimText};
 use super::{char_of, select};
 use crate::Caret;
 use crate::{Cycle, TrimLevel};
@@ -38,6 +39,8 @@ pub enum VimAction {
     FocusEditor,
     /// Give the keyboard to Overflow, when it is open.
     FocusOverflow,
+    /// Open the Command line and give it the keyboard.
+    OpenCommandLine,
 }
 
 impl Vim {

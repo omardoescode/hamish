@@ -6,7 +6,7 @@ use gpui::{
     SharedString, Subscription, Window, canvas, div, linear_color_stop, linear_gradient,
     prelude::*, px,
 };
-use hamish_core::{Document, SlotId, Toggle, document_title};
+use hamish_core::{Document, Settings, SlotId, Toggle, document_title};
 
 use crate::actions::{
     AiAlternatives, CloseMenu, FocusEditor, FocusOverflow, OpenAlternatives, ToggleMarkdown,
@@ -14,6 +14,7 @@ use crate::actions::{
 };
 use crate::alternatives_panel::PanelEvent;
 use crate::chrome;
+use crate::command_line::CommandLineBar;
 use crate::editor::EditorEvent;
 use crate::lab::{self, Lab};
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
@@ -24,6 +25,10 @@ use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
 /// The root view: the text column, the Document title, the Counter, and the Chrome.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is one panel or bar that shows or not, and none depends on another"
+)]
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
@@ -36,6 +41,9 @@ pub struct Workspace {
     pub(crate) shortcuts_open: bool,
     /// The Shortcuts sheet has this focus while it is open.
     pub(crate) shortcuts_focus: FocusHandle,
+    pub(crate) command_line: CommandLineBar,
+    /// `:chrome` turns the Chrome bar off and on.
+    pub(crate) chrome_shown: bool,
     /// The title last set on the window, so a frame sets it only when it changes.
     window_title: String,
     /// The font family of the Chrome bar as last painted.
@@ -87,6 +95,8 @@ impl Workspace {
             settings_open: false,
             shortcuts_open: false,
             shortcuts_focus: cx.focus_handle(),
+            command_line: CommandLineBar::new(cx.focus_handle()),
+            chrome_shown: true,
             window_title: String::new(),
             chrome_font: SharedString::default(),
             _editor_changes: editor_changes,
@@ -245,20 +255,15 @@ impl Workspace {
         });
     }
 
-    /// The Variant dots and Markdown icons: flip `toggle` and save it. A failed save shows a
-    /// notice.
-    fn flip_setting(toggle: Toggle, cx: &mut Context<Self>) {
+    /// Makes `change` to the settings and saves them. A failed save shows a notice.
+    pub(crate) fn change_setting(change: impl FnOnce(&mut Settings), cx: &mut Context<Self>) {
         let workspace = cx.weak_entity();
-        settings::change(
-            cx,
-            |settings| settings.flip(toggle),
-            move |error, cx| {
-                let notice = Notice::SettingsNotSaved(error.to_string());
-                workspace
-                    .update(cx, |workspace, cx| workspace.show(notice, cx))
-                    .ok();
-            },
-        );
+        settings::change(cx, change, move |error, cx| {
+            let notice = Notice::SettingsNotSaved(error.to_string());
+            workspace
+                .update(cx, |workspace, cx| workspace.show(notice, cx))
+                .ok();
+        });
     }
 
     /// After a Stash, Overflow shows where the text went. The Document keeps the keyboard.
@@ -470,16 +475,17 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_overflow))
             .on_action(cx.listener(Self::use_overflow_block))
             .on_action(cx.listener(|_, _: &ToggleMarkers, _, cx| {
-                Self::flip_setting(Toggle::Markers, cx);
+                Self::change_setting(|settings| settings.flip(Toggle::Markers), cx);
             }))
             .on_action(cx.listener(|_, _: &ToggleMarkdown, _, cx| {
-                Self::flip_setting(Toggle::Markdown, cx);
+                Self::change_setting(|settings| settings.flip(Toggle::Markdown), cx);
             }))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::close_settings))
             .on_action(cx.listener(Self::open_shortcuts))
             .on_action(cx.listener(Self::close_shortcuts))
             .on_action(cx.listener(Self::close_menu))
+            .on_action(cx.listener(Self::open_command_line))
             .child(
                 div()
                     .size_full()
@@ -523,9 +529,12 @@ impl Render for Workspace {
                     .children(self.alternatives_panel().cloned()),
             )
             .child(title_view(title_label, &theme, bar_height))
-            .child(self.chrome_bar(&theme, bar_height, vim_status, cx))
+            .when(self.chrome_shown, |workspace| {
+                workspace.child(self.chrome_bar(&theme, bar_height, vim_status, cx))
+            })
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
+            .children(self.command_line_view(&theme, window, cx))
             .when(self.settings_open, |workspace| {
                 workspace.child(self.settings_modal.clone())
             })

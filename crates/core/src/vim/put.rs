@@ -2,9 +2,10 @@
 
 use std::ops::Range;
 
-use super::{
-    VimCommand, append_offset, first_non_blank, line_end, line_start, previous_boundary, replaced,
-};
+use super::VimCommand;
+use super::motion::{append_offset, first_non_blank, line_end};
+use super::operator::replaced;
+use crate::caret::{line_start, previous_boundary};
 use crate::{Caret, CaretEdit, EditKind};
 
 /// A put that waits for the register text. Text that ends with a newline is whole lines.

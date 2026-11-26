@@ -3,7 +3,7 @@ status: accepted
 ---
 # Vim keys through a core state machine, not GPUI key sequences
 
-With Vim mode on, the Editor gives each key that no key binding takes to `Vim` in `crates/core/src/vim.rs`. `Vim` holds the mode (Normal, Insert or Visual), the count, the keys of a command not yet complete and the last change for dot repeat. It reads the key, the Document text (with its Slot and Ghost spans) and the Caret, and gives back one `VimCommand`: pass the key on, do nothing, select a Caret, make a `CaretEdit`, yank or cut to the register, put from the register, undo or redo. The Editor runs the command through `EditSession` like any other caret action.
+With Vim mode on, the Editor gives each key that no key binding takes to `Vim` in `crates/core/src/vim.rs` (its modules are in `crates/core/src/vim/`). `Vim` holds the mode (Normal, Insert or Visual), the count, the keys of a command not yet complete and the last change for dot repeat. It reads the key, the Document text (with its Slot and Ghost spans) and the Caret, and gives back one `VimCommand`: pass the key on, do nothing, select a Caret, make a `CaretEdit`, yank or cut to the register, put from the register, undo or redo. The Editor runs the command through `EditSession` like any other caret action.
 
 ## Why not GPUI key sequences
 
@@ -24,4 +24,5 @@ GPUI 0.2.2 can bind multi-key sequences (`g g`) in a key context. We do not use 
 - In Visual mode a click moves the head of the Visual selection, and a shift-click moves the end nearer to the click (`Vim::click`).
 - An operator edit over a Slot edge goes through the same `EditSession::edit` path as a selection delete (ADR 0006).
 - Panels read Vim keys through `PanelKeys` in core, not GPUI bindings: rows of the Alternatives panel (Insert-only after `i`), the Lab popover and Settings. Overflow text has its own `Vim`; `Ctrl+W h` and `Ctrl+W l` move the keyboard between the Editor and Overflow. While a Trim proposal is open, `n` and `N` in Normal mode walk the cuts, Enter makes them and Escape closes the Trim bar; `k` stays the up motion, and the leader `k` keeps the cut at the caret.
+- `:` in Normal mode comes back as `VimCommand::Run` and opens the Command line at the window bottom. `CommandLine` in core reads its keys and gives back a `LineCommand` or a `LineError`. It also keeps the caret, the history of the session and the Tab candidates. The caret blinks with the caret blink Effect. The Workspace draws the line, runs the command through the same save and open code as the key bindings, and shows an error as a Notice. Tab on a path lists the directory on the background executor; core then picks the candidates. `:set` changes only the Vim mode setting.
 - Hamish keys are in the same grammar: Ghost, Revive and Stash are operators (`gh`, `gH`, `gs`), `]` and `[` jump or cycle a Slot, and Space is the leader. A leader key comes back as `VimCommand::Run`; the Editor dispatches the same GPUI action as the key binding or menu item.

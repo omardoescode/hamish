@@ -7,7 +7,7 @@ use gpui::{
     AnyElement, Context, IntoElement, PathPromptOptions, PromptLevel, SharedString, Window, div,
     prelude::*, px,
 };
-use hamish_core::{Document, Dropped, LabCheck, Level, Opened, StorageError};
+use hamish_core::{Document, Dropped, LabCheck, Level, LineError, Opened, StorageError};
 
 use crate::actions::{NewDocument, Open, Save, SaveAs};
 use crate::chrome::elevated_surface;
@@ -23,6 +23,8 @@ pub enum Notice {
     /// The settings file did not load at start; the defaults are in use.
     SettingsNotLoaded(String),
     SettingsNotSaved(String),
+    /// A command of the Command line did not run.
+    CommandFailed(LineError),
 }
 
 /// Where the Document is saved, and the open notice.
@@ -37,6 +39,8 @@ pub(crate) struct SaveOpen {
     /// Counts the Documents that replaced the first one. A save that ends after a New or an
     /// Open belongs to a Document that is gone, so it changes nothing.
     generation: u64,
+    /// Hamish closes when the running save ends well (`:wq`).
+    quit_after_save: bool,
 }
 
 impl SaveOpen {
@@ -103,7 +107,13 @@ impl Workspace {
         .detach();
     }
 
-    fn save_to(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    /// Saves to `path`, then closes Hamish when the save ends well.
+    pub(crate) fn save_and_quit(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.save_open.quit_after_save = true;
+        self.save_to(path, cx);
+    }
+
+    pub(crate) fn save_to(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if self.save_open.saving {
             self.save_open.queued = Some(path);
             return;
@@ -132,6 +142,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.save_open.saving = false;
+        if result.is_err() {
+            self.save_open.quit_after_save = false;
+        }
         match result {
             Ok(()) => {
                 self.editor
@@ -141,8 +154,13 @@ impl Workspace {
             }
             Err(error) => self.save_open.notice = Some(Notice::SaveFailed(error.to_string())),
         }
-        if let Some(queued) = self.save_open.queued.take() {
+        let queued = self.save_open.queued.take();
+        let quit = queued.is_none() && self.save_open.quit_after_save;
+        if let Some(queued) = queued {
             self.save_to(queued, cx);
+        }
+        if quit {
+            cx.quit();
         }
         cx.notify();
     }
@@ -336,6 +354,7 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
             vec![format!("Settings not loaded, defaults in use: {error}").into()]
         }
         Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
+        Notice::CommandFailed(error) => vec![error.to_string().into()],
         Notice::Dropped(dropped) => {
             std::iter::once("The .md file changed outside Hamish. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))

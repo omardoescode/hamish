@@ -5,7 +5,9 @@ use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
 use hamish_core::{Caret, Document, VimAction, VimCommand, VimKey, VimMode};
 
 use super::Editor;
-use crate::actions::{FocusEditor, FocusOverflow, OpenAlternatives, UseOverflowBlock};
+use crate::actions::{
+    FocusEditor, FocusOverflow, OpenAlternatives, OpenCommandLine, UseOverflowBlock,
+};
 use crate::caret::{self, CaretView};
 use crate::settings;
 use crate::{
@@ -207,6 +209,7 @@ pub(crate) fn gpui_action(action: VimAction) -> Box<dyn Action> {
         VimAction::UseOverflowBlock => Box::new(UseOverflowBlock),
         VimAction::FocusEditor => Box::new(FocusEditor),
         VimAction::FocusOverflow => Box::new(FocusOverflow),
+        VimAction::OpenCommandLine => Box::new(OpenCommandLine),
     }
 }
 
