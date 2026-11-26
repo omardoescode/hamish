@@ -1,7 +1,7 @@
 //! The Vim mode rows of the Shortcuts sheet.
 
 /// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
-pub const VIM_KEYS: [(&str, &str); 28] = [
+pub const VIM_KEYS: [(&str, &str); 37] = [
     ("Move left, down, up, right", "h j k l"),
     ("Next word start, word start before, word end", "w b e"),
     ("Line start, line end", "0 $"),
@@ -47,6 +47,33 @@ pub const VIM_KEYS: [(&str, &str); 28] = [
     (
         "Accept, dismiss the Lab mark at the caret; keep the Trim cut",
         "Space y  Space x  Space k",
+    ),
+    ("Put the Overflow block at the caret", "Space p"),
+    (
+        "Editor, Overflow (Overflow has the Vim keys too)",
+        "Ctrl+W h  Ctrl+W l",
+    ),
+    ("Trim: next cut, cut before (a count: more cuts)", "n  N"),
+    (
+        "Trim: keep the cut at the caret, make the cuts, close the Trim bar",
+        "Space k  Enter  Esc",
+    ),
+    (
+        "Alternatives panel: rows, make the row the Active variant",
+        "j k  Enter",
+    ),
+    (
+        "Alternatives panel: delete the Variant; Word, Sentence, Paragraph",
+        "d d  1 2 3",
+    ),
+    (
+        "Alternatives panel: type in the row, back to the rows",
+        "i  Esc",
+    ),
+    ("Lab: checks, run the check, close", "j k  Enter  Esc"),
+    (
+        "Settings: fields, change a value, open a select (in it: rows; letters search)",
+        "j k  h l  Enter",
     ),
     ("Back to Normal mode", "Esc"),
     ("Text edits in Insert mode", "Ctrl keys as usual"),

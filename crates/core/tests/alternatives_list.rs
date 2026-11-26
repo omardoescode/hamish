@@ -237,3 +237,29 @@ fn quick_fill_results_show_two_at_a_time_then_the_active_row_is_selected_and_the
     list.select(&mut session, 9);
     assert!(!list.new_row_hidden());
 }
+
+#[test]
+fn start_edit_edits_the_variant_row_and_never_the_last_row() {
+    let mut session = slot_session();
+    let mut list = AlternativesList::new(session.document(), 10..18);
+
+    list.start_edit(session.document());
+    assert_eq!(list.editing(), None);
+
+    list.select(&mut session, 1);
+    list.start_edit(session.document());
+    list.type_text(session.document(), "s");
+    list.start_edit(session.document());
+    assert_eq!(list.editing(), Some("clients"));
+}
+
+#[test]
+fn start_edit_on_text_with_no_slot_edits_nothing() {
+    let mut session = customer_session();
+    let mut list = AlternativesList::new(session.document(), 10..18);
+    list.select(&mut session, 0);
+
+    list.start_edit(session.document());
+
+    assert_eq!(list.editing(), None);
+}

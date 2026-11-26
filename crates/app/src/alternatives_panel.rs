@@ -9,7 +9,8 @@ use gpui::{
 };
 use hamish_core::{
     AiAlternativesError, AiRequest, AiTrigger, AlternativesList, Document, Effect, Level,
-    ListEditor, ListOutcome, ListTarget, Provenance, SlotError, SlotId, VariantRow,
+    ListEditor, ListOutcome, ListTarget, PanelCommand, PanelKeys, Provenance, SlotError, SlotId,
+    VariantRow, VimKey, VimPanel,
 };
 
 use crate::actions::{
@@ -18,7 +19,7 @@ use crate::actions::{
 };
 use crate::ai::{AiRun, AiStatus};
 use crate::chrome::selectable_row;
-use crate::editor::Spotlight;
+use crate::editor::{Spotlight, vim_key, vim_on};
 use crate::effects::EffectPlayer;
 use crate::sounds;
 use crate::{Editor, Theme};
@@ -93,6 +94,8 @@ pub struct AlternativesPanel {
     /// The batch reveal of Quick fill results. Dropping it stops the reveal.
     reveal: Option<Task<()>>,
     scroll: ScrollHandle,
+    /// The Vim mode keys of the rows.
+    keys: PanelKeys,
     _editor_changes: Subscription,
 }
 
@@ -118,6 +121,7 @@ impl AlternativesPanel {
             ai: AiRun::default(),
             reveal: None,
             scroll: ScrollHandle::new(),
+            keys: PanelKeys::default(),
             _editor_changes: editor_changes,
         };
         panel.show_spotlight(cx);
@@ -286,6 +290,13 @@ impl AlternativesPanel {
     /// Return saves the edit in progress, starts an edit on a Variant row,
     /// or adds the draft of the last row as a Variant.
     fn confirm(&mut self, _: &ConfirmVariant, _: &mut Window, cx: &mut Context<Self>) {
+        if self.vim_key(VimKey::Enter, cx) {
+            return;
+        }
+        self.confirm_row(cx);
+    }
+
+    fn confirm_row(&mut self, cx: &mut Context<Self>) {
         if self.ai_busy() {
             return;
         }
@@ -324,6 +335,12 @@ impl AlternativesPanel {
     /// Esc closes the panel. Esc while the AI works stops it (results already added stay);
     /// Esc while editing drops the edit.
     fn close(&mut self, _: &ClosePanel, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.vim_key(VimKey::Escape, cx) {
+            self.close_panel(cx);
+        }
+    }
+
+    fn close_panel(&mut self, cx: &mut Context<Self>) {
         if self.ai_busy() {
             self.reveal = None;
             self.ai.cancel(cx);
@@ -338,7 +355,7 @@ impl AlternativesPanel {
     }
 
     fn delete_backward(&mut self, _: &DeleteBackward, _: &mut Window, cx: &mut Context<Self>) {
-        if self.ai_busy() {
+        if self.ai_busy() || self.vim_key(VimKey::Backspace, cx) {
             return;
         }
         let outcome = self.list.delete_backward();
@@ -348,6 +365,10 @@ impl AlternativesPanel {
     /// Deletes the Variant in the selected row (the Original too) with an explosion on its
     /// row.
     fn delete_variant(&mut self, _: &DeleteVariant, _: &mut Window, cx: &mut Context<Self>) {
+        self.delete_row(cx);
+    }
+
+    fn delete_row(&mut self, cx: &mut Context<Self>) {
         let row = self.list.row();
         let mut editor = EditorChanges {
             editor: &self.editor,
@@ -385,9 +406,14 @@ impl AlternativesPanel {
         self.type_text(&text, cx);
     }
 
-    /// Typed text goes into the draft of the last row.
+    /// Typed text goes into the draft of the last row. In Vim mode the keys move between
+    /// rows until `i`.
     fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
+        if self.vim_key(vim_key(keystroke), cx) {
+            cx.stop_propagation();
+            return;
+        }
         let Some(typed) = keystroke.key_char.as_ref() else {
             return;
         };
@@ -400,6 +426,46 @@ impl AlternativesPanel {
 
     /// The list scrolls so the selected row shows. The failed-AI row sits between the
     /// Variant rows and the last row.
+    /// Gives `key` to the Vim mode keys of the rows and runs their command. `false` with Vim
+    /// mode off, or when the keys pass `key` on.
+    fn vim_key(&mut self, key: VimKey, cx: &mut Context<Self>) -> bool {
+        if !vim_on(cx) {
+            return false;
+        }
+        match self.keys.key(VimPanel::Alternatives, key) {
+            PanelCommand::PassOn => return false,
+            PanelCommand::Nothing | PanelCommand::Left | PanelCommand::Right => {}
+            PanelCommand::Insert => self.list.start_edit(self.editor.read(cx).document()),
+            PanelCommand::Down => self.select(self.list.row() + 1, cx),
+            PanelCommand::Up => self.select(self.list.row().saturating_sub(1), cx),
+            PanelCommand::Enter => self.take_row(cx),
+            PanelCommand::Close => self.close_panel(cx),
+            PanelCommand::EndInsert => self.end_insert(cx),
+            PanelCommand::DeleteRow => self.delete_row(cx),
+            PanelCommand::ChooseLevel(level) => self.choose_level(level, cx),
+        }
+        cx.notify();
+        true
+    }
+
+    /// Enter on a Variant row makes it the Active variant and closes the panel. On the last
+    /// row it adds the draft.
+    fn take_row(&mut self, cx: &mut Context<Self>) {
+        if self.list.row() >= self.rows(cx).len() {
+            self.confirm_row(cx);
+            return;
+        }
+        self.select(self.list.row(), cx);
+        cx.emit(PanelEvent::Close);
+    }
+
+    /// Escape after `i` keeps what was typed: an edit of a Variant saves.
+    fn end_insert(&mut self, cx: &mut Context<Self>) {
+        if self.list.editing().is_some() {
+            self.confirm_row(cx);
+        }
+    }
+
     fn scroll_to_row(&self, cx: &App) {
         let failed = matches!(self.ai.status(), AiStatus::Failed(_));
         let row = self.list.row();

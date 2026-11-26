@@ -434,6 +434,18 @@ impl AlternativesList {
         ListOutcome::default()
     }
 
+    /// Starts an edit of the Variant in the selected row, as Return does there. Nothing
+    /// on the last row, on text with no Slot, or with an edit in progress.
+    pub fn start_edit(&mut self, document: &Document) {
+        if self.editing.is_some() || !matches!(self.target, ListTarget::Slot(_)) {
+            return;
+        }
+        self.editing = self
+            .rows(document)
+            .get(self.row)
+            .map(|row| row.text.clone());
+    }
+
     /// Sets the text of the Variant in the selected row, as a writer edit.
     fn save_edit(&self, editor: &mut impl ListEditor, text: &str) {
         let ListTarget::Slot(id) = self.target else {

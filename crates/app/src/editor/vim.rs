@@ -5,10 +5,12 @@ use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
 use hamish_core::{Caret, Document, VimAction, VimCommand, VimKey};
 
 use super::Editor;
-use crate::actions::OpenAlternatives;
+use crate::actions::{FocusEditor, FocusOverflow, OpenAlternatives, UseOverflowBlock};
 use crate::caret::CaretView;
 use crate::settings;
-use crate::{AcceptLabMark, DismissLabMark, KeepTrimCut, RunTrim, ToggleLab};
+use crate::{
+    AcceptLabMark, CloseTrim, DismissLabMark, KeepTrimCut, MakeTrimCuts, RunTrim, ToggleLab,
+};
 
 impl Editor {
     /// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
@@ -51,26 +53,17 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(command) = run_text_command(self, command, cx) else {
+            return;
+        };
         match command {
-            VimCommand::PassOn | VimCommand::Nothing => {}
-            VimCommand::Select(caret) => CaretView::select(self, caret, cx),
-            VimCommand::Edit(edit) => CaretView::edit(self, &edit, cx),
-            VimCommand::Cut { edit, removed } => {
-                to_register(removed, cx);
-                CaretView::edit(self, &edit, cx);
-            }
-            VimCommand::Yank { text, caret } => {
-                to_register(text, cx);
-                CaretView::select(self, caret, cx);
-            }
-            VimCommand::Put(put) => {
-                let register = cx
-                    .read_from_clipboard()
-                    .and_then(|item| item.text())
-                    .unwrap_or_default();
-                let command = put.command(&register, self.session.document().text());
-                self.run_vim_command(command, window, cx);
-            }
+            VimCommand::PassOn
+            | VimCommand::Nothing
+            | VimCommand::Select(_)
+            | VimCommand::Edit(_)
+            | VimCommand::Cut { .. }
+            | VimCommand::Yank { .. }
+            | VimCommand::Put(_) => {}
             VimCommand::Undo(times) => {
                 for _ in 0..times {
                     self.undo_step(cx);
@@ -118,7 +111,45 @@ impl Editor {
     }
 }
 
-pub(super) fn vim_on(cx: &App) -> bool {
+/// Runs the commands of `view` that act on its caret and text: select, edit, cut, yank and
+/// put. The register is the system clipboard. Gives back each other command.
+pub(crate) fn run_text_command<V: CaretView>(
+    view: &mut V,
+    command: VimCommand,
+    cx: &mut Context<V>,
+) -> Option<VimCommand> {
+    match command {
+        VimCommand::PassOn | VimCommand::Nothing => {}
+        VimCommand::Select(caret) => view.select(caret, cx),
+        VimCommand::Edit(edit) => view.edit(&edit, cx),
+        VimCommand::Cut { edit, removed } => {
+            to_register(removed, cx);
+            view.edit(&edit, cx);
+        }
+        VimCommand::Yank { text, caret } => {
+            to_register(text, cx);
+            view.select(caret, cx);
+        }
+        VimCommand::Put(put) => {
+            let register = cx
+                .read_from_clipboard()
+                .and_then(|item| item.text())
+                .unwrap_or_default();
+            let command = view.read_text(cx, |text, _| put.command(&register, text));
+            return run_text_command(view, command, cx);
+        }
+        other @ (VimCommand::Undo(_)
+        | VimCommand::Redo(_)
+        | VimCommand::Ghost(_)
+        | VimCommand::Revive(_)
+        | VimCommand::Stash(_)
+        | VimCommand::CycleSlot { .. }
+        | VimCommand::Run(_)) => return Some(other),
+    }
+    None
+}
+
+pub(crate) fn vim_on(cx: &App) -> bool {
     settings::is_on(cx, |settings| settings.vim_mode)
 }
 
@@ -130,7 +161,7 @@ fn to_register(text: String, cx: &mut App) {
 }
 
 /// The GPUI action of `action`: the one its key binding or menu item dispatches.
-fn gpui_action(action: VimAction) -> Box<dyn Action> {
+pub(crate) fn gpui_action(action: VimAction) -> Box<dyn Action> {
     match action {
         VimAction::OpenAlternatives => Box::new(OpenAlternatives),
         VimAction::ToggleLab => Box::new(ToggleLab),
@@ -138,11 +169,16 @@ fn gpui_action(action: VimAction) -> Box<dyn Action> {
         VimAction::AcceptLabMark => Box::new(AcceptLabMark),
         VimAction::DismissLabMark => Box::new(DismissLabMark),
         VimAction::KeepTrimCut => Box::new(KeepTrimCut),
+        VimAction::MakeTrimCuts => Box::new(MakeTrimCuts),
+        VimAction::CloseTrim => Box::new(CloseTrim),
+        VimAction::UseOverflowBlock => Box::new(UseOverflowBlock),
+        VimAction::FocusEditor => Box::new(FocusEditor),
+        VimAction::FocusOverflow => Box::new(FocusOverflow),
     }
 }
 
 /// `keystroke` as Vim mode reads it: the char it types, or a named key.
-fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
+pub(crate) fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
     let modifiers = keystroke.modifiers;
     if modifiers.alt || modifiers.platform || modifiers.function {
         return VimKey::Other;
