@@ -23,6 +23,7 @@ use motion::{
 pub use panel::{PanelCommand, PanelKeys, VimPanel};
 pub use put::Put;
 use text_object::text_object;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// The mode of the Editor while Vim mode is on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -104,7 +105,7 @@ pub enum VimCommand {
 }
 
 /// The text Vim mode reads: the Document text, with the spans of its Slots and Ghost ranges
-/// for the text objects `iv` and `ig`, its Lab marks, and the open cuts of its Trim
+/// for the text objects `iv`, `av`, `ig` and `ag`, its Lab marks, and the open cuts of its Trim
 /// proposal. Plain text has none of them.
 #[derive(Debug, Clone, Default)]
 pub struct VimText<'a> {
@@ -245,13 +246,57 @@ enum Step {
     Change(VimCommand),
 }
 
-/// A change that `.` repeats: its count, its keys after the count, and the text typed
-/// in the Insert mode it started.
+/// A change that `.` repeats: its count, its keys after the count, the text typed
+/// in the Insert mode it started, and the size of its Visual selection.
 #[derive(Debug, Clone, Default)]
 struct LastChange {
     count: Option<usize>,
     keys: Vec<VimKey>,
     inserted: String,
+    /// `None` for a change made in Normal mode.
+    visual: Option<VisualSize>,
+}
+
+/// How much text a Visual mode change acted on, so that `.` acts on as much from the caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisualSize {
+    /// Visual mode in one line: the head is this many graphemes after the anchor.
+    Chars(usize),
+    /// Visual mode over more lines: the head is `lines` lines down, at `column`.
+    Lines { lines: usize, column: usize },
+    /// Visual line mode: the head is this many lines down.
+    WholeLines(usize),
+}
+
+impl VisualSize {
+    /// The size of the selection from `anchor` to `head` in `mode`.
+    fn of(mode: VimMode, text: &str, anchor: usize, head: usize) -> Self {
+        let (low, high) = (anchor.min(head), anchor.max(head));
+        let between = text.get(low..high).unwrap_or_default();
+        let lines = between.matches('\n').count();
+        if mode == VimMode::VisualLine {
+            return Self::WholeLines(lines);
+        }
+        if lines == 0 {
+            return Self::Chars(between.graphemes(true).count());
+        }
+        Self::Lines {
+            lines,
+            column: column_of(text, high),
+        }
+    }
+
+    /// The mode and the head char of a selection of this size from `anchor`.
+    fn head(self, text: &str, anchor: usize) -> (VimMode, usize) {
+        match self {
+            Self::Chars(after) => (VimMode::Visual, right(text, anchor, after)),
+            Self::Lines { lines, column } => (
+                VimMode::Visual,
+                at_column(text, lines_down(text, anchor, lines), column),
+            ),
+            Self::WholeLines(lines) => (VimMode::VisualLine, lines_down(text, anchor, lines)),
+        }
+    }
 }
 
 impl Vim {
@@ -284,6 +329,22 @@ impl Vim {
             return caret;
         }
         Caret::at(normal_offset(text, caret.clamped(text).offset()))
+    }
+
+    /// A click at `offset` of `text` in Visual mode: the head char goes there. With
+    /// `extend`, the end of the selection nearer to `offset` goes there. Gives the new
+    /// selection; `None` outside Visual mode.
+    pub fn click(&mut self, text: &str, offset: usize, extend: bool) -> Option<Caret> {
+        if !matches!(self.mode, VimMode::Visual | VimMode::VisualLine) {
+            return None;
+        }
+        let offset = normal_offset(text, offset.min(text.len()));
+        if extend && offset.abs_diff(self.anchor) < offset.abs_diff(self.head) {
+            self.anchor = self.head;
+        }
+        self.head = offset;
+        self.column = None;
+        Some(self.visual_caret(text))
     }
 
     /// Reads `key` with `caret` in `text` and gives the command for it. In Normal mode
@@ -361,15 +422,18 @@ impl Vim {
 
     fn visual_key(&mut self, key: VimKey, text: &VimText<'_>, head: usize) -> VimCommand {
         let mode = self.mode;
+        let size = VisualSize::of(mode, text.text, self.anchor, head);
         self.typed.push(key);
-        let step = match self.visual_step(key, text, head) {
-            Step::Change(command) => Step::Done(command),
-            step @ (Step::Pending | Step::Done(_)) => step,
-        };
+        let step = self.visual_step(key, text, head);
+        let change = matches!(step, Step::Change(_));
         if !matches!(self.mode, VimMode::Visual | VimMode::VisualLine) {
             self.last_visual = Some((mode, self.anchor, self.head));
         }
-        self.finish(step)
+        let command = self.finish(step);
+        if let Some(last) = self.last.as_mut().filter(|_| change && !self.replaying) {
+            last.visual = Some(size);
+        }
+        command
     }
 
     /// Clears the keys of a complete command, and records a change for `.`.
@@ -402,7 +466,7 @@ impl Vim {
         self.last = Some(LastChange {
             count,
             keys: keys.collect(),
-            inserted: String::new(),
+            ..LastChange::default()
         });
         self.insert_start = match command {
             _ if self.mode != VimMode::Insert => None,
@@ -681,30 +745,61 @@ impl Vim {
     }
 
     /// `.`: runs the keys of the last change again, with `count` in place of its count,
-    /// and puts in the text typed after it as one edit.
+    /// and puts in the text typed after it as one edit. A Visual mode change acts on a
+    /// selection of the same size from `offset`, with no count.
     fn repeat_change(&mut self, count: Option<usize>, text: &VimText<'_>, offset: usize) -> Step {
         let Some(last) = self.last.clone() else {
             return Step::Done(VimCommand::Nothing);
         };
         self.typed.clear();
         self.replaying = true;
-        let digits = count
-            .or(last.count)
-            .map_or_else(String::new, |count| count.to_string());
-        let mut command = VimCommand::Nothing;
-        for key in digits
-            .chars()
-            .map(VimKey::Char)
-            .chain(last.keys.iter().copied())
-        {
-            command = self.normal_key(key, text, offset);
-        }
+        let command = match last.visual {
+            Some(size) => self.replay_visual(size, &last.keys, text, offset),
+            None => self.replay_normal(count.or(last.count), &last.keys, text, offset),
+        };
         self.replaying = false;
         if self.mode != VimMode::Insert {
             return Step::Done(command);
         }
         self.mode = VimMode::Normal;
         Step::Done(with_inserted(command, &last.inserted, text.text))
+    }
+
+    fn replay_normal(
+        &mut self,
+        count: Option<usize>,
+        keys: &[VimKey],
+        text: &VimText<'_>,
+        offset: usize,
+    ) -> VimCommand {
+        let digits = count.map_or_else(String::new, |count| count.to_string());
+        let mut command = VimCommand::Nothing;
+        for key in digits.chars().map(VimKey::Char).chain(keys.iter().copied()) {
+            command = self.normal_key(key, text, offset);
+        }
+        command
+    }
+
+    /// Runs `keys` in Visual mode over a selection of `size` from `offset`. The selection
+    /// of `gv` stays.
+    fn replay_visual(
+        &mut self,
+        size: VisualSize,
+        keys: &[VimKey],
+        text: &VimText<'_>,
+        offset: usize,
+    ) -> VimCommand {
+        let last_visual = self.last_visual;
+        let (mode, head) = size.head(text.text, offset);
+        self.mode = mode;
+        self.anchor = offset;
+        self.head = head;
+        let mut command = VimCommand::Nothing;
+        for &key in keys {
+            command = self.visual_key(key, text, self.head);
+        }
+        self.last_visual = last_visual;
+        command
     }
 
     fn start_visual(&mut self, mode: VimMode, text: &str, offset: usize) -> Step {

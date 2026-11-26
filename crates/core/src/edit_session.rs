@@ -161,6 +161,18 @@ impl EditSession {
         self.history.close();
     }
 
+    /// Starts a Vim Insert mode session: from now, the typing and deleting it makes join one
+    /// undo step. A caret move starts a new one.
+    pub fn start_insert(&mut self) {
+        self.history.start_insert();
+    }
+
+    /// Ends the Vim Insert mode session and its undo step. With no session on, nothing
+    /// changes.
+    pub fn end_insert(&mut self) {
+        self.history.end_insert();
+    }
+
     /// Makes `edit` in the Document text; its caret shows after it. Edits of the same kind
     /// in a row at the caret join one undo step. `false` when nothing changed.
     pub fn edit(&mut self, edit: &CaretEdit) -> bool {

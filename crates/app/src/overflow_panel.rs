@@ -151,10 +151,14 @@ impl OverflowPanel {
     /// nothing.
     fn run_vim(&mut self, key: VimKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let text = self.text(cx);
+        let was = self.vim.mode();
         let command = self.vim.key(key, text.as_str(), &self.caret);
         if command == VimCommand::PassOn {
             return false;
         }
+        let now = self.vim.mode();
+        self.editor
+            .update(cx, |editor, _| editor.follow_vim_mode(was, now));
         match run_text_command(self, command, cx) {
             Some(VimCommand::Undo(times)) => self.undo_redo(times, Editor::undo_step, cx),
             Some(VimCommand::Redo(times)) => self.undo_redo(times, Editor::redo_step, cx),
@@ -188,11 +192,31 @@ impl OverflowPanel {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
-        if event.click_count == 2 {
-            caret::select_word(self, event.position, cx);
-        } else {
-            caret::press(self, event.position, event.modifiers.shift, cx);
+        match event.click_count {
+            2 => caret::select_word(self, event.position, cx),
+            _ if self.press_visual(event.position, event.modifiers.shift, cx) => {}
+            _ => caret::press(self, event.position, event.modifiers.shift, cx),
         }
+    }
+
+    /// A press at `position` in Visual mode moves the end of the Visual selection there;
+    /// `false` outside Visual mode.
+    fn press_visual(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        extend: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !vim_on(cx) {
+            return false;
+        }
+        let offset = caret::offset_at(self, position, cx);
+        let text = self.text(cx);
+        let Some(caret) = self.vim.click(&text, offset, extend) else {
+            return false;
+        };
+        CaretView::select(self, caret, cx);
+        true
     }
 
     /// The text of the Overflow block at the caret, for the drag preview.

@@ -210,6 +210,9 @@ pub(super) fn motion_span(
         {
             Span::Chars(offset..next_boundary(text, change_word_end(text, offset, times)))
         }
+        VimKey::Char('w') if operator != Operator::Change && is_empty_line(text, offset) => {
+            Span::Chars(offset..steps(text, offset, times, word_start_after))
+        }
         VimKey::Char('w') => {
             let end = steps(text, offset, times, word_start_after);
             Span::Chars(offset..exclusive_end(text, offset, end))

@@ -16,6 +16,7 @@ fn vim_key(key: char) -> VimKey {
         '\u{1b}' => VimKey::Escape,
         '\r' => VimKey::Enter,
         '\u{12}' => VimKey::Ctrl('r'),
+        '\u{8}' => VimKey::Backspace,
         key => VimKey::Char(key),
     }
 }
@@ -482,6 +483,26 @@ fn text_objects_is_and_as_take_a_sentence() {
 }
 
 #[test]
+fn text_objects_is_and_as_take_a_count() {
+    let text = "One two. Three four. Five.";
+    assert_eq!(edited(text, 0, "d2is"), owned(("Three four. Five.", 0)));
+    assert_eq!(edited(text, 0, "d3is"), owned((" Five.", 0)));
+    assert_eq!(edited(text, 0, "d2as"), owned(("Five.", 0)));
+    assert_eq!(
+        edited(text, 22, "d2as"),
+        owned(("One two. Three four.", 19))
+    );
+}
+
+#[test]
+fn dw_on_an_empty_line_deletes_its_line_break() {
+    assert_eq!(edited("a\n\nb", 2, "dw"), owned(("a\nb", 2)));
+    assert_eq!(edited("a\n\n\nb", 2, "2dw"), owned(("a\nb", 2)));
+    assert_eq!(edited("a\n\n", 2, "dw"), owned(("a\n", 2)));
+    assert_eq!(edited("a\n\nb", 2, "cwX\u{1b}"), owned(("a\nX\nb", 2)));
+}
+
+#[test]
 fn text_objects_ip_and_ap_take_whole_lines_of_a_paragraph() {
     let text = "a\nb\n\nc\n\nd";
     assert_eq!(edited(text, 2, "dip"), owned(("\nc\n\nd", 0)));
@@ -532,6 +553,35 @@ fn text_objects_iv_and_ig_take_the_active_variant_and_the_ghost_range() {
     assert_eq!(
         vim.key(VimKey::Char('v'), &document, &Caret::at(0)),
         VimCommand::Nothing
+    );
+}
+
+#[test]
+fn text_objects_av_and_ag_take_the_active_variant_and_the_ghost_range_with_the_blank_around() {
+    let document = slot_and_ghost();
+    let mut vim = Vim::default();
+    let caret = Caret::at(5);
+    for key in ['y', 'a'] {
+        vim.key(VimKey::Char(key), &document, &caret);
+    }
+    assert_eq!(
+        vim.key(VimKey::Char('v'), &document, &caret),
+        VimCommand::Yank {
+            text: "two ".to_owned(),
+            caret: Caret::at(4)
+        }
+    );
+
+    let caret = Caret::at(9);
+    for key in ['y', 'a'] {
+        vim.key(VimKey::Char(key), &document, &caret);
+    }
+    assert_eq!(
+        vim.key(VimKey::Char('g'), &document, &caret),
+        VimCommand::Yank {
+            text: " three".to_owned(),
+            caret: Caret::at(7)
+        }
     );
 }
 
@@ -665,6 +715,38 @@ fn dot_repeats_a_change_with_the_text_typed_in_insert_mode() {
 }
 
 #[test]
+fn dot_repeats_a_visual_mode_change_on_as_much_text_from_the_caret() {
+    assert_eq!(edited("abcdefgh", 0, "vlld."), owned(("gh", 0)));
+    assert_eq!(edited("1\n2\n3\n4\n5", 0, "Vjd."), owned(("5", 0)));
+    assert_eq!(
+        edited("abc\ndef\nghi\njkl", 1, "vjd."),
+        owned(("ai\njkl", 1))
+    );
+    assert_eq!(
+        run("one two three", 0, "vecX\u{1b}w."),
+        ("X X three".to_owned(), 2, VimMode::Normal)
+    );
+}
+
+#[test]
+fn in_visual_mode_a_click_moves_the_selection_end_and_a_shift_click_the_nearer_end() {
+    let text = "one two three";
+    let mut vim = Vim::default();
+    assert_eq!(vim.click(text, 4, false), None);
+
+    vim.key(VimKey::Char('v'), text, &Caret::at(4));
+    assert_eq!(vim.click(text, 9, false), Some(Caret::over(4..10)));
+    assert_eq!(
+        vim.key(VimKey::Char('h'), text, &Caret::over(4..10)),
+        VimCommand::Select(Caret::over(4..9))
+    );
+    assert_eq!(
+        vim.click(text, 1, true),
+        Some(Caret::at(9).extended(text, Motion::To(1)))
+    );
+}
+
+#[test]
 fn dot_repeats_a_put() {
     let done = run_with("ab", 0, "p.", "X");
     assert_eq!((done.text.as_str(), done.offset), ("aXXb", 2));
@@ -687,12 +769,20 @@ fn u_and_ctrl_r_ask_for_undo_and_redo_with_a_count() {
     assert_eq!(vim.key(VimKey::Ctrl('r'), "ab", &caret), VimCommand::PassOn);
 }
 
-/// Runs `keys` on `session` as the Editor does; the register stays empty.
+/// Runs `keys` on `session` as the Editor does; the register stays empty. In `keys`,
+/// "\u{8}" is Backspace.
 fn run_session(session: &mut EditSession, vim: &mut Vim, keys: &str) {
     for key in keys.chars() {
         let key = vim_key(key);
+        let was = vim.mode();
         let command = vim.key(key, session.document(), session.caret());
         match command {
+            VimCommand::PassOn if key == VimKey::Backspace => {
+                let edit = session
+                    .caret()
+                    .delete(session.document().text(), Motion::Left);
+                session.edit(&edit);
+            }
             VimCommand::PassOn => {
                 let VimKey::Char(typed) = key else {
                     continue;
@@ -725,7 +815,26 @@ fn run_session(session: &mut EditSession, vim: &mut Vim, keys: &str) {
             | VimCommand::CycleSlot { .. }
             | VimCommand::Run(_) => {}
         }
+        match (was, vim.mode()) {
+            (VimMode::Insert, VimMode::Insert) => {}
+            (_, VimMode::Insert) => session.start_insert(),
+            (VimMode::Insert, _) => session.end_insert(),
+            _ => {}
+        }
     }
+}
+
+#[test]
+fn one_insert_session_with_typing_and_deleting_is_one_undo_step() {
+    let mut session = EditSession::new(Document::new("one"));
+    let mut vim = Vim::default();
+    run_session(&mut session, &mut vim, "$aab\u{8}c\u{1b}x");
+    assert_eq!(session.document().text(), "onea");
+
+    run_session(&mut session, &mut vim, "u");
+    assert_eq!(session.document().text(), "oneac");
+    run_session(&mut session, &mut vim, "u");
+    assert_eq!(session.document().text(), "one");
 }
 
 #[test]
