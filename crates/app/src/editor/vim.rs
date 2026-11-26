@@ -37,7 +37,8 @@ pub(crate) trait VimView: CaretView {
 
 /// A key that no key binding took goes through the hamishrc maps to Vim mode. A key Vim mode
 /// uses goes no further, so in Normal mode no key reaches the text input. A key that a map
-/// takes or holds goes no further either: the view types the keys of the map itself.
+/// takes or holds goes no further either: the view types the keys of the map itself. A key
+/// that no map can hold first flushes the held keys, then goes on as a key with none held.
 pub(crate) fn vim_key_down<V: VimView>(
     view: &mut V,
     event: &KeyDownEvent,
@@ -48,6 +49,9 @@ pub(crate) fn vim_key_down<V: VimView>(
         return;
     }
     let key = vim_key(&event.keystroke);
+    if key == VimKey::Other {
+        flush_held(view, window, cx);
+    }
     let rc = hamishrc::current(cx);
     let fresh = view.vim().feed_is_empty();
     view.vim_mut().press(key);
@@ -63,6 +67,15 @@ pub(crate) fn vim_key_down<V: VimView>(
     while let Some(fed) = next {
         run_fed(view, fed, window, cx);
         next = view.vim_mut().next_key(&rc);
+    }
+}
+
+/// Runs the keys that the key feed holds for a longer map, with no wait for it. Call before a
+/// key that does not reach the maps, such as Escape.
+pub(crate) fn flush_held<V: VimView>(view: &mut V, window: &mut Window, cx: &mut Context<V>) {
+    let rc = hamishrc::current(cx);
+    while let Some(fed) = view.vim_mut().flush_key(&rc) {
+        run_fed(view, fed, window, cx);
     }
 }
 

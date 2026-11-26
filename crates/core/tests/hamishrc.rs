@@ -224,3 +224,21 @@ fn the_example_hamishrc_loads_with_no_error_and_maps_no_key() {
     assert_eq!(rc.leader(), ' ');
     assert_eq!(fed(&rc, MapMode::Normal, "Y"), keys("Y"));
 }
+
+#[test]
+fn a_flush_gives_the_held_keys_with_no_wait_for_a_longer_map() {
+    let rc = parse("inoremap jj <Esc>\nnnoremap a X\nnnoremap ab Y\n");
+    let mut insert = Vim::default();
+    insert.key(VimKey::Char('i'), "one", &Caret::at(0));
+    let mut normal = Vim::default();
+
+    insert.press(VimKey::Char('j'));
+    normal.press(VimKey::Char('a'));
+
+    assert_eq!(insert.next_key(&rc), None);
+    assert_eq!(insert.flush_key(&rc), Some(Fed::Key(VimKey::Char('j'))));
+    assert_eq!(insert.flush_key(&rc), None);
+    assert_eq!(normal.next_key(&rc), None);
+    assert_eq!(normal.flush_key(&rc), Some(Fed::Key(VimKey::Char('X'))));
+    assert_eq!(normal.flush_key(&rc), None);
+}

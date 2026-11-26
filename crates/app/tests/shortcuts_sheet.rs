@@ -129,6 +129,30 @@ fn with_vim_mode_on_the_sheet_lists_the_vim_keys() {
 }
 
 #[test]
+fn with_a_leader_from_the_hamishrc_the_vim_keys_show_that_leader() {
+    system_text::run(1, |cx| {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hamishrc");
+        std::fs::write(&path, "let mapleader = \",\"\n").unwrap();
+        let settings = Settings {
+            vim_mode: true,
+            ..Settings::default()
+        };
+        let (_, cx) = open(cx, settings);
+        cx.update(|_, cx| app::use_hamishrc(Some(path), cx));
+        cx.dispatch_action(app::ReloadConfig);
+        cx.run_until_parked();
+
+        let groups = groups(cx);
+
+        assert_eq!(
+            keys_of(&groups, "Vim mode", "Put the Overflow block at the caret").as_deref(),
+            Some(", p")
+        );
+    });
+}
+
+#[test]
 fn on_linux_a_binding_with_the_platform_key_shows_super() {
     system_text::run(1, |cx| {
         cx.set_platform_info(PlatformInfo {
