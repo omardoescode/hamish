@@ -5,8 +5,9 @@ set -euo pipefail
 WT=$(jq -er '.worktree_path')
 BRANCH=$(git -C "$WT" symbolic-ref --quiet --short HEAD || true)
 
-git -C "$CLAUDE_PROJECT_DIR" worktree remove --force "$WT" >&2
+ROOT=$(realpath "$CLAUDE_PROJECT_DIR")
+git -C "$ROOT" worktree remove --force "$WT" >&2
 
 if [[ -n "$BRANCH" ]]; then
-  git -C "$CLAUDE_PROJECT_DIR" branch -D "$BRANCH" >&2
+  git -C "$ROOT" branch -D "$BRANCH" >&2
 fi

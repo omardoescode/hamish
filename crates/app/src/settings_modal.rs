@@ -4,21 +4,25 @@
 
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Corner, Div, EventEmitter, FocusHandle, Focusable,
-    IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, Pixels, Render,
-    ScrollStrategy, SharedString, Stateful, UniformListScrollHandle, Window, anchored, deferred,
-    div, prelude::*, px, rgb, uniform_list,
+    Anchor, Animation, AnimationExt, AnyElement, App, Bounds, ClickEvent, Context, Div,
+    EventEmitter, FocusHandle, Focusable, Hsla, IntoElement, KeyDownEvent, Modifiers, MouseButton,
+    MouseDownEvent, PathBuilder, Pixels, Render, ScrollStrategy, SharedString, Stateful,
+    UniformListScrollHandle, Window, anchored, canvas, deferred, div, point, prelude::*, px, rgb,
+    uniform_list,
 };
-use hamish_core::{SelectSearch, Setting, Settings, ThemeName, Toggle};
+use hamish_core::{Effect, SelectSearch, Setting, Settings, ThemeName, Toggle, caret_shown};
 
 use crate::actions::{
     CloseSelect, CloseSettings, DeleteQueryBackward, NextRow, OpenSettings, PickRow, PreviousRow,
 };
+use crate::caret::CARET_WIDTH;
 use crate::chrome::{
     clickable_row, elevated_surface, popover_surface, selectable_row, text_button,
 };
+use crate::fonts;
 use crate::settings::{self, SettingsStore};
 use crate::{Theme, Workspace};
 
@@ -42,8 +46,9 @@ pub(crate) struct SaveFailed(pub(crate) String);
 pub struct SettingsModal {
     focus_handle: FocusHandle,
     section: Section,
-    /// The bundled font first, then the fonts the text system knows.
-    fonts: Rc<[SharedString]>,
+    /// The bundled font first, then the fonts the text system knows. Empty until a font
+    /// select opens.
+    fonts: Arc<[SharedString]>,
     /// The select whose list shows, if one does.
     open_select: Option<Select>,
     /// The search field of the open select has this focus.
@@ -56,20 +61,10 @@ impl EventEmitter<SaveFailed> for SettingsModal {}
 
 impl SettingsModal {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
-        let bundled = Settings::default().ui_font;
-        let system = cx.text_system().all_font_names();
-        let fonts = std::iter::once(bundled.clone())
-            .chain(
-                system
-                    .into_iter()
-                    .filter(|name| !name.starts_with('.') && *name != bundled),
-            )
-            .map(SharedString::from)
-            .collect();
         Self {
             focus_handle: cx.focus_handle(),
             section: Section::Appearance,
-            fonts,
+            fonts: Arc::from([]),
             open_select: None,
             search_focus: cx.focus_handle(),
             search: SelectSearch::default(),
@@ -78,13 +73,8 @@ impl SettingsModal {
     }
 
     fn change(cx: &mut Context<Self>, change: impl FnOnce(&mut Settings)) {
-        let store = cx.global_mut::<SettingsStore>();
-        change(&mut store.settings);
-        let theme = Theme::new(&store.settings);
-        cx.set_global(theme);
-        cx.refresh_windows();
         let modal = cx.weak_entity();
-        settings::save(cx, move |error, cx| {
+        settings::change(cx, change, move |error, cx| {
             let failed = SaveFailed(error.to_string());
             modal.update(cx, |_, cx| cx.emit(failed)).ok();
         });
@@ -103,17 +93,20 @@ impl SettingsModal {
             self.close_select(window, cx);
             return;
         }
+        if select != Select::Theme {
+            self.fonts = fonts::font_names_now(cx);
+        }
         self.open_select = Some(select);
         self.search = SelectSearch::default();
         self.scroll = UniformListScrollHandle::new();
-        window.focus(&self.search_focus);
+        window.focus(&self.search_focus, cx);
         cx.notify();
     }
 
     /// Closes the open select and gives the keyboard back to the modal.
     pub(crate) fn close_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.open_select.take().is_some() {
-            window.focus(&self.focus_handle);
+            window.focus(&self.focus_handle, cx);
             cx.notify();
         }
     }
@@ -126,7 +119,7 @@ impl SettingsModal {
                 .into_iter()
                 .map(|name| SharedString::from(name.label()))
                 .collect(),
-            Select::UiFont => Rc::clone(&self.fonts),
+            Select::UiFont => self.fonts.iter().cloned().collect(),
             Select::TextFont => std::iter::once(SharedString::from("Default"))
                 .chain(self.fonts.iter().cloned())
                 .collect(),
@@ -224,6 +217,7 @@ impl SettingsModal {
             Select::TextFont => ("settings-text-font-select", "settings-text-font-list"),
         };
         let open = self.open_select == Some(select);
+        let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
         let width = list_width(theme);
         let outline = if open {
             theme.accent_outline
@@ -252,7 +246,7 @@ impl SettingsModal {
         let list = open.then(|| {
             deferred(
                 anchored()
-                    .anchor(Corner::TopLeft)
+                    .anchor(Anchor::TopLeft)
                     .snap_to_window_with_margin(px(8.))
                     .child(
                         popover_surface(theme)
@@ -272,7 +266,7 @@ impl SettingsModal {
                             .border_1()
                             .border_color(theme.panel_border)
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .child(self.search_field(theme))
+                            .child(self.search_field(theme, reduced_motion))
                             .child(self.rows(select, theme, cx)),
                     ),
             )
@@ -280,14 +274,21 @@ impl SettingsModal {
         div().flex().flex_col().child(button).children(list)
     }
 
-    /// The query of the open select, or a muted "Search" while it is empty.
-    fn search_field(&self, theme: &Theme) -> Div {
+    /// The search field of the open select: a search icon, the query, and a caret at its end.
+    /// While the query is empty, "Search" shows after the caret in the placeholder color.
+    fn search_field(&self, theme: &Theme, reduced_motion: bool) -> Div {
         let query = self.search.query();
-        let (color, shown) = if query.is_empty() {
-            (theme.text_muted, SharedString::from("Search"))
-        } else {
-            (theme.text, SharedString::from(query.to_owned()))
-        };
+        let shown_query = (!query.is_empty()).then(|| {
+            div()
+                .debug_selector(|| "settings-select-query".to_owned())
+                .child(SharedString::from(query.to_owned()))
+        });
+        let placeholder = query.is_empty().then(|| {
+            div()
+                .debug_selector(|| "settings-select-placeholder".to_owned())
+                .text_color(theme.text_placeholder)
+                .child("Search")
+        });
         div()
             .debug_selector(|| "settings-select-search".to_owned())
             .h(row_height(theme))
@@ -295,12 +296,21 @@ impl SettingsModal {
             .px(px(6.))
             .flex()
             .items_center()
+            .gap(px(6.))
             .border_b_1()
             .border_color(theme.panel_border)
-            .text_color(color)
+            .text_color(theme.text)
             .overflow_hidden()
             .whitespace_nowrap()
-            .child(shown)
+            .child(search_icon(theme.text_placeholder))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .children(shown_query)
+                    .child(search_caret(query.len(), theme, reduced_motion))
+                    .children(placeholder),
+            )
     }
 
     /// The rows of the open select that the search keeps: only the rows in view are made,
@@ -349,7 +359,7 @@ impl SettingsModal {
             }),
         )
         .debug_selector(|| "settings-select-rows".to_owned())
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .w_full()
         .h(rows_height.min(list_max_height(theme)))
         .into_any_element()
@@ -421,6 +431,9 @@ impl SettingsModal {
             .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
             .child(Self::stepper(Setting::ColumnWidth, settings, theme, cx))
             .child(Self::toggle(Toggle::CycleSounds, settings, theme, cx))
+            .child(Self::toggle(Toggle::VimMode, settings, theme, cx))
+            .child(Self::toggle(Toggle::Markers, settings, theme, cx))
+            .child(Self::toggle(Toggle::Markdown, settings, theme, cx))
     }
 
     /// A label and one button that shows "On" or "Off" and flips the setting.
@@ -561,6 +574,67 @@ impl SelectRow {
     }
 }
 
+/// A magnifier in `color`: a ring with a handle to the lower right.
+fn search_icon(color: Hsla) -> Div {
+    let paint = move |bounds: Bounds<Pixels>, (), window: &mut Window, _: &mut App| {
+        let radius = px(3.);
+        let centre = bounds.origin + point(px(4.), px(4.));
+        let mut magnifier = PathBuilder::stroke(px(1.2));
+        magnifier.move_to(centre + point(radius, px(0.)));
+        magnifier.arc_to(
+            point(radius, radius),
+            px(0.),
+            false,
+            true,
+            centre - point(radius, px(0.)),
+        );
+        magnifier.arc_to(
+            point(radius, radius),
+            px(0.),
+            false,
+            true,
+            centre + point(radius, px(0.)),
+        );
+        magnifier.move_to(centre + point(px(2.2), px(2.2)));
+        magnifier.line_to(bounds.origin + point(px(9.5), px(9.5)));
+        if let Ok(path) = magnifier.build() {
+            window.paint_path(path, color);
+        }
+    };
+    div()
+        .debug_selector(|| "settings-select-search-icon".to_owned())
+        .flex_none()
+        .size(px(10.))
+        .child(canvas(|_, _, _| (), paint).size_full())
+}
+
+/// The caret at the end of the search query, in the Document caret look. It blinks, and its
+/// blink starts again when `query_len` changes. With `reduced_motion` it stays on.
+fn search_caret(query_len: usize, theme: &Theme, reduced_motion: bool) -> AnyElement {
+    let caret = div()
+        .flex_none()
+        .w(CARET_WIDTH)
+        .h(theme.line_height_overflow)
+        .bg(theme.accent);
+    if reduced_motion {
+        return caret
+            .debug_selector(|| "settings-select-caret-still".to_owned())
+            .into_any_element();
+    }
+    let round = Effect::CaretBlink.duration();
+    caret
+        .debug_selector(|| "settings-select-caret".to_owned())
+        .with_animation(
+            ("settings-select-caret", query_len),
+            Animation::new(round).repeat(),
+            move |caret, delta| {
+                let shown = caret_shown(round.mul_f32(delta), false);
+                caret.opacity(if shown { 1. } else { 0. })
+            },
+        )
+        .into_any_element()
+}
+
 /// A small square in the background color of `name` with a dot in its accent color.
 fn swatch(name: ThemeName, theme: &Theme) -> Div {
     let palette = name.palette();
@@ -684,7 +758,7 @@ impl Workspace {
         self.settings_open = true;
         self.settings_modal
             .update(cx, |modal, cx| modal.close_select(window, cx));
-        window.focus(&self.settings_modal.focus_handle(cx));
+        window.focus(&self.settings_modal.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -696,7 +770,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.settings_open = false;
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }
 }

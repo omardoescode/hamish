@@ -1,10 +1,12 @@
 # Hamish developer commands. Run `make help` for the list.
 CARGO ?= cargo
 APP := hamish
+PREFIX ?= $(HOME)/.local
+OS := $(shell uname -s)
 
 .DEFAULT_GOAL := help
-.PHONY: help build build-release run run-release install uninstall test test\:unit test\:integration test\:doc \
-	fmt fmt\:check lint check deny shear guards bench dist clean ci
+.PHONY: help build build-release run run-release install uninstall icons test test\:unit test\:integration test\:doc \
+	test\:packaging fmt fmt\:check lint check deny shear guards bench dist clean ci
 
 help: ## Show this list
 	@grep -E '^[a-zA-Z_\\:-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/^(([^:\\]|\\:)+):.*## /\1\t/; s/\\:/:/g' | awk -F'\t' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -21,11 +23,27 @@ run: ## Run the app (debug)
 run-release: ## Run the app (release)
 	$(CARGO) run -p $(APP) --release
 
-install: ## Install the hamish binary into ~/.cargo/bin
-	$(CARGO) install --path crates/app --locked
+ifeq ($(OS),Darwin)
+VERSION := $(shell grep -m 1 '^version = ' Cargo.toml | cut -d '"' -f 2)
 
-uninstall: ## Remove the installed hamish binary
-	$(CARGO) uninstall $(APP)
+install:
+	$(CARGO) build -p $(APP) --release --locked
+	sh packaging/macos/make-app.sh target/release/$(APP) "$(HOME)/Applications" "$(VERSION)"
+
+uninstall:
+	rm -rf "$(HOME)/Applications/Hamish.app"
+else
+install: ## Install Hamish as a desktop app (Linux: into PREFIX, default ~/.local; macOS: ~/Applications/Hamish.app)
+	$(CARGO) build -p $(APP) --release --locked
+	PREFIX="$(PREFIX)" HAMISH_BIN=target/release/$(APP) HAMISH_DESKTOP=packaging/linux/hamish.desktop \
+		HAMISH_ICONS=packaging/icons sh packaging/linux/install.sh
+
+uninstall: ## Remove the desktop app that install made
+	PREFIX="$(PREFIX)" sh packaging/linux/install.sh --uninstall
+endif
+
+icons: ## Render the PNG icons and the macOS .icns from packaging/icons/hamish.svg
+	sh scripts/render-icons.sh
 
 test: ## All tests
 	$(CARGO) test --workspace
@@ -38,6 +56,9 @@ test\:integration: ## Integration tests (tests/)
 
 test\:doc: ## Doc tests
 	$(CARGO) test --workspace --doc
+
+test\:packaging: ## Desktop packaging (install script, Hamish.app) with a stub binary
+	sh scripts/packaging-test.sh
 
 fmt: ## Format the code
 	$(CARGO) fmt --all
@@ -69,4 +90,4 @@ dist: ## Build release archives for this machine with cargo-dist
 clean: ## Remove build output
 	$(CARGO) clean
 
-ci: fmt\:check lint test guards deny shear ## All checks, as in CI and the git hooks
+ci: fmt\:check lint test test\:packaging guards deny shear ## All checks, as in CI and the git hooks

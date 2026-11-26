@@ -52,6 +52,19 @@ pub struct Palette {
     pub lab_mark: u32,
 }
 
+impl Palette {
+    /// The color halfway from `text_muted` to `text`: placeholder text in an empty field.
+    #[must_use]
+    pub fn text_placeholder(self) -> u32 {
+        let channel = |shift: u32| {
+            let muted = (self.text_muted >> shift) & 0xff;
+            let text = (self.text >> shift) & 0xff;
+            (muted + text).div_ceil(2) << shift
+        };
+        channel(16) | channel(8) | channel(0)
+    }
+}
+
 impl ThemeName {
     /// Each theme, in the order the Settings modal lists them.
     pub const ALL: [Self; 10] = [

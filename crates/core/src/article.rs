@@ -29,7 +29,7 @@ const VOWEL_SOUND_LETTERS: &str = "AEFHILMNORSX";
 
 /// An all-capital word of two or more letters reads as letter names ("an FBI"), unless the
 /// article is all capitals too: then the text is in capitals. An acronym that reads as a word
-/// ("a NASA") takes the article of a word.
+/// ("a NASA") takes the article of a word; one that starts with "U" reads "you" ("a UEFA").
 fn takes_an(article: &str, word: &str) -> Option<bool> {
     let first = word.chars().next().filter(|c| c.is_alphabetic())?;
     let letters = word
@@ -45,6 +45,9 @@ fn takes_an(article: &str, word: &str) -> Option<bool> {
         && !reads_as_word(letters);
     if initialism {
         return Some(VOWEL_SOUND_LETTERS.contains(first));
+    }
+    if article != "AN" && first == 'U' && letters.chars().all(char::is_uppercase) {
+        return Some(false);
     }
     let lower = word.to_lowercase();
     let word_end = lower

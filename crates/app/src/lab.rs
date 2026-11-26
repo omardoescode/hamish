@@ -181,14 +181,14 @@ impl Lab {
             return;
         }
         self.open = true;
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
     /// Esc in the popover: closes it and gives focus back to the editor.
     fn close(&mut self, _: &CloseLab, window: &mut Window, cx: &mut Context<Self>) {
         self.open = false;
-        window.focus(&self.editor.read(cx).focus_handle(cx));
+        window.focus(&self.editor.read(cx).focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -427,7 +427,7 @@ impl Render for Lab {
             .filter(|check| self.checks.get(check).is_some_and(AiRun::is_running))
             .map(|check| ai_bar(&theme, label(check), "marking…".into()).into_any_element())
             .collect();
-        bottom_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP)
+        top_center(crate::workspace::chrome_bar_height(cx) + POPOVER_GAP)
             .child(
                 div()
                     .flex()
@@ -451,29 +451,21 @@ pub(crate) fn lab_button(lab: &Entity<Lab>, theme: &Theme, cx: &App) -> AnyEleme
     let color = if open { theme.accent } else { theme.text_muted };
     let lab = lab.clone();
     div()
-        .absolute()
-        .inset_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
-            div()
-                .id("lab-button")
-                .debug_selector(|| "lab-button".to_owned())
-                .px(px(6.))
-                .border_1()
-                .border_dashed()
-                .border_color(color)
-                .rounded(theme.elevated_radius)
-                .text_size(theme.font_size_hint)
-                .text_color(color)
-                .cursor_pointer()
-                .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
-                .on_click(move |_, window, cx| {
-                    lab.update(cx, |lab, cx| lab.toggle(&ToggleLab, window, cx));
-                })
-                .child(if running { "LAB …" } else { "LAB" }),
-        )
+        .id("lab-button")
+        .debug_selector(|| "lab-button".to_owned())
+        .px(px(6.))
+        .border_1()
+        .border_dashed()
+        .border_color(color)
+        .rounded(theme.elevated_radius)
+        .text_size(theme.font_size_hint)
+        .text_color(color)
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+        .on_click(move |_, window, cx| {
+            lab.update(cx, |lab, cx| lab.toggle(&ToggleLab, window, cx));
+        })
+        .child(if running { "LAB …" } else { "LAB" })
         .into_any_element()
 }
 
@@ -503,11 +495,11 @@ pub(crate) fn ai_bar(theme: &Theme, name: &'static str, detail: SharedString) ->
         )
 }
 
-/// A full-width row at `bottom` that centers its child.
-fn bottom_center(bottom: gpui::Pixels) -> gpui::Div {
+/// A full-width row at `top` that centers its child.
+fn top_center(top: gpui::Pixels) -> gpui::Div {
     div()
         .absolute()
-        .bottom(bottom)
+        .top(top)
         .left_0()
         .right_0()
         .flex()

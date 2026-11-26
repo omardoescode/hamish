@@ -18,6 +18,7 @@ mod overflow;
 mod particles;
 mod select_search;
 mod settings;
+mod shortcut;
 mod slot;
 mod sound;
 mod storage;
@@ -26,6 +27,7 @@ mod title;
 mod tree;
 mod trim;
 mod undo;
+mod vim;
 
 pub use ai::{AiAdapter, AiError, AiRequest, AiTrigger, ApplyError, CancelToken, ClaudeBackend};
 pub use alternatives_list::{
@@ -43,14 +45,16 @@ pub use focus_zoom::{FOCUS_ZOOM_SCALE, FocusZoom, paragraph_index, paragraph_ran
 pub use ghost::GhostError;
 pub use lab::{LabCheck, LabError, LabFinding, LabMark, LabMarkId, LabRequest};
 pub use markdown::{MarkdownSpan, MarkdownStyle};
-pub use motion::Effect;
+pub use motion::{Effect, caret_shown};
 pub use overflow::{Overflow, OverflowError};
 pub use particles::{Particle, ParticleArea, ParticleLook};
 pub use select_search::SelectSearch;
 pub use settings::{LoadedSettings, Setting, Settings, SettingsError, Toggle, settings_path};
+pub use shortcut::key_label;
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};
 pub use sound::Sound;
 pub use storage::{Dropped, Opened, StorageError};
 pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
+pub use vim::{VIM_KEYS, Vim, VimCommand, VimKey, VimMode};

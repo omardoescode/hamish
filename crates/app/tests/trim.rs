@@ -1,3 +1,5 @@
+mod system_text;
+
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -151,191 +153,207 @@ fn click_text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, offset:
     cx.simulate_click(position, Modifiers::none());
 }
 
-#[gpui::test]
-fn a_trim_level_runs_in_the_background_then_shows_the_bar_and_keeps_the_text(
-    cx: &mut TestAppContext,
-) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    click(cx, "lab-button");
-    assert_eq!(selected(&workspace, cx), TrimLevel::Original);
-    assert_eq!(bar_line(&workspace, cx), None);
+#[test]
+fn a_trim_level_runs_in_the_background_then_shows_the_bar_and_keeps_the_text() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        click(cx, "lab-button");
+        assert_eq!(selected(&workspace, cx), TrimLevel::Original);
+        assert_eq!(bar_line(&workspace, cx), None);
 
-    cx.update(|window, cx| {
-        window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
+        cx.update(|window, cx| {
+            window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
+        });
+        assert_eq!(
+            bar_line(&workspace, cx),
+            Some("Slight trim: trimming…".to_owned())
+        );
+        assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
+
+        cx.run_until_parked();
+        assert_eq!(
+            bar(&workspace, cx),
+            Some(TrimBar {
+                level: TrimLevel::SlightTrim,
+                line: "Slight trim 9 → 7 words · -22%".to_owned(),
+                walking: false,
+            })
+        );
+        assert_eq!(selected(&workspace, cx), TrimLevel::SlightTrim);
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..15, false), cut(33..38, false)]
+        );
+        assert_eq!(text(&workspace, cx), TEXT);
     });
-    assert_eq!(
-        bar_line(&workspace, cx),
-        Some("Slight trim: trimming…".to_owned())
-    );
-    assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
-
-    cx.run_until_parked();
-    assert_eq!(
-        bar(&workspace, cx),
-        Some(TrimBar {
-            level: TrimLevel::SlightTrim,
-            line: "Slight trim 9 → 7 words · -22%".to_owned(),
-            walking: false,
-        })
-    );
-    assert_eq!(selected(&workspace, cx), TrimLevel::SlightTrim);
-    assert_eq!(
-        cuts(&workspace, cx),
-        vec![cut(8..15, false), cut(33..38, false)]
-    );
-    assert_eq!(text(&workspace, cx), TEXT);
 }
 
-#[gpui::test]
-fn a_click_on_a_faded_word_keeps_it_and_the_counts_update(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    trim(cx, "trim-level-1");
+#[test]
+fn a_click_on_a_faded_word_keeps_it_and_the_counts_update() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
 
-    click_text(&workspace, cx, 10);
+        click_text(&workspace, cx, 10);
 
-    assert_eq!(
-        cuts(&workspace, cx),
-        vec![cut(8..15, true), cut(33..38, false)]
-    );
-    assert_eq!(
-        bar_line(&workspace, cx),
-        Some("Slight trim 9 → 8 words · -11%".to_owned())
-    );
-    assert_eq!(text(&workspace, cx), TEXT);
-}
-
-#[gpui::test]
-fn a_click_outside_the_cuts_keeps_nothing(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    trim(cx, "trim-level-1");
-
-    click_text(&workspace, cx, 22);
-
-    assert_eq!(
-        cuts(&workspace, cx),
-        vec![cut(8..15, false), cut(33..38, false)]
-    );
-}
-
-#[gpui::test]
-fn make_the_cuts_deletes_the_open_cuts_as_one_undo_step(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    trim(cx, "trim-level-1");
-    click_text(&workspace, cx, 10);
-
-    click(cx, "trim-make-cuts");
-
-    assert_eq!(
-        text(&workspace, cx),
-        "Title\nI really think the plan is good."
-    );
-    assert_eq!(bar(&workspace, cx), None);
-    assert_eq!(selected(&workspace, cx), TrimLevel::Original);
-
-    cx.simulate_keystrokes("ctrl-z");
-    assert_eq!(text(&workspace, cx), TEXT);
-}
-
-#[gpui::test]
-fn walk_through_keeps_or_cuts_each_cut_in_turn(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    trim(cx, "trim-level-1");
-
-    click(cx, "trim-walk");
-    assert_eq!(bar(&workspace, cx).map(|bar| bar.walking), Some(true));
-
-    click(cx, "trim-walk-keep");
-    assert_eq!(text(&workspace, cx), TEXT);
-    assert_eq!(
-        cuts(&workspace, cx),
-        vec![cut(8..15, true), cut(33..38, false)]
-    );
-
-    click(cx, "trim-walk-cut");
-    assert_eq!(
-        text(&workspace, cx),
-        "Title\nI really think the plan is good."
-    );
-    assert_eq!(
-        bar(&workspace, cx),
-        Some(TrimBar {
-            level: TrimLevel::SlightTrim,
-            line: "Slight trim 9 → 8 words · -11%".to_owned(),
-            walking: false,
-        })
-    );
-
-    cx.simulate_keystrokes("escape ctrl-z");
-    assert_eq!(text(&workspace, cx), TEXT);
-}
-
-#[gpui::test]
-fn done_closes_the_bar_and_keeps_the_text(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    trim(cx, "trim-level-1");
-
-    click(cx, "trim-done");
-
-    assert_eq!(bar(&workspace, cx), None);
-    assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
-    assert_eq!(text(&workspace, cx), TEXT);
-}
-
-#[gpui::test]
-fn a_new_level_replaces_the_proposal_and_original_clears_it(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(two_levels()));
-    trim(cx, "trim-level-1");
-
-    trim(cx, "trim-level-2");
-    assert_eq!(
-        bar_line(&workspace, cx),
-        Some("Tighten more 9 → 6 words · -33%".to_owned())
-    );
-    assert_eq!(selected(&workspace, cx), TrimLevel::TightenMore);
-    assert_eq!(
-        cuts(&workspace, cx),
-        vec![cut(8..21, false), cut(33..38, false)]
-    );
-
-    trim(cx, "trim-level-0");
-    assert_eq!(bar(&workspace, cx), None);
-    assert_eq!(selected(&workspace, cx), TrimLevel::Original);
-    assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
-    assert_eq!(text(&workspace, cx), TEXT);
-}
-
-#[gpui::test]
-fn an_ai_failure_shows_in_the_bar_and_changes_nothing(cx: &mut TestAppContext) {
-    let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
-    let (workspace, cx) = open(cx, Some(failing));
-
-    trim(cx, "trim-level-4");
-
-    assert_eq!(
-        bar_line(&workspace, cx),
-        Some("Cut in half: the AI declined: no".to_owned())
-    );
-    assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
-    click(cx, "trim-done");
-    assert_eq!(bar(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn a_running_trim_shows_the_ai_bar_above_the_popover(cx: &mut TestAppContext) {
-    let (_, cx) = open(cx, Some(two_levels()));
-    click(cx, "lab-button");
-    assert_eq!(cx.debug_bounds("ai-bar"), None);
-
-    cx.update(|window, cx| {
-        window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..15, true), cut(33..38, false)]
+        );
+        assert_eq!(
+            bar_line(&workspace, cx),
+            Some("Slight trim 9 → 8 words · -11%".to_owned())
+        );
+        assert_eq!(text(&workspace, cx), TEXT);
     });
+}
 
-    let bar = cx
-        .debug_bounds("ai-bar")
-        .expect("a running Trim shows the AI bar");
-    let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
-    assert!(
-        bar.bottom() <= popover.top(),
-        "the AI bar {bar:?} overlaps the popover {popover:?}"
-    );
+#[test]
+fn a_click_outside_the_cuts_keeps_nothing() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
+
+        click_text(&workspace, cx, 22);
+
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..15, false), cut(33..38, false)]
+        );
+    });
+}
+
+#[test]
+fn make_the_cuts_deletes_the_open_cuts_as_one_undo_step() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
+        click_text(&workspace, cx, 10);
+
+        click(cx, "trim-make-cuts");
+
+        assert_eq!(
+            text(&workspace, cx),
+            "Title\nI really think the plan is good."
+        );
+        assert_eq!(bar(&workspace, cx), None);
+        assert_eq!(selected(&workspace, cx), TrimLevel::Original);
+
+        cx.simulate_keystrokes("ctrl-z");
+        assert_eq!(text(&workspace, cx), TEXT);
+    });
+}
+
+#[test]
+fn walk_through_keeps_or_cuts_each_cut_in_turn() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
+
+        click(cx, "trim-walk");
+        assert_eq!(bar(&workspace, cx).map(|bar| bar.walking), Some(true));
+
+        click(cx, "trim-walk-keep");
+        assert_eq!(text(&workspace, cx), TEXT);
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..15, true), cut(33..38, false)]
+        );
+
+        click(cx, "trim-walk-cut");
+        assert_eq!(
+            text(&workspace, cx),
+            "Title\nI really think the plan is good."
+        );
+        assert_eq!(
+            bar(&workspace, cx),
+            Some(TrimBar {
+                level: TrimLevel::SlightTrim,
+                line: "Slight trim 9 → 8 words · -11%".to_owned(),
+                walking: false,
+            })
+        );
+
+        cx.simulate_keystrokes("escape ctrl-z");
+        assert_eq!(text(&workspace, cx), TEXT);
+    });
+}
+
+#[test]
+fn done_closes_the_bar_and_keeps_the_text() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
+
+        click(cx, "trim-done");
+
+        assert_eq!(bar(&workspace, cx), None);
+        assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
+        assert_eq!(text(&workspace, cx), TEXT);
+    });
+}
+
+#[test]
+fn a_new_level_replaces_the_proposal_and_original_clears_it() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
+
+        trim(cx, "trim-level-2");
+        assert_eq!(
+            bar_line(&workspace, cx),
+            Some("Tighten more 9 → 6 words · -33%".to_owned())
+        );
+        assert_eq!(selected(&workspace, cx), TrimLevel::TightenMore);
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..21, false), cut(33..38, false)]
+        );
+
+        trim(cx, "trim-level-0");
+        assert_eq!(bar(&workspace, cx), None);
+        assert_eq!(selected(&workspace, cx), TrimLevel::Original);
+        assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
+        assert_eq!(text(&workspace, cx), TEXT);
+    });
+}
+
+#[test]
+fn an_ai_failure_shows_in_the_bar_and_changes_nothing() {
+    system_text::run(1, |cx| {
+        let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
+        let (workspace, cx) = open(cx, Some(failing));
+
+        trim(cx, "trim-level-4");
+
+        assert_eq!(
+            bar_line(&workspace, cx),
+            Some("Cut in half: the AI declined: no".to_owned())
+        );
+        assert_eq!(cuts(&workspace, cx), Vec::<TrimCut>::new());
+        click(cx, "trim-done");
+        assert_eq!(bar(&workspace, cx), None);
+    });
+}
+
+#[test]
+fn a_running_trim_shows_the_ai_bar_above_the_popover() {
+    system_text::run(1, |cx| {
+        let (_, cx) = open(cx, Some(two_levels()));
+        click(cx, "lab-button");
+        assert_eq!(cx.debug_bounds("ai-bar"), None);
+
+        cx.update(|window, cx| {
+            window.dispatch_action(Box::new(RunTrim(TrimLevel::SlightTrim)), cx);
+        });
+
+        let bar = cx
+            .debug_bounds("ai-bar")
+            .expect("a running Trim shows the AI bar");
+        let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
+        assert!(
+            bar.bottom() <= popover.top(),
+            "the AI bar {bar:?} overlaps the popover {popover:?}"
+        );
+    });
 }

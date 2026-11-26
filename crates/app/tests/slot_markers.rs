@@ -1,3 +1,5 @@
+mod system_text;
+
 use app::{Marker, MarkerKind, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Pixels, Point, TestAppContext,
@@ -78,73 +80,83 @@ fn article_document() -> Document {
     document
 }
 
-#[gpui::test]
-fn down_over_a_slot_shows_the_next_variant_with_article_agreement(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, article_document());
+#[test]
+fn down_over_a_slot_shows_the_next_variant_with_article_agreement() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, article_document());
 
-    hover(&workspace, cx, 17);
-    cx.simulate_keystrokes("down");
+        hover(&workspace, cx, 17);
+        cx.simulate_keystrokes("down");
 
-    assert_eq!(text(&workspace, cx), "Title\nIt is a thumbtack here.");
-    assert_eq!(counter(&workspace, cx), "6 words 29 chars");
+        assert_eq!(text(&workspace, cx), "Title\nIt is a thumbtack here.");
+        assert_eq!(counter(&workspace, cx), "6 words 29 chars");
+    });
 }
 
-#[gpui::test]
-fn up_over_a_slot_shows_the_previous_variant_and_wraps(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, article_document());
+#[test]
+fn up_over_a_slot_shows_the_previous_variant_and_wraps() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, article_document());
 
-    hover(&workspace, cx, 17);
-    cx.simulate_keystrokes("up");
-    assert_eq!(text(&workspace, cx), "Title\nIt is a thumbtack here.");
+        hover(&workspace, cx, 17);
+        cx.simulate_keystrokes("up");
+        assert_eq!(text(&workspace, cx), "Title\nIt is a thumbtack here.");
 
-    cx.simulate_keystrokes("up");
-    assert_eq!(text(&workspace, cx), "Title\nIt is an eraser here.");
+        cx.simulate_keystrokes("up");
+        assert_eq!(text(&workspace, cx), "Title\nIt is an eraser here.");
+    });
 }
 
-#[gpui::test]
-fn undo_reverts_a_variant_switch(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, article_document());
+#[test]
+fn undo_reverts_a_variant_switch() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, article_document());
 
-    hover(&workspace, cx, 17);
-    cx.simulate_keystrokes("down ctrl-z");
+        hover(&workspace, cx, 17);
+        cx.simulate_keystrokes("down ctrl-z");
 
-    assert_eq!(text(&workspace, cx), "Title\nIt is an eraser here.");
+        assert_eq!(text(&workspace, cx), "Title\nIt is an eraser here.");
+    });
 }
 
-#[gpui::test]
-fn the_pointer_over_a_slot_hovers_it(cx: &mut TestAppContext) {
-    let (document, slot) = word_slot_document();
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn the_pointer_over_a_slot_hovers_it() {
+    system_text::run(1, |cx| {
+        let (document, slot) = word_slot_document();
+        let (workspace, cx) = open(cx, document);
 
-    hover(&workspace, cx, 16);
-    assert_eq!(hovered_slot(&workspace, cx), Some(slot));
+        hover(&workspace, cx, 16);
+        assert_eq!(hovered_slot(&workspace, cx), Some(slot));
 
-    hover(&workspace, cx, 7);
-    assert_eq!(hovered_slot(&workspace, cx), None);
+        hover(&workspace, cx, 7);
+        assert_eq!(hovered_slot(&workspace, cx), None);
+    });
 }
 
 fn markers(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Marker> {
     cx.read(|cx| workspace.read(cx).editor().read(cx).markers().to_vec())
 }
 
-#[gpui::test]
-fn a_word_slot_shows_an_underline_with_one_dot_per_variant(cx: &mut TestAppContext) {
-    let (document, slot) = word_slot_document();
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn a_word_slot_shows_an_underline_with_one_dot_per_variant() {
+    system_text::run(1, |cx| {
+        let (document, slot) = word_slot_document();
+        let (workspace, cx) = open(cx, document);
 
-    assert_eq!(
-        markers(&workspace, cx),
-        vec![Marker {
-            slot,
-            kind: MarkerKind::Underline,
-            dots: 2,
-            active: 0,
-        }]
-    );
+        assert_eq!(
+            markers(&workspace, cx),
+            vec![Marker {
+                slot,
+                kind: MarkerKind::Underline,
+                dots: 2,
+                active: 0,
+            }]
+        );
 
-    hover(&workspace, cx, 16);
-    cx.simulate_keystrokes("down");
-    assert_eq!(markers(&workspace, cx)[0].active, 1);
+        hover(&workspace, cx, 16);
+        cx.simulate_keystrokes("down");
+        assert_eq!(markers(&workspace, cx)[0].active, 1);
+    });
 }
 
 /// "Title\nOld text here." with a Paragraph Slot (Variants "Old text here.", "New words
@@ -171,75 +183,81 @@ fn nested_document() -> (Document, SlotId, SlotId) {
     (document, paragraph, word)
 }
 
-#[gpui::test]
-fn nested_slot_markers_show_inside_the_active_paragraph_variant(cx: &mut TestAppContext) {
-    let (document, paragraph, word) = nested_document();
-    let (workspace, cx) = open(cx, document);
-    let paragraph_marker = |active| Marker {
-        slot: paragraph,
-        kind: MarkerKind::MarginLine,
-        dots: 3,
-        active,
-    };
+#[test]
+fn nested_slot_markers_show_inside_the_active_paragraph_variant() {
+    system_text::run(1, |cx| {
+        let (document, paragraph, word) = nested_document();
+        let (workspace, cx) = open(cx, document);
+        let paragraph_marker = |active| Marker {
+            slot: paragraph,
+            kind: MarkerKind::MarginLine,
+            dots: 3,
+            active,
+        };
 
-    assert_eq!(markers(&workspace, cx), vec![paragraph_marker(0)]);
+        assert_eq!(markers(&workspace, cx), vec![paragraph_marker(0)]);
 
-    hover(&workspace, cx, 8);
-    cx.simulate_keystrokes("down");
-    assert_eq!(text(&workspace, cx), "Title\nNew words here.");
-    assert_eq!(
-        markers(&workspace, cx),
-        vec![
-            paragraph_marker(1),
-            Marker {
-                slot: word,
-                kind: MarkerKind::Underline,
-                dots: 2,
-                active: 0,
-            },
-        ]
-    );
+        hover(&workspace, cx, 8);
+        cx.simulate_keystrokes("down");
+        assert_eq!(text(&workspace, cx), "Title\nNew words here.");
+        assert_eq!(
+            markers(&workspace, cx),
+            vec![
+                paragraph_marker(1),
+                Marker {
+                    slot: word,
+                    kind: MarkerKind::Underline,
+                    dots: 2,
+                    active: 0,
+                },
+            ]
+        );
+    });
 }
 
-#[gpui::test]
-fn the_innermost_slot_under_the_pointer_is_hovered(cx: &mut TestAppContext) {
-    let (mut document, paragraph, word) = nested_document();
-    document.set_active(paragraph, 1).expect("Variant 1 exists");
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn the_innermost_slot_under_the_pointer_is_hovered() {
+    system_text::run(1, |cx| {
+        let (mut document, paragraph, word) = nested_document();
+        document.set_active(paragraph, 1).expect("Variant 1 exists");
+        let (workspace, cx) = open(cx, document);
 
-    hover(&workspace, cx, 11);
-    assert_eq!(hovered_slot(&workspace, cx), Some(word));
+        hover(&workspace, cx, 11);
+        assert_eq!(hovered_slot(&workspace, cx), Some(word));
 
-    hover(&workspace, cx, 7);
-    assert_eq!(hovered_slot(&workspace, cx), Some(paragraph));
+        hover(&workspace, cx, 7);
+        assert_eq!(hovered_slot(&workspace, cx), Some(paragraph));
+    });
 }
 
-#[gpui::test]
-fn up_down_cycle_word_slots_on_and_under_a_markdown_heading(cx: &mut TestAppContext) {
-    let mut document = Document::new("# A tension here\nIt is **bold** and quiet.");
-    let in_heading = document
-        .create_slot(4..11, Level::Word, "struggle", Provenance::Writer)
-        .unwrap();
-    let in_body = document
-        .create_slot(36..41, Level::Word, "calm", Provenance::Writer)
-        .unwrap();
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn up_down_cycle_word_slots_on_and_under_a_markdown_heading() {
+    system_text::run(1, |cx| {
+        let mut document = Document::new("# A tension here\nIt is **bold** and quiet.");
+        let in_heading = document
+            .create_slot(4..11, Level::Word, "struggle", Provenance::Writer)
+            .unwrap();
+        let in_body = document
+            .create_slot(36..41, Level::Word, "calm", Provenance::Writer)
+            .unwrap();
+        let (workspace, cx) = open(cx, document);
 
-    hover(&workspace, cx, 6);
-    assert_eq!(hovered_slot(&workspace, cx), Some(in_heading));
-    cx.simulate_keystrokes("down");
-    assert_eq!(
-        text(&workspace, cx),
-        "# A struggle here\nIt is **bold** and quiet."
-    );
+        hover(&workspace, cx, 6);
+        assert_eq!(hovered_slot(&workspace, cx), Some(in_heading));
+        cx.simulate_keystrokes("down");
+        assert_eq!(
+            text(&workspace, cx),
+            "# A struggle here\nIt is **bold** and quiet."
+        );
 
-    hover(&workspace, cx, 38);
-    assert_eq!(hovered_slot(&workspace, cx), Some(in_body));
-    cx.simulate_keystrokes("down");
-    assert_eq!(
-        text(&workspace, cx),
-        "# A struggle here\nIt is **bold** and calm."
-    );
+        hover(&workspace, cx, 38);
+        assert_eq!(hovered_slot(&workspace, cx), Some(in_body));
+        cx.simulate_keystrokes("down");
+        assert_eq!(
+            text(&workspace, cx),
+            "# A struggle here\nIt is **bold** and calm."
+        );
+    });
 }
 
 fn underline(
@@ -250,21 +268,23 @@ fn underline(
     cx.read(|cx| workspace.read(cx).editor().read(cx).underline(slot))
 }
 
-#[gpui::test]
-fn a_slot_underline_is_wavy_and_the_same_after_an_edit_elsewhere(cx: &mut TestAppContext) {
-    let (document, slot) = word_slot_document();
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn a_slot_underline_is_wavy_and_the_same_after_an_edit_elsewhere() {
+    system_text::run(1, |cx| {
+        let (document, slot) = word_slot_document();
+        let (workspace, cx) = open(cx, document);
 
-    let before = underline(&workspace, cx, slot);
-    assert!(before.len() > 2, "the underline has points along the Slot");
-    assert!(
-        before.iter().any(|at| at.y != before[0].y),
-        "the underline is not a straight line"
-    );
+        let before = underline(&workspace, cx, slot);
+        assert!(before.len() > 2, "the underline has points along the Slot");
+        assert!(
+            before.iter().any(|at| at.y != before[0].y),
+            "the underline is not a straight line"
+        );
 
-    cx.simulate_input("My ");
-    assert_eq!(text(&workspace, cx), "My Title\nIt is a tension here.");
-    assert_eq!(underline(&workspace, cx, slot), before);
+        cx.simulate_input("My ");
+        assert_eq!(text(&workspace, cx), "My Title\nIt is a tension here.");
+        assert_eq!(underline(&workspace, cx, slot), before);
+    });
 }
 
 /// "Title\n" then a paragraph of 3 sentences, each long enough to wrap, with a Sentence
@@ -310,89 +330,93 @@ fn marker_dots(
     cx.read(|cx| workspace.read(cx).editor().read(cx).marker_dots(slot))
 }
 
-#[gpui::test]
-fn a_sentence_slot_mid_paragraph_shows_a_sentence_marker_with_dots_after_its_end(
-    cx: &mut TestAppContext,
-) {
-    let (document, slot) = sentence_slot_document();
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn a_sentence_slot_mid_paragraph_shows_a_sentence_marker_with_dots_after_its_end() {
+    system_text::run(1, |cx| {
+        let (document, slot) = sentence_slot_document();
+        let (workspace, cx) = open(cx, document);
 
-    assert_eq!(
-        markers(&workspace, cx),
-        vec![Marker {
-            slot,
-            kind: MarkerKind::SentenceUnderline,
-            dots: 2,
-            active: 0,
-        }]
-    );
-    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
-    let next_sentence = caret_box(&workspace, cx, MIDDLE_SENTENCE.end + 1);
-    assert_eq!(
-        next_sentence.top(),
-        end.top(),
-        "the next sentence is on the row"
-    );
-    let dots = marker_dots(&workspace, cx, slot);
-    assert_eq!(dots.len(), 2);
-    for dot in &dots {
-        assert!(
-            dot.right() <= next_sentence.left(),
-            "dot {dot:?} does not cover the next sentence {next_sentence:?}"
+        assert_eq!(
+            markers(&workspace, cx),
+            vec![Marker {
+                slot,
+                kind: MarkerKind::SentenceUnderline,
+                dots: 2,
+                active: 0,
+            }]
         );
-        assert!(
-            dot.top() >= end.top() && dot.bottom() <= end.bottom(),
-            "dot {dot:?} is on the last row {end:?}"
+        let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+        let next_sentence = caret_box(&workspace, cx, MIDDLE_SENTENCE.end + 1);
+        assert_eq!(
+            next_sentence.top(),
+            end.top(),
+            "the next sentence is on the row"
         );
-    }
+        let dots = marker_dots(&workspace, cx, slot);
+        assert_eq!(dots.len(), 2);
+        for dot in &dots {
+            assert!(
+                dot.right() <= next_sentence.left(),
+                "dot {dot:?} does not cover the next sentence {next_sentence:?}"
+            );
+            assert!(
+                dot.top() >= end.top() && dot.bottom() <= end.bottom(),
+                "dot {dot:?} is on the last row {end:?}"
+            );
+        }
+    });
 }
 
-#[gpui::test]
-fn a_sentence_slot_underline_covers_only_the_rows_of_the_sentence(cx: &mut TestAppContext) {
-    let (document, slot) = sentence_slot_document();
-    let (workspace, cx) = open(cx, document);
-    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
-    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
-    assert!(end.top() > start.top(), "the sentence wraps");
+#[test]
+fn a_sentence_slot_underline_covers_only_the_rows_of_the_sentence() {
+    system_text::run(1, |cx| {
+        let (document, slot) = sentence_slot_document();
+        let (workspace, cx) = open(cx, document);
+        let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+        let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+        assert!(end.top() > start.top(), "the sentence wraps");
 
-    let line = underline(&workspace, cx, slot);
-    let (first, last) = (line[0], line[line.len() - 1]);
-    assert_eq!(first.x, start.left());
-    assert!(first.y > start.top() && first.y < start.bottom());
-    assert_eq!(last.x, end.left());
-    assert!(last.y > end.top() && last.y < end.bottom());
-    assert!(
-        line.iter()
-            .all(|at| at.y > start.top() && at.y < end.bottom()),
-        "no stroke on rows of the other sentences"
-    );
+        let line = underline(&workspace, cx, slot);
+        let (first, last) = (line[0], line[line.len() - 1]);
+        assert_eq!(first.x, start.left());
+        assert!(first.y > start.top() && first.y < start.bottom());
+        assert_eq!(last.x, end.left());
+        assert!(last.y > end.top() && last.y < end.bottom());
+        assert!(
+            line.iter()
+                .all(|at| at.y > start.top() && at.y < end.bottom()),
+            "no stroke on rows of the other sentences"
+        );
+    });
 }
 
 fn hover_tint(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
     cx.read(|cx| workspace.read(cx).editor().read(cx).hover_tint())
 }
 
-#[gpui::test]
-fn hovering_a_sentence_slot_tints_only_the_sentence(cx: &mut TestAppContext) {
-    let (document, _) = sentence_slot_document();
-    let (workspace, cx) = open(cx, document);
-    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
-    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+#[test]
+fn hovering_a_sentence_slot_tints_only_the_sentence() {
+    system_text::run(1, |cx| {
+        let (document, _) = sentence_slot_document();
+        let (workspace, cx) = open(cx, document);
+        let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+        let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
 
-    hover(&workspace, cx, MIDDLE_SENTENCE.start + 3);
-    cx.run_until_parked();
-    let tint = hover_tint(&workspace, cx);
+        hover(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+        cx.run_until_parked();
+        let tint = hover_tint(&workspace, cx);
 
-    assert!(tint.len() >= 2, "one box per row: {tint:?}");
-    let (first, last) = (tint[0], tint[tint.len() - 1]);
-    assert!(first.left() > start.left() - px(4.) && first.left() < start.left());
-    assert_eq!(first.top(), start.top());
-    assert!(last.right() > end.left() && last.right() < end.left() + px(4.));
-    assert_eq!(last.bottom(), end.bottom());
+        assert!(tint.len() >= 2, "one box per row: {tint:?}");
+        let (first, last) = (tint[0], tint[tint.len() - 1]);
+        assert!(first.left() > start.left() - px(4.) && first.left() < start.left());
+        assert_eq!(first.top(), start.top());
+        assert!(last.right() > end.left() && last.right() < end.left() + px(4.));
+        assert_eq!(last.bottom(), end.bottom());
 
-    hover(&workspace, cx, 10);
-    cx.run_until_parked();
-    assert_eq!(hover_tint(&workspace, cx), Vec::new());
+        hover(&workspace, cx, 10);
+        cx.run_until_parked();
+        assert_eq!(hover_tint(&workspace, cx), Vec::new());
+    });
 }
 
 /// "Title\n" then one sentence whose long last word wraps, which leaves a gap at the
@@ -400,53 +424,57 @@ fn hovering_a_sentence_slot_tints_only_the_sentence(cx: &mut TestAppContext) {
 const SHORT_ROW: &str =
     "Title\nThe start is short and abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij.";
 
-#[gpui::test]
-fn the_hover_tint_of_a_wrapped_slot_ends_at_the_text_end_of_each_row(cx: &mut TestAppContext) {
-    let mut document = Document::new(SHORT_ROW);
-    document
-        .create_slot(
-            6..SHORT_ROW.len(),
-            Level::Sentence,
-            "Short.",
-            Provenance::Writer,
-        )
-        .expect("valid range");
-    let (workspace, cx) = open(cx, document);
-    let last_word = SHORT_ROW.len() - 51;
-    let first_row = caret_box(&workspace, cx, 6);
-    assert!(
-        caret_box(&workspace, cx, last_word + 1).top() > first_row.top(),
-        "the last word wraps"
-    );
-    let row_end = caret_box(&workspace, cx, last_word - 1).left();
+#[test]
+fn the_hover_tint_of_a_wrapped_slot_ends_at_the_text_end_of_each_row() {
+    system_text::run(1, |cx| {
+        let mut document = Document::new(SHORT_ROW);
+        document
+            .create_slot(
+                6..SHORT_ROW.len(),
+                Level::Sentence,
+                "Short.",
+                Provenance::Writer,
+            )
+            .expect("valid range");
+        let (workspace, cx) = open(cx, document);
+        let last_word = SHORT_ROW.len() - 51;
+        let first_row = caret_box(&workspace, cx, 6);
+        assert!(
+            caret_box(&workspace, cx, last_word + 1).top() > first_row.top(),
+            "the last word wraps"
+        );
+        let row_end = caret_box(&workspace, cx, last_word - 1).left();
 
-    hover(&workspace, cx, 8);
-    cx.run_until_parked();
-    let tint = hover_tint(&workspace, cx);
+        hover(&workspace, cx, 8);
+        cx.run_until_parked();
+        let tint = hover_tint(&workspace, cx);
 
-    assert_eq!(tint.len(), 2, "one box per row: {tint:?}");
-    assert!(
-        tint[0].right() > row_end - px(1.) && tint[0].right() < row_end + px(4.),
-        "the box {:?} ends at the text end {row_end:?}",
-        tint[0]
-    );
+        assert_eq!(tint.len(), 2, "one box per row: {tint:?}");
+        assert!(
+            tint[0].right() > row_end - px(1.) && tint[0].right() < row_end + px(4.),
+            "the box {:?} ends at the text end {row_end:?}",
+            tint[0]
+        );
+    });
 }
 
-#[gpui::test]
-fn the_sentence_slot_the_alternatives_panel_shows_keeps_its_tint(cx: &mut TestAppContext) {
-    let (document, _) = sentence_slot_document();
-    let (workspace, cx) = open(cx, document);
+#[test]
+fn the_sentence_slot_the_alternatives_panel_shows_keeps_its_tint() {
+    system_text::run(1, |cx| {
+        let (document, _) = sentence_slot_document();
+        let (workspace, cx) = open(cx, document);
 
-    let inside = point_at(&workspace, cx, MIDDLE_SENTENCE.start + 3);
-    cx.simulate_click(inside, Modifiers::none());
-    cx.simulate_keystrokes("ctrl-shift-a");
-    hover(&workspace, cx, 10);
-    cx.run_until_parked();
-    let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
-    let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
-    let tint = hover_tint(&workspace, cx);
+        let inside = point_at(&workspace, cx, MIDDLE_SENTENCE.start + 3);
+        cx.simulate_click(inside, Modifiers::none());
+        cx.simulate_keystrokes("ctrl-shift-a");
+        hover(&workspace, cx, 10);
+        cx.run_until_parked();
+        let start = caret_box(&workspace, cx, MIDDLE_SENTENCE.start);
+        let end = caret_box(&workspace, cx, MIDDLE_SENTENCE.end);
+        let tint = hover_tint(&workspace, cx);
 
-    assert!(tint.len() >= 2, "one box per row: {tint:?}");
-    assert_eq!(tint[0].top(), start.top());
-    assert_eq!(tint[tint.len() - 1].bottom(), end.bottom());
+        assert!(tint.len() >= 2, "one box per row: {tint:?}");
+        assert_eq!(tint[0].top(), start.top());
+        assert_eq!(tint[tint.len() - 1].bottom(), end.bottom());
+    });
 }

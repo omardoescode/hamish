@@ -101,7 +101,7 @@ impl OverflowPanel {
 
     /// Esc gives the keyboard back to the Document; Overflow stays open.
     fn leave(&mut self, _: &LeaveOverflow, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
     }
 
     fn on_mouse_down(
@@ -110,7 +110,7 @@ impl OverflowPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         if event.click_count == 2 {
             caret::select_word(self, event.position, cx);
         } else {
@@ -291,14 +291,6 @@ impl OverflowText {
     }
 }
 
-impl IntoElement for OverflowText {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 impl Element for OverflowText {
     type RequestLayoutState = ();
     type PrepaintState = OverflowPrepaint;
@@ -371,7 +363,7 @@ impl Element for OverflowText {
             .then(|| caret::caret_quad(&painted, shown.offset(), theme.accent))
             .flatten();
         if panel.autoscroll {
-            caret::scroll_to_caret(&panel.scroll_handle, caret.as_ref(), cx);
+            caret::scroll_to_caret(&panel.scroll_handle, caret.as_ref(), px(0.), cx);
             window.request_animation_frame();
         }
         let text_font = window.text_style().font_family;

@@ -128,7 +128,7 @@ fn use_block_takes_the_block_the_caret_is_in_or_at_the_end_of() {
     document.edit_overflow(0..0, "one\n\ntwo").unwrap();
     document.use_block(3, 0).unwrap();
     document.use_block(5, 0).unwrap();
-    assert_eq!(document.text(), "twooneBody.");
+    assert_eq!(document.text(), "two one Body.");
 }
 
 #[test]
@@ -154,40 +154,40 @@ fn dropping() -> Document {
 }
 
 #[test]
-fn drop_block_between_words_puts_a_space_on_each_side() {
+fn use_block_between_words_puts_a_space_on_each_side() {
     let mut after_word = dropping();
-    after_word.drop_block(0, 17).unwrap();
+    after_word.use_block(0, 17).unwrap();
     assert_eq!(after_word.text(), "the light changed paragraph over it.");
 
     let mut before_word = dropping();
-    before_word.drop_block(0, 4).unwrap();
+    before_word.use_block(0, 4).unwrap();
     assert_eq!(before_word.text(), "the paragraph light changed over it.");
 }
 
 #[test]
-fn drop_block_puts_no_space_before_punctuation_or_next_to_a_space() {
+fn use_block_puts_no_space_before_punctuation_or_next_to_a_space() {
     let mut before_stop = dropping();
-    before_stop.drop_block(0, 25).unwrap();
+    before_stop.use_block(0, 25).unwrap();
     assert_eq!(before_stop.text(), "the light changed over it paragraph.");
 
     let mut at_start = dropping();
-    at_start.drop_block(0, 0).unwrap();
+    at_start.use_block(0, 0).unwrap();
     assert_eq!(at_start.text(), "paragraph the light changed over it.");
 
     let mut at_end = dropping();
-    at_end.drop_block(0, 26).unwrap();
+    at_end.use_block(0, 26).unwrap();
     assert_eq!(at_end.text(), "the light changed over it. paragraph");
 
     let mut spaced = Document::new("one two");
     spaced.edit_overflow(0..0, "block ").unwrap();
-    spaced.drop_block(0, 4).unwrap();
+    spaced.use_block(0, 4).unwrap();
     assert_eq!(spaced.text(), "one block two");
 }
 
 #[test]
-fn drop_block_is_one_undo_step() {
+fn use_block_spaced_is_one_undo_step() {
     let mut document = dropping();
-    document.drop_block(0, 17).unwrap();
+    document.use_block(0, 17).unwrap();
     assert!(document.undo());
     assert_eq!(document.text(), "the light changed over it.");
 }

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use hamish_core::Effect;
+use hamish_core::{Effect, caret_shown};
 
 fn ms(millis: u64) -> Duration {
     Duration::from_millis(millis)
@@ -43,4 +43,19 @@ fn with_reduced_motion_an_effect_is_done_at_once() {
     assert!((Effect::VariantFadeIn.progress(ms(0), true) - 1.0).abs() < 1e-6);
     assert!((Effect::Explosion.progress(ms(0), true) - 1.0).abs() < 1e-6);
     assert!((Effect::UndoBurst.progress(ms(0), true) - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_caret_blink_round_is_on_for_500_ms_then_off_for_500_ms() {
+    assert_eq!(Effect::CaretBlink.duration(), ms(1000));
+    assert!(caret_shown(ms(0), false));
+    assert!(caret_shown(ms(499), false));
+    assert!(!caret_shown(ms(500), false));
+    assert!(!caret_shown(ms(999), false));
+    assert!(caret_shown(ms(1200), false));
+}
+
+#[test]
+fn with_reduced_motion_the_caret_stays_on() {
+    assert!(caret_shown(ms(700), true));
 }

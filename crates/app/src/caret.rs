@@ -17,7 +17,7 @@ use crate::actions::{
 };
 use crate::editor::PaintedText;
 
-const CARET_WIDTH: Pixels = px(2.);
+pub(crate) const CARET_WIDTH: Pixels = px(2.);
 
 /// The x a run of Up and Down keeps, and the offset where the last of them put the caret.
 /// A caret at another offset starts a new run.
@@ -55,6 +55,12 @@ pub(crate) trait CaretView: Sized + 'static {
     /// `bounds` in the painted text where the window shows them.
     fn to_window(&self, bounds: Bounds<Pixels>) -> Bounds<Pixels> {
         bounds
+    }
+
+    /// The text input may change the text now. `false` keeps the text as it is, for
+    /// example in Vim Normal mode.
+    fn takes_text(&self, _cx: &App) -> bool {
+        true
     }
 
     /// Up or Down with no selection key. `true` when the view used the key for something
@@ -243,15 +249,48 @@ pub(crate) fn caret_quad(painted: &PaintedText, offset: usize, color: Hsla) -> O
     ))
 }
 
-/// Scrolls the least amount that keeps the caret out of the edge fade.
-pub(crate) fn scroll_to_caret(scroll_handle: &ScrollHandle, caret: Option<&PaintQuad>, cx: &App) {
+/// The Normal mode caret quad over the grapheme at `offset` of the painted `text`. On a
+/// line end, or where the grapheme wraps to the next row, it is `end_width` wide.
+pub(crate) fn block_caret_quad(
+    painted: &PaintedText,
+    text: &str,
+    offset: usize,
+    end_width: Pixels,
+    color: Hsla,
+) -> Option<PaintQuad> {
+    let position = painted.position_for(offset)?;
+    let on_line_end = text
+        .get(offset..)
+        .is_none_or(|after| after.is_empty() || after.starts_with('\n'));
+    let next = Caret::at(offset).moved(text, Motion::Right).offset();
+    let width = painted
+        .position_for(next)
+        .filter(|after| !on_line_end && after.y == position.y && after.x > position.x)
+        .map_or(end_width, |after| after.x - position.x);
+    Some(fill(
+        Bounds::new(
+            painted.bounds.origin + position,
+            size(width, painted.line_height),
+        ),
+        color,
+    ))
+}
+
+/// Scrolls the least amount that keeps the caret out of the edge fade and `top_inset` (the
+/// part of the view under the Chrome bar).
+pub(crate) fn scroll_to_caret(
+    scroll_handle: &ScrollHandle,
+    caret: Option<&PaintQuad>,
+    top_inset: Pixels,
+    cx: &App,
+) {
     let Some(caret) = caret else {
         return;
     };
     let margin = cx.global::<Theme>().edge_fade_height;
     let viewport = scroll_handle.bounds();
     let mut offset = scroll_handle.offset();
-    let above = viewport.top() + margin - caret.bounds.top();
+    let above = viewport.top() + top_inset + margin - caret.bounds.top();
     let below = caret.bounds.bottom() - (viewport.bottom() - margin);
     if above > px(0.) {
         offset.y += above;
@@ -293,6 +332,9 @@ pub(crate) fn replace_text_in_range<V: CaretView>(
     new: &str,
     cx: &mut Context<V>,
 ) {
+    if !view.takes_text(cx) {
+        return;
+    }
     let edit = view.read_text(cx, |text, caret| caret.input(text, range_utf16, new));
     view.edit(&edit, cx);
 }
@@ -304,6 +346,9 @@ pub(crate) fn replace_and_mark_text_in_range<V: CaretView>(
     selected_utf16: Option<Range<usize>>,
     cx: &mut Context<V>,
 ) {
+    if !view.takes_text(cx) {
+        return;
+    }
     let edit = view.read_text(cx, |text, caret| {
         caret.compose(text, range_utf16, new, selected_utf16)
     });

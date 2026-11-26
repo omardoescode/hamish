@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hamish
+GenericName=Text Editor
+Comment=Write drafts with many variants in place
+Exec=hamish %f
+Icon=hamish
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;
+StartupWMClass=hamish

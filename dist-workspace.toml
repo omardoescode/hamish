@@ -15,6 +15,13 @@ targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-
 hosting = "github"
 # Release workflow runs on version tags only (no PR runs; saves CI minutes)
 pr-run-mode = "skip"
+# Linux desktop install files, at the root of each archive
+include = ["packaging/linux/install.sh", "packaging/linux/hamish.desktop", "packaging/icons"]
+
+# Unsigned Hamish.app bundles, made from the macOS archives in the global build job
+[[dist.extra-artifacts]]
+artifacts = ["target/macos-app/Hamish-aarch64-apple-darwin.app.zip", "target/macos-app/Hamish-x86_64-apple-darwin.app.zip"]
+build = ["sh", "packaging/macos/package-apps.sh"]
 
 # GPUI build libraries (Linux): xkbcommon-x11, wayland-client, fontconfig, freetype;
 # ALSA for the cycle sounds (cpal)

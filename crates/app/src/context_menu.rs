@@ -1,7 +1,7 @@
 //! The right-click context menu of the editor.
 
 use gpui::{
-    Action, App, Corner, IntoElement, MouseDownEvent, Pixels, Point, Window, anchored, deferred,
+    Action, Anchor, App, IntoElement, MouseDownEvent, Pixels, Point, Window, anchored, deferred,
     div, prelude::*, px,
 };
 
@@ -91,7 +91,7 @@ impl ContextMenu {
         deferred(
             anchored()
                 .position(self.position)
-                .anchor(Corner::TopLeft)
+                .anchor(Anchor::TopLeft)
                 .snap_to_window()
                 .child(
                     popover_surface(theme)

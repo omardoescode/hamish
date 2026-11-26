@@ -59,7 +59,7 @@ impl Effect {
                     glow_size,
                 })
             }
-            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance => None,
+            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => None,
         }
     }
 
@@ -72,7 +72,9 @@ impl Effect {
         let travel = match self {
             Self::Explosion => ease_out(progress),
             Self::UndoBurst => 1. - ease_out(progress),
-            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance => return Vec::new(),
+            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => {
+                return Vec::new();
+            }
         };
         (0..SPARKS)
             .map(|index| {
@@ -98,7 +100,9 @@ impl Effect {
         let grow = match self {
             Self::Explosion => ease_out(progress),
             Self::UndoBurst => progress,
-            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance => return Vec::new(),
+            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => {
+                return Vec::new();
+            }
         };
         (0..FLAMES)
             .map(|index| {

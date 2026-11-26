@@ -33,7 +33,7 @@ pub(super) struct PenStroke {
 
 impl PenStroke {
     /// The stroke outline as a filled path; `None` when it does not tessellate.
-    pub(super) fn path(&self) -> Option<Path<Pixels>> {
+    pub(super) fn path(&self) -> Option<Path> {
         let half = |thickness: &Pixels| point(px(0.), *thickness / 2.);
         let top = self
             .centre

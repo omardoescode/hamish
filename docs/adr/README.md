@@ -9,3 +9,5 @@
 | [0005](0005-core-crate-without-gpui.md) | `core` crate has no GPUI dependency | accepted |
 | [0006](0006-nested-slots-strict-nesting.md) | Nested Slots with strict nesting | accepted |
 | [0007](0007-md-with-hamish-comment.md) | Storage: one .md file with a Hamish comment | accepted |
+| [0008](0008-vim-keys-core-state-machine.md) | Vim keys through a core state machine, not GPUI key sequences | accepted |
+| [0009](0009-gpui-from-zed-git-pinned-rev.md) | GPUI from Zed git, pinned rev | accepted |

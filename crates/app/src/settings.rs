@@ -55,7 +55,7 @@ pub(crate) fn save(cx: &mut App, failed: impl FnOnce(&SettingsError, &mut App) +
     let saving = cx.background_spawn(async move { settings.save(&path) });
     cx.spawn(async move |cx| {
         let result = saving.await;
-        cx.update(|cx| saved(&result, failed, cx))
+        cx.update(|cx| saved(&result, failed, cx));
     })
     .detach();
 }
@@ -74,6 +74,21 @@ fn saved(
     if let Some(next) = queued {
         save(cx, next);
     }
+}
+
+/// Applies `change` to the settings in use at once, in each window, and saves them; `failed`
+/// gets a save error.
+pub(crate) fn change(
+    cx: &mut App,
+    change: impl FnOnce(&mut Settings),
+    failed: impl FnOnce(&SettingsError, &mut App) + 'static,
+) {
+    let store = cx.global_mut::<SettingsStore>();
+    change(&mut store.settings);
+    let theme = Theme::new(&store.settings);
+    cx.set_global(theme);
+    cx.refresh_windows();
+    save(cx, failed);
 }
 
 /// The on/off setting that `pick` reads. `false` when no settings are set.

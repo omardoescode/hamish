@@ -2,23 +2,22 @@
 //! hover box, selection, Lab marks, pen underlines, Effects and caret.
 
 use std::ops::Range;
-use std::time::Instant;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style,
+    InspectorElementId, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style, TextRun,
     Window, fill, point, px, relative, size,
 };
-use hamish_core::{Level, Slot, SlotId};
+use hamish_core::{Level, Slot, SlotId, VimMode};
 
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
 use super::runs::text_runs;
 use super::synthetic_bold::{self, BoldGlyph};
 use super::{Editor, Marker, MarkerKind, Spotlight, focus_zoom};
-use crate::Theme;
 use crate::caret;
 use crate::effects::Particles;
+use crate::{Theme, settings};
 
 const DOT_SIZE: Pixels = px(4.);
 const DOT_GAP: Pixels = px(3.);
@@ -29,6 +28,9 @@ const MARGIN_LINE_GAP: Pixels = px(14.);
 const MARGIN_LINE_STEP: Pixels = px(10.);
 const HOVER_PAD: Pixels = px(2.);
 const HOVER_RADIUS: Pixels = px(3.);
+
+/// The Normal mode block shows the accent under the char, which stays readable on it.
+const BLOCK_CARET_OPACITY: f32 = 0.4;
 
 /// Width left of the text that a Paragraph Marker and its hover area take.
 const PARAGRAPH_MARGIN: Pixels = px(32.);
@@ -50,6 +52,8 @@ pub(super) struct EditorPrepaint {
     pub(super) marker_quads: Vec<PaintQuad>,
     pub(super) underlines: Vec<PenStroke>,
     pub(super) caret: Option<PaintQuad>,
+    /// The Normal mode block: it paints under the text, so the char on it shows.
+    pub(super) caret_behind_text: bool,
     pub(super) zoom: focus_zoom::Frame,
     /// Synthetic bold glyphs of the lines that are not zoomed.
     pub(super) bold: Vec<BoldGlyph>,
@@ -64,11 +68,12 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
+        let now = cx.background_executor().now();
         let effects: Vec<_> = self
             .editor
             .read(cx)
             .effects
-            .frames(Instant::now())
+            .frames(now)
             .into_iter()
             .map(|(playing, progress)| {
                 let rows = painted
@@ -84,14 +89,6 @@ impl EditorElement {
             window.request_animation_frame();
         }
         effects
-    }
-}
-
-impl IntoElement for EditorElement {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
@@ -201,24 +198,23 @@ impl Element for EditorElement {
                 )
             })
             .collect();
+        let marked = marked_slots(&slots, cx);
         let (markers, marker_quads, marker_dots) =
-            slot_markers(&painted, shown.text(), &slots, &theme);
-        let underlines = pen_strokes(&painted, editor, &slots, &theme);
-        let caret = match editor.drop_target {
-            Some(at) => caret::caret_quad(&painted, editor.to_shown(&(at..at)).start, theme.accent),
-            None => editor
-                .selection()
-                .is_empty()
-                .then(|| {
-                    let shown = editor
-                        .to_shown(&(editor.caret_offset()..editor.caret_offset()))
-                        .start;
-                    caret::caret_quad(&painted, shown, theme.accent)
-                })
-                .flatten(),
+            slot_markers(&painted, shown.text(), marked, &theme);
+        let underlines = pen_strokes(&painted, editor, marked, &theme);
+        let caret_behind_text =
+            editor.drop_target.is_none() && editor.vim_mode(cx) == Some(VimMode::Normal);
+        let caret = if caret_behind_text {
+            let end_width = line_end_caret_width(&runs, window);
+            let color = theme.accent.opacity(BLOCK_CARET_OPACITY);
+            caret_at(editor)
+                .and_then(|at| caret::block_caret_quad(&painted, &text, at, end_width, color))
+        } else {
+            caret_at(editor).and_then(|at| caret::caret_quad(&painted, at, theme.accent))
         };
         if editor.autoscroll {
-            caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), cx);
+            let inset = crate::workspace::chrome_bar_height(cx);
+            caret::scroll_to_caret(&editor.scroll_handle, caret.as_ref(), inset, cx);
             window.request_animation_frame();
         }
         let text_font = runs
@@ -249,6 +245,7 @@ impl Element for EditorElement {
             marker_quads,
             underlines,
             caret,
+            caret_behind_text,
         }
         .zoomed()
     }
@@ -278,6 +275,16 @@ impl Element for EditorElement {
             .chain(prepaint.marker_quads.drain(..))
         {
             window.paint_quad(quad);
+        }
+        let caret = prepaint
+            .caret
+            .take()
+            .filter(|_| focus_handle.is_focused(window) || dropping);
+        let caret_bounds = caret.as_ref().map(|caret| caret.bounds);
+        if prepaint.caret_behind_text
+            && let Some(caret) = caret.clone()
+        {
+            window.paint_quad(caret);
         }
         let line_height = window.line_height();
         let visible = window.content_mask().bounds;
@@ -322,8 +329,8 @@ impl Element for EditorElement {
                 window.paint_path(path, stroke.color);
             }
         }
-        if (focus_handle.is_focused(window) || dropping)
-            && let Some(caret) = prepaint.caret.take()
+        if !prepaint.caret_behind_text
+            && let Some(caret) = caret
         {
             window.paint_quad(caret);
         }
@@ -331,6 +338,7 @@ impl Element for EditorElement {
         let zooms = std::mem::take(&mut prepaint.zoom.zooms);
         self.editor.update(cx, |editor, _| {
             editor.zooms = zooms;
+            editor.caret_bounds = caret_bounds;
             editor.painted = Some(PaintedText {
                 bounds,
                 line_height,
@@ -402,6 +410,15 @@ fn hover_quads(
             fill(bounds, color).corner_radii(HOVER_RADIUS)
         })
         .collect()
+}
+
+/// The Slots that show a Marker: all of them, or none while the Markers setting is off.
+fn marked_slots<'a, 'b>(slots: &'a [Slot<'b>], cx: &App) -> &'a [Slot<'b>] {
+    if settings::is_on(cx, |settings| settings.markers) {
+        slots
+    } else {
+        &[]
+    }
 }
 
 /// The Marker of each Slot in `slots`, the quads that draw them and the bounds of each
@@ -572,4 +589,31 @@ fn lab_mark_quads(painted: &PaintedText, editor: &Editor, theme: &Theme) -> Vec<
 /// `count` as a factor for pixel math; counts past `u16::MAX` stop there.
 fn as_factor(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
+}
+
+/// Offset in the shown Document of the caret to paint: the drop target, else the caret;
+/// `None` with a selection.
+fn caret_at(editor: &Editor) -> Option<usize> {
+    match editor.drop_target {
+        Some(at) => Some(editor.to_shown(&(at..at)).start),
+        None => editor.selection().is_empty().then(|| {
+            editor
+                .to_shown(&(editor.caret_offset()..editor.caret_offset()))
+                .start
+        }),
+    }
+}
+
+/// Width of the Normal mode block on a line end: the advance of an average char of the
+/// first text run; half the font size when the font gives none.
+fn line_end_caret_width(runs: &[TextRun], window: &Window) -> Pixels {
+    let font_size = window.text_style().font_size.to_pixels(window.rem_size());
+    runs.first()
+        .and_then(|run| {
+            let text_system = window.text_system();
+            text_system
+                .ch_advance(text_system.resolve_font(&run.font), font_size)
+                .ok()
+        })
+        .unwrap_or(font_size / 2.)
 }

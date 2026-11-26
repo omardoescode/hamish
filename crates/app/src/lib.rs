@@ -12,22 +12,28 @@ mod chrome;
 mod context_menu;
 mod editor;
 mod effects;
+mod fonts;
 mod lab;
 mod loading;
 mod overflow_panel;
 mod save_open;
 mod settings;
 mod settings_modal;
+mod shortcuts_sheet;
 mod sounds;
 mod theme;
 mod trim;
 mod workspace;
 
+#[cfg(test)]
+#[path = "../tests/system_text/mod.rs"]
+mod system_text;
+
 use std::borrow::Cow;
 
 use actions::{
-    ClosePanel, CloseSelect, ConfirmVariant, DeleteBackward, DeleteQueryBackward, DeleteVariant,
-    MoveWordLeft, MoveWordRight, NextRow, PickRow, PreviousRow, SelectNextVariant,
+    ClosePanel, CloseSelect, CloseShortcuts, ConfirmVariant, DeleteBackward, DeleteQueryBackward,
+    DeleteVariant, MoveWordLeft, MoveWordRight, NextRow, PickRow, PreviousRow, SelectNextVariant,
     SelectPreviousVariant, SelectWordLeft, SelectWordRight,
 };
 use gpui::{App, KeyBinding};
@@ -44,12 +50,14 @@ pub use alternatives_panel::AlternativesPanel;
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
+pub use fonts::{font_names, load_fonts_in_background};
 pub use hamish_core::{AiAlternativesError, VariantRow};
 pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings::use_settings;
 pub use settings_modal::SettingsModal;
+pub use shortcuts_sheet::{ShortcutGroup, ShortcutRow, shortcut_groups};
 pub use sounds::{DeviceSounds, SoundSink, Sounds};
 pub use theme::Theme;
 pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
@@ -123,8 +131,15 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-n", NewDocument, None),
         KeyBinding::new("ctrl-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
+        KeyBinding::new("escape", CloseShortcuts, Some("ShortcutsSheet")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
+    // In Normal mode these keys go to Vim mode, not to their text edits.
+    let vim_normal = Some("Editor && VimNormal");
+    cx.bind_keys(
+        ["backspace", "delete", "enter", "ctrl-x", "ctrl-v"]
+            .map(|key| KeyBinding::new(key, gpui::NoAction {}, vim_normal)),
+    );
     for context in ["AlternativesPanel", "Lab"] {
         let context = Some(context);
         cx.bind_keys([

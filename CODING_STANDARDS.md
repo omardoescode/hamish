@@ -1,6 +1,6 @@
 # Coding Standards (Rust)
 
-- Git hooks: cargo-husky (dev-dependency of `core`, `user-hooks`; scripts in `.cargo-husky/hooks/`; installs on first `cargo test` in the main checkout, not in a linked worktree; worktrees share the main checkout's hooks). A changed hook script installs again only after `cargo clean -p cargo-husky && cargo test`. CI (`checks.yml`): fmt, clippy `-D warnings`, test, guards (cargo-deny, cargo-shear, pedant) on push to `main` and on non-draft PRs. Toolchain: `rust-toolchain.toml` (pinned stable, with rustfmt and clippy), the same for local and CI. Release workflow: version tags only. Releases: cargo-dist, tag `v*.*.*`, Linux x86_64 only for now.
+- Git hooks: cargo-husky (dev-dependency of `core`, `user-hooks`; scripts in `.cargo-husky/hooks/`; installs on first `cargo test` in the main checkout, not in a linked worktree; worktrees share the main checkout's hooks). A changed hook script installs again only after `cargo clean -p cargo-husky && cargo test`. CI (`checks.yml`): fmt, clippy `-D warnings`, test, macOS (`cargo check` for `aarch64-apple-darwin`), packaging (`scripts/packaging-test.sh`), guards (cargo-deny, cargo-shear, pedant) on push to `main` and on non-draft PRs. Toolchain: `rust-toolchain.toml` (pinned stable, with rustfmt and clippy), the same for local and CI. Release workflow: version tags only. Releases: cargo-dist, tag `v*.*.*`, Linux x86_64 only for now.
 - The guards below run in git hooks (cargo-husky). CI runs all but the source guards. `--no-verify` skips them, but each rule still binds.
 - `core` crate has no gpui dependency. All logic that you can test goes in `core`. `app` views stay thin.
 - Review: list each new `app` function that uses no gpui type. Each one is a candidate to move to `core`.
@@ -45,8 +45,7 @@ Each concern has one owner tool. When two tools can check the same thing, the fi
 | Untyped values (`serde_json::Value`, `std::any::Any`) | clippy `disallowed-types`; persistence/AI boundary parsing only, with a scoped `#[expect(clippy::disallowed_types, reason = "...")]` | `clippy.toml` |
 | Process execution (`std::process::Command::new`) | clippy `disallowed-methods`; AI backend module only, with a scoped `#[expect(clippy::disallowed_methods, reason = "...")]` | `clippy.toml` |
 | Mock crates (`mockall`, `mockito`, `faux`, `mry`): test at real seams with fakes or stubs | cargo-deny `[bans]` | `deny.toml` |
-| `libc` 0.2.190 and up: it removes `ENOATTR` on Linux, and `xattr` 0.2.3 under gpui 0.2.2 needs it | cargo-deny `[bans]` | `deny.toml` |
-| Licenses (allowlist), security advisories, yanked crates, unknown sources, wildcard versions | cargo-deny | `deny.toml` |
+| Licenses (allowlist), security advisories, yanked crates, unknown sources (git: an allow list, ADR 0009), wildcard versions | cargo-deny | `deny.toml` |
 | Duplicate crate versions | cargo-deny (warn only) | `deny.toml` |
 | Unused dependencies | cargo-shear (cargo's own `unused_dependencies` lint is off: `[workspace.lints.cargo]`) | `[package.metadata.cargo-shear]` for false positives |
 | Nesting: depth > 3, nested `if`, nested `match`, `if` in `match`, `match` in `if`, long `else if` chain | pedant `check` (defaults) | `.pedant.toml` |

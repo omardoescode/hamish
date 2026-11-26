@@ -1,6 +1,5 @@
-//! Settings: theme, UI scale, UI font, Text font and other editor font values, cycle sounds,
-//! reduced motion, and focus zoom, with their defaults, limits, labels, and the JSON file
-//! in the XDG config dir.
+//! Settings: theme, UI scale, fonts, font sizes, and the on/off settings, with their defaults,
+//! limits, labels, and the JSON file in the XDG config dir.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -81,6 +80,9 @@ pub enum Toggle {
     ReducedMotion,
     FocusZoom,
     CycleSounds,
+    VimMode,
+    Markers,
+    Markdown,
 }
 
 impl Toggle {
@@ -91,6 +93,9 @@ impl Toggle {
             Self::ReducedMotion => "Reduced motion",
             Self::FocusZoom => "Focus zoom",
             Self::CycleSounds => "Cycle sounds",
+            Self::VimMode => "Vim mode",
+            Self::Markers => "Markers",
+            Self::Markdown => "Markdown styles",
         }
     }
 
@@ -101,6 +106,9 @@ impl Toggle {
             Self::ReducedMotion => "reduced-motion",
             Self::FocusZoom => "focus-zoom",
             Self::CycleSounds => "cycle-sounds",
+            Self::VimMode => "vim-mode",
+            Self::Markers => "markers",
+            Self::Markdown => "markdown",
         }
     }
 }
@@ -109,6 +117,10 @@ impl Toggle {
 /// its default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent on/off setting the Settings toggles flip"
+)]
 pub struct Settings {
     pub theme: ThemeName,
     pub ui_scale: f32,
@@ -122,13 +134,19 @@ pub struct Settings {
     pub font_size: f32,
     pub line_height: f32,
     pub column_width: f32,
-    /// Effects are instant. Off by default: GPUI 0.2.2 does not
-    /// expose the OS setting.
+    /// Effects are instant. Off by default: GPUI does not read the OS
+    /// setting.
     pub reduced_motion: bool,
     /// A tone on each Active variant switch and a sound on a Variant delete.
     pub cycle_sounds: bool,
     /// The paragraph with the caret shows a little larger.
     pub focus_zoom: bool,
+    /// The Editor has a Normal mode and an Insert mode, with Vim keys. Off by default.
+    pub vim_mode: bool,
+    /// Each Slot shows its Marker. On by default.
+    pub markers: bool,
+    /// The Editor draws the Markdown styles. Off: the text shows plain. On by default.
+    pub markdown: bool,
 }
 
 impl Default for Settings {
@@ -145,6 +163,9 @@ impl Default for Settings {
             reduced_motion: false,
             cycle_sounds: true,
             focus_zoom: true,
+            vim_mode: false,
+            markers: true,
+            markdown: true,
         }
     }
 }
@@ -319,6 +340,9 @@ impl Settings {
             Toggle::ReducedMotion => &self.reduced_motion,
             Toggle::FocusZoom => &self.focus_zoom,
             Toggle::CycleSounds => &self.cycle_sounds,
+            Toggle::VimMode => &self.vim_mode,
+            Toggle::Markers => &self.markers,
+            Toggle::Markdown => &self.markdown,
         }
     }
 
@@ -327,6 +351,9 @@ impl Settings {
             Toggle::ReducedMotion => &mut self.reduced_motion,
             Toggle::FocusZoom => &mut self.focus_zoom,
             Toggle::CycleSounds => &mut self.cycle_sounds,
+            Toggle::VimMode => &mut self.vim_mode,
+            Toggle::Markers => &mut self.markers,
+            Toggle::Markdown => &mut self.markdown,
         }
     }
 

@@ -1,6 +1,6 @@
 # Hamish
 
-Hamish ("writer") is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
+Hamish ("margin" in Arabic) is a desktop writing tool for drafts in progress. It gives the writer alternative control: many candidate texts for one place, switched in context.
 
 ## Language
 
@@ -97,7 +97,7 @@ _Avoid_: Cut, park
 ### Effects
 
 **Effect**:
-A timed visual change: Variant fade-in, Explosion, Undo burst, dance, focus zoom. It never blocks input. Its duration comes from one timing source (`Effect` in core).
+A timed visual change: Variant fade-in, Explosion, Undo burst, dance, focus zoom, caret blink. It never blocks input. Its duration comes from one timing source (`Effect` in core).
 _Avoid_: Animation (in code), transition
 
 **Reduced motion**:
@@ -121,7 +121,7 @@ The burst that plays at a span when an undo puts a deleted Variant back.
 ### Markdown
 
 **Markdown style**:
-A style the editor draws over Markdown text (heading, bold, italic, inline code, block quote, list marker). The syntax marks stay in the text and stay visible.
+A style the editor draws over Markdown text (heading, bold, italic, inline code, block quote, list marker, link). The syntax marks stay in the text and stay visible. In a Text font with no bold face, a heading shows in the accent color with no synthetic bold.
 _Avoid_: Format, rich text
 
 ### Text input
@@ -129,6 +129,17 @@ _Avoid_: Format, rich text
 **Caret**:
 The insertion point in the Document text or in Overflow, with the selection around it and the text an input method composes. One rule for both texts: a caret clamps to its text before it acts.
 _Avoid_: cursor
+
+**Vim mode**:
+A setting, off by default. When on, the Editor has a Normal mode and an Insert mode, with Vim keys (ADR 0008).
+_Avoid_: Vim emulation, modal editing
+
+**Normal mode**:
+The Vim mode state where keys move the Caret and start commands. No key types text.
+_Avoid_: Command mode
+
+**Insert mode**:
+The Vim mode state where keys type text, as with Vim mode off. Escape goes back to Normal mode.
 
 ### Storage
 
@@ -141,11 +152,18 @@ _Avoid_: Sidecar, metadata
 **Chrome**:
 The UI tools around the text: icons, buttons, counter.
 
+**Chrome bar**:
+The row of Chrome at the window top, with no fill. The text scrolls under it.
+
 **Counter**:
 Live word and character count of the Document, or of the selection.
 
+**Shortcuts sheet**:
+The sheet that lists the key bindings in groups (Editor, Slots, Overflow, Lab, and Vim mode when it is on). The Shortcuts icon of the Chrome bar opens it; Esc closes it.
+_Avoid_: Cheat sheet, keymap help
+
 **Settings**:
-The writer's choices for theme, UI scale, UI font, Text font, font size, line height, column width, and Reduced motion. They apply at once and save to a JSON file in the XDG config dir.
+The writer's choices for theme, UI scale, UI font, Text font, font size, line height, column width, Reduced motion, Markers, and Markdown styles. They apply at once and save to a JSON file in the XDG config dir.
 _Avoid_: Preferences, config
 
 **UI font**:

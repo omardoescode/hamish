@@ -1,3 +1,5 @@
+mod system_text;
+
 use std::sync::{Arc, Mutex};
 
 use app::{SoundSink, Sounds, Workspace};
@@ -77,92 +79,100 @@ fn hover(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, offset: usiz
     cx.simulate_mouse_move(position, None, Modifiers::none());
 }
 
-#[gpui::test]
-fn up_down_over_a_slot_play_the_high_tone_and_the_low_tone_back_at_the_original(
-    cx: &mut TestAppContext,
-) {
-    let (workspace, heard, cx) = open(cx, Settings::default());
-    hover(&workspace, cx, 12);
+#[test]
+fn up_down_over_a_slot_play_the_high_tone_and_the_low_tone_back_at_the_original() {
+    system_text::run(1, |cx| {
+        let (workspace, heard, cx) = open(cx, Settings::default());
+        hover(&workspace, cx, 12);
 
-    cx.simulate_keystrokes("down down down up");
+        cx.simulate_keystrokes("down down down up");
 
-    assert_eq!(
-        heard.take(),
-        [
-            Sound::HighTone,
-            Sound::HighTone,
-            Sound::LowTone,
-            Sound::HighTone
-        ]
-    );
+        assert_eq!(
+            heard.take(),
+            [
+                Sound::HighTone,
+                Sound::HighTone,
+                Sound::LowTone,
+                Sound::HighTone
+            ]
+        );
+    });
 }
 
 /// Moves the caret into "customer".
 const INTO_CUSTOMER: &str = "down right right right right right";
 
-#[gpui::test]
-fn alternatives_panel_previews_use_the_same_tones(cx: &mut TestAppContext) {
-    let (_, heard, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    assert_eq!(heard.take(), []);
+#[test]
+fn alternatives_panel_previews_use_the_same_tones() {
+    system_text::run(1, |cx| {
+        let (_, heard, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        assert_eq!(heard.take(), []);
 
-    cx.simulate_keystrokes("ctrl-shift-a up up up");
+        cx.simulate_keystrokes("ctrl-shift-a up up up");
 
-    assert_eq!(
-        heard.take(),
-        [Sound::HighTone, Sound::HighTone, Sound::LowTone]
-    );
+        assert_eq!(
+            heard.take(),
+            [Sound::HighTone, Sound::HighTone, Sound::LowTone]
+        );
+    });
 }
 
-#[gpui::test]
-fn return_in_the_panel_that_makes_a_new_variant_active_plays_the_high_tone(
-    cx: &mut TestAppContext,
-) {
-    let (_, heard, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("buyer");
-    assert_eq!(heard.take(), []);
+#[test]
+fn return_in_the_panel_that_makes_a_new_variant_active_plays_the_high_tone() {
+    system_text::run(1, |cx| {
+        let (_, heard, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        cx.simulate_keystrokes("ctrl-shift-a");
+        cx.simulate_input("buyer");
+        assert_eq!(heard.take(), []);
 
-    cx.simulate_keystrokes("enter");
+        cx.simulate_keystrokes("enter");
 
-    assert_eq!(heard.take(), [Sound::HighTone]);
+        assert_eq!(heard.take(), [Sound::HighTone]);
+    });
 }
 
-#[gpui::test]
-fn return_in_the_panel_on_text_with_no_slot_plays_the_high_tone(cx: &mut TestAppContext) {
-    let (_, heard, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes("down end left left");
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("sits");
+#[test]
+fn return_in_the_panel_on_text_with_no_slot_plays_the_high_tone() {
+    system_text::run(1, |cx| {
+        let (_, heard, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes("down end left left");
+        cx.simulate_keystrokes("ctrl-shift-a");
+        cx.simulate_input("sits");
 
-    cx.simulate_keystrokes("enter");
+        cx.simulate_keystrokes("enter");
 
-    assert_eq!(heard.take(), [Sound::HighTone]);
+        assert_eq!(heard.take(), [Sound::HighTone]);
+    });
 }
 
-#[gpui::test]
-fn a_variant_delete_plays_the_explosion(cx: &mut TestAppContext) {
-    let (_, heard, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes(INTO_CUSTOMER);
+#[test]
+fn a_variant_delete_plays_the_explosion() {
+    system_text::run(1, |cx| {
+        let (_, heard, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes(INTO_CUSTOMER);
 
-    cx.simulate_keystrokes("ctrl-shift-backspace");
+        cx.simulate_keystrokes("ctrl-shift-backspace");
 
-    assert_eq!(heard.take(), [Sound::Explosion]);
+        assert_eq!(heard.take(), [Sound::Explosion]);
+    });
 }
 
-#[gpui::test]
-fn no_sound_plays_with_cycle_sounds_off(cx: &mut TestAppContext) {
-    let settings = Settings {
-        cycle_sounds: false,
-        ..Settings::default()
-    };
-    let (workspace, heard, cx) = open(cx, settings);
-    hover(&workspace, cx, 12);
+#[test]
+fn no_sound_plays_with_cycle_sounds_off() {
+    system_text::run(1, |cx| {
+        let settings = Settings {
+            cycle_sounds: false,
+            ..Settings::default()
+        };
+        let (workspace, heard, cx) = open(cx, settings);
+        hover(&workspace, cx, 12);
 
-    cx.simulate_keystrokes("down down down");
+        cx.simulate_keystrokes("down down down");
 
-    assert_eq!(heard.take(), []);
+        assert_eq!(heard.take(), []);
+    });
 }
 
 #[expect(clippy::expect_used, reason = "test fixture")]
@@ -172,16 +182,18 @@ fn click(cx: &mut VisualTestContext, id: &'static str) {
     cx.run_until_parked();
 }
 
-#[gpui::test]
-fn the_cycle_sounds_toggle_in_settings_turns_the_sounds_off(cx: &mut TestAppContext) {
-    let (workspace, heard, cx) = open(cx, Settings::default());
+#[test]
+fn the_cycle_sounds_toggle_in_settings_turns_the_sounds_off() {
+    system_text::run(1, |cx| {
+        let (workspace, heard, cx) = open(cx, Settings::default());
 
-    cx.simulate_keystrokes("ctrl-,");
-    click(cx, "settings-section-editor");
-    click(cx, "settings-cycle-sounds");
-    cx.simulate_keystrokes("escape");
-    hover(&workspace, cx, 12);
-    cx.simulate_keystrokes("down");
+        cx.simulate_keystrokes("ctrl-,");
+        click(cx, "settings-section-editor");
+        click(cx, "settings-cycle-sounds");
+        cx.simulate_keystrokes("escape");
+        hover(&workspace, cx, 12);
+        cx.simulate_keystrokes("down");
 
-    assert_eq!(heard.take(), []);
+        assert_eq!(heard.take(), []);
+    });
 }

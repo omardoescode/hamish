@@ -73,6 +73,14 @@ fn list_items_mark_their_list_marker() {
 }
 
 #[test]
+fn links_and_autolinks_cover_their_marks() {
+    assert_eq!(
+        styles("See [the site](https://a.io) or <https://b.io>."),
+        [(4..28, MarkdownStyle::Link), (32..46, MarkdownStyle::Link),]
+    );
+}
+
+#[test]
 fn deeper_headings_and_underlined_headings_stay_body_text() {
     assert_eq!(styles("#### Deep\n\nLine\n---\nPlain #not"), []);
 }
