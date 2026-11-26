@@ -5,7 +5,7 @@ use gpui::{
     Action, App, Context, Div, Focusable, IntoElement, MouseButton, MouseDownEvent, Window, div,
     prelude::*, px,
 };
-use hamish_core::{VIM_KEYS, key_label};
+use hamish_core::{key_label, vim_keys};
 
 use crate::actions::{
     ClosePanel, CloseShortcuts, ConfirmVariant, Copy, Cut, DeleteVariant, LeaveOverflow,
@@ -17,7 +17,7 @@ use crate::lab::CloseLab;
 use crate::workspace::Visibility;
 use crate::{
     AiAlternatives, DeleteActiveVariant, OpenAlternatives, OpenSettings, Theme, ToggleGhost,
-    Workspace, settings,
+    Workspace, hamishrc, settings,
 };
 
 /// One group of the Shortcuts sheet.
@@ -45,7 +45,7 @@ fn bound(action: impl Action) -> Keys {
 }
 
 /// The groups of the Shortcuts sheet: Editor, Slots, Overflow, Lab, and Vim mode while it is
-/// on. A bound row shows the keys of its last binding (the one that wins); a row with no
+/// on, with the leader of the hamishrc. A bound row shows the keys of its last binding (the one that wins); a row with no
 /// binding does not show.
 #[must_use]
 pub fn shortcut_groups(cx: &App) -> Vec<ShortcutGroup> {
@@ -125,12 +125,9 @@ pub fn shortcut_groups(cx: &App) -> Vec<ShortcutGroup> {
     if settings::is_on(cx, |settings| settings.vim_mode) {
         shown.push(ShortcutGroup {
             name: "Vim mode",
-            rows: VIM_KEYS
-                .iter()
-                .map(|&(label, keys)| ShortcutRow {
-                    label,
-                    keys: keys.to_owned(),
-                })
+            rows: vim_keys(hamishrc::current(cx).leader())
+                .into_iter()
+                .map(|(label, keys)| ShortcutRow { label, keys })
                 .collect(),
         });
     }

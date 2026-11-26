@@ -2,21 +2,28 @@
 //! here (ADR 0008). The register is the system clipboard.
 
 use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
-use hamish_core::{Caret, Document, Vim, VimAction, VimCommand, VimKey, VimMode, one_char};
+use hamish_core::{
+    Caret, Document, Fed, Motion, Vim, VimAction, VimCommand, VimKey, VimMode, one_char,
+};
 
 use super::Editor;
 use crate::actions::{
-    FocusEditor, FocusOverflow, OpenAlternatives, OpenCommandLine, UseOverflowBlock,
+    AiAlternatives, Copy, Cut, DeleteActiveVariant, EditHamishrc, FocusEditor, FocusOverflow,
+    NewDocument, Open, OpenAlternatives, OpenCommandLine, OpenSettings, OpenShortcuts, Paste, Quit,
+    QuitIfSaved, RecursiveMap, Redo, ReloadHamishrc, Save, SaveAs, SelectAll, Stash, ToggleGhost,
+    ToggleMarkdown, ToggleMarkers, ToggleOverflow, Undo, UseOverflowBlock,
 };
 use crate::caret::{self, CaretView};
-use crate::settings;
 use crate::{
     AcceptLabMark, CloseTrim, DismissLabMark, KeepTrimCut, MakeTrimCuts, RunTrim, ToggleLab,
 };
+use crate::{hamishrc, settings};
 
 /// A view with a `Vim` of its own: the Editor, or Overflow.
-pub(crate) trait VimView: Sized + 'static {
+pub(crate) trait VimView: CaretView {
     fn vim(&self) -> &Vim;
+
+    fn vim_mut(&mut self) -> &mut Vim;
 
     /// Gives `key` to the `Vim` of the view, with the text and the caret of the view.
     fn vim_command(&mut self, key: VimKey, cx: &mut Context<Self>) -> VimCommand;
@@ -31,17 +38,79 @@ pub(crate) trait VimView: Sized + 'static {
     );
 }
 
-/// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
-/// so in Normal mode no key reaches the text input.
+/// A key that no key binding took goes through the hamishrc maps to Vim mode. A key Vim mode
+/// uses goes no further, so in Normal mode no key reaches the text input. A key that a map
+/// takes or holds goes no further either: the view types the keys of the map itself. A key
+/// that no map can hold first flushes the held keys, then goes on as a key with none held.
 pub(crate) fn vim_key_down<V: VimView>(
     view: &mut V,
     event: &KeyDownEvent,
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    if vim_on(cx) && run_vim(view, vim_key(&event.keystroke), window, cx) {
-        cx.stop_propagation();
+    if !vim_on(cx) {
+        return;
     }
+    let key = vim_key(&event.keystroke);
+    if key == VimKey::Other {
+        flush_held(view, window, cx);
+    }
+    let rc = hamishrc::current(cx);
+    let fresh = view.vim().feed_is_empty();
+    view.vim_mut().press(key);
+    let mut next = view.vim_mut().next_key(&rc);
+    let unmapped = fresh && next == Some(Fed::Key(key)) && view.vim().feed_is_empty();
+    if unmapped && !run_vim(view, key, window, cx) {
+        return;
+    }
+    cx.stop_propagation();
+    if unmapped {
+        return;
+    }
+    while let Some(fed) = next {
+        run_fed(view, fed, window, cx);
+        next = view.vim_mut().next_key(&rc);
+    }
+}
+
+/// Runs the keys that the key feed holds for a longer map, with no wait for it. Call before a
+/// key that does not reach the maps, such as Escape.
+pub(crate) fn flush_held<V: VimView>(view: &mut V, window: &mut Window, cx: &mut Context<V>) {
+    let rc = hamishrc::current(cx);
+    while let Some(fed) = view.vim_mut().flush_key(&rc) {
+        run_fed(view, fed, window, cx);
+    }
+}
+
+/// Runs one thing the key feed gives: a key for Vim mode, a named action, or the Notice of a
+/// recursive map.
+fn run_fed<V: VimView>(view: &mut V, fed: Fed, window: &mut Window, cx: &mut Context<V>) {
+    match fed {
+        Fed::Key(key) => run_mapped_key(view, key, window, cx),
+        Fed::Action(action) => window.dispatch_action(gpui_action(action), cx),
+        Fed::TooDeep => window.dispatch_action(Box::new(RecursiveMap), cx),
+    }
+}
+
+/// A key of a map: a key that Vim mode passes on goes in as the text input would type it.
+fn run_mapped_key<V: VimView>(view: &mut V, key: VimKey, window: &mut Window, cx: &mut Context<V>) {
+    if run_vim(view, key, window, cx) || !view.takes_text(cx) {
+        return;
+    }
+    let mut utf8 = [0; 4];
+    let typed = match key {
+        VimKey::Char(typed) => typed.encode_utf8(&mut utf8),
+        VimKey::Enter => "\n",
+        VimKey::Backspace => {
+            let edit = view.read_text(cx, |text, caret| caret.delete(text, Motion::Left));
+            view.edit(&edit, cx);
+            return;
+        }
+        VimKey::Ctrl(_) | VimKey::Escape | VimKey::Other => return,
+    };
+    let edit = view.read_text(cx, |text, caret| caret.input(text, None, typed));
+    view.edit(&edit, cx);
+    cx.notify();
 }
 
 /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key on.
@@ -64,6 +133,10 @@ pub(crate) fn run_vim<V: VimView>(
 impl VimView for Editor {
     fn vim(&self) -> &Vim {
         &self.vim
+    }
+
+    fn vim_mut(&mut self) -> &mut Vim {
+        &mut self.vim
     }
 
     fn vim_command(&mut self, key: VimKey, _: &mut Context<Self>) -> VimCommand {
@@ -226,9 +299,33 @@ fn to_register(text: String, cx: &mut App) {
     }
 }
 
-/// The GPUI action of `action`: the one its key binding or menu item dispatches.
+/// The GPUI action of `action`: the one its key binding or menu item dispatches. The one
+/// table of Hamish actions in the app (ADR 0008).
 pub(crate) fn gpui_action(action: VimAction) -> Box<dyn Action> {
     match action {
+        VimAction::AiAlternatives => Box::new(AiAlternatives),
+        VimAction::ToggleGhost => Box::new(ToggleGhost),
+        VimAction::Stash => Box::new(Stash),
+        VimAction::DeleteActiveVariant => Box::new(DeleteActiveVariant),
+        VimAction::ToggleOverflow => Box::new(ToggleOverflow),
+        VimAction::Save => Box::new(Save),
+        VimAction::SaveAs => Box::new(SaveAs),
+        VimAction::Open => Box::new(Open),
+        VimAction::NewDocument => Box::new(NewDocument),
+        VimAction::Quit => Box::new(QuitIfSaved),
+        VimAction::ForceQuit => Box::new(Quit),
+        VimAction::OpenSettings => Box::new(OpenSettings),
+        VimAction::OpenShortcuts => Box::new(OpenShortcuts),
+        VimAction::ToggleMarkers => Box::new(ToggleMarkers),
+        VimAction::ToggleMarkdown => Box::new(ToggleMarkdown),
+        VimAction::ReloadHamishrc => Box::new(ReloadHamishrc),
+        VimAction::EditHamishrc => Box::new(EditHamishrc),
+        VimAction::Undo => Box::new(Undo),
+        VimAction::Redo => Box::new(Redo),
+        VimAction::Copy => Box::new(Copy),
+        VimAction::Cut => Box::new(Cut),
+        VimAction::Paste => Box::new(Paste),
+        VimAction::SelectAll => Box::new(SelectAll),
         VimAction::OpenAlternatives => Box::new(OpenAlternatives),
         VimAction::ToggleLab => Box::new(ToggleLab),
         VimAction::RunTrim(level) => Box::new(RunTrim(level)),
@@ -244,24 +341,44 @@ pub(crate) fn gpui_action(action: VimAction) -> Box<dyn Action> {
     }
 }
 
-/// `keystroke` as Vim mode reads it: the char it types, or a named key.
-pub(crate) fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
+/// A key press with no Alt, platform or function key, as Vim mode and the Command line read
+/// it.
+pub(crate) enum KeyPress<'a> {
+    /// Ctrl with this key name.
+    Ctrl(&'a str),
+    /// A key with no Ctrl: its name (`escape`, `tab`, ...) and the char it types, if one.
+    Plain { key: &'a str, typed: Option<char> },
+}
+
+/// `keystroke` as a [`KeyPress`]; `None` with Alt, a platform key or a function key.
+pub(crate) fn key_press(keystroke: &gpui::Keystroke) -> Option<KeyPress<'_>> {
     let modifiers = keystroke.modifiers;
     if modifiers.alt || modifiers.platform || modifiers.function {
-        return VimKey::Other;
+        return None;
     }
+    let key = keystroke.key.as_str();
     if modifiers.control {
-        return one_char(&keystroke.key).map_or(VimKey::Other, VimKey::Ctrl);
+        return Some(KeyPress::Ctrl(key));
     }
-    match keystroke.key.as_str() {
+    let typed = if key == "space" {
+        Some(' ')
+    } else {
+        keystroke.key_char.as_deref().and_then(one_char)
+    };
+    Some(KeyPress::Plain { key, typed })
+}
+
+/// `keystroke` as Vim mode reads it: the char it types, or a named key.
+pub(crate) fn vim_key(keystroke: &gpui::Keystroke) -> VimKey {
+    let (key, typed) = match key_press(keystroke) {
+        None => return VimKey::Other,
+        Some(KeyPress::Ctrl(key)) => return one_char(key).map_or(VimKey::Other, VimKey::Ctrl),
+        Some(KeyPress::Plain { key, typed }) => (key, typed),
+    };
+    match key {
         "escape" => VimKey::Escape,
         "enter" => VimKey::Enter,
         "backspace" => VimKey::Backspace,
-        "space" => VimKey::Char(' '),
-        _ => keystroke
-            .key_char
-            .as_deref()
-            .and_then(one_char)
-            .map_or(VimKey::Other, VimKey::Char),
+        _ => typed.map_or(VimKey::Other, VimKey::Char),
     }
 }

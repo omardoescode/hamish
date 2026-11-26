@@ -14,6 +14,7 @@ mod context_menu;
 mod editor;
 mod effects;
 mod fonts;
+mod hamishrc;
 mod lab;
 mod loading;
 mod overflow_panel;
@@ -42,10 +43,10 @@ use gpui::{App, KeyBinding};
 
 pub use actions::{
     AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, DeleteActiveVariant,
-    LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp,
-    NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Quit, Redo, Save, SaveAs,
-    SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp,
-    Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
+    EditHamishrc, LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart,
+    MoveUp, NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Quit, Redo,
+    ReloadHamishrc, Save, SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
+    SelectToLineStart, SelectUp, Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};
 pub use alternatives_panel::{AlternativesPanel, ChooseLevel};
@@ -54,6 +55,7 @@ pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
 pub use fonts::{font_names, load_fonts_in_background};
 pub use hamish_core::{AiAlternativesError, VariantRow};
+pub use hamishrc::use_hamishrc;
 pub use lab::{
     AcceptLabMark, CloseLab, DismissLabMark, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab,
 };
@@ -70,7 +72,8 @@ pub use trim::{
 pub use workspace::Workspace;
 
 /// Loads the bundled font (Regular, Bold, Italic, Bold Italic), sets the default settings
-/// and theme, and binds the keys. [`use_settings`] then puts in the settings from the file.
+/// and theme, and binds the keys. [`use_settings`] then puts in the settings from the file, and
+/// [`use_hamishrc`] the key maps.
 ///
 /// # Errors
 /// When the bundled font does not load.
@@ -89,6 +92,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         },
         cx,
     );
+    use_hamishrc(None, cx);
     cx.on_action(|_: &Quit, cx| cx.quit());
     for context in ["Editor", "OverflowPanel"] {
         let context = Some(context);

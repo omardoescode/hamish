@@ -1,7 +1,8 @@
 //! The Vim mode rows of the Shortcuts sheet.
 
 /// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
-pub const VIM_KEYS: [(&str, &str); 45] = [
+/// `Space` is the default leader; [`vim_keys`] shows the leader in use.
+pub const VIM_KEYS: [(&str, &str); 46] = [
     ("Move left, down, up, right", "h j k l"),
     ("Next word start, word start before, word end", "w b e"),
     ("Line start, line end", "0 $"),
@@ -98,12 +99,13 @@ pub const VIM_KEYS: [(&str, &str); 45] = [
         "Command line: Vim mode off, on; Chrome bar off or on; Settings",
         ":set novim  :set vim  :chrome  :settings",
     ),
+    ("Command line: read the hamishrc again", ":source"),
     (
         "Command line: caret; start, end; delete the word, delete to the start",
         "Left Right  Home End  Ctrl+B Ctrl+E  Ctrl+W  Ctrl+U",
     ),
     (
-        "Command line: complete, history, close",
+        "Command line: complete, recent commands, close",
         "Tab  Up Down  Esc",
     ),
     (
@@ -114,3 +116,23 @@ pub const VIM_KEYS: [(&str, &str); 45] = [
     ("Text edits in Insert mode", "Ctrl keys as usual"),
     ("The register is the clipboard", "y p"),
 ];
+
+/// The rows of [`VIM_KEYS`] with `leader` in place of each `Space` key.
+#[must_use]
+pub fn vim_keys(leader: char) -> Vec<(&'static str, String)> {
+    let leader = if leader == ' ' {
+        "Space".to_owned()
+    } else {
+        leader.to_string()
+    };
+    VIM_KEYS
+        .iter()
+        .map(|&(label, keys)| {
+            let keys: Vec<&str> = keys
+                .split(' ')
+                .map(|key| if key == "Space" { leader.as_str() } else { key })
+                .collect();
+            (label, keys.join(" "))
+        })
+        .collect()
+}

@@ -10,10 +10,56 @@ use super::{char_of, select};
 use crate::Caret;
 use crate::{Cycle, Direction, TrimLevel};
 
-/// An action of Hamish that a Vim mode key runs: the Editor runs the same GPUI action as
-/// its key binding or menu item.
+/// An action of Hamish that a Vim mode key or a hamishrc map runs: the Editor runs the same
+/// GPUI action as its key binding or menu item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VimAction {
+    /// Ask the AI for Variants of the target.
+    AiAlternatives,
+    /// Make the selection a Ghost, or Revive the Ghost at the caret.
+    ToggleGhost,
+    /// Move the selection to the end of Overflow.
+    Stash,
+    /// Delete the Active variant of the Slot at the caret.
+    DeleteActiveVariant,
+    /// Open or close Overflow.
+    ToggleOverflow,
+    /// Save the Document to its path; the first save asks for one.
+    Save,
+    /// Ask for a path, then save the Document there.
+    SaveAs,
+    /// Ask for a `.md` file, then open it.
+    Open,
+    /// Show an empty Document.
+    NewDocument,
+    /// Close Hamish, as `:q`: with unsaved changes, refuse with a Notice.
+    Quit,
+    /// Close Hamish and drop unsaved changes, as `:q!`.
+    ForceQuit,
+    /// Open Settings.
+    OpenSettings,
+    /// Open the Shortcuts sheet.
+    OpenShortcuts,
+    /// Turn the Markers off or on.
+    ToggleMarkers,
+    /// Turn the Markdown styles off or on.
+    ToggleMarkdown,
+    /// Read the hamishrc again.
+    ReloadHamishrc,
+    /// Open the hamishrc in the system editor.
+    EditHamishrc,
+    /// One Undo step back.
+    Undo,
+    /// One Undo step forward again.
+    Redo,
+    /// Copy the selection to the system clipboard.
+    Copy,
+    /// Move the selection to the system clipboard.
+    Cut,
+    /// Put the system clipboard text in at the caret.
+    Paste,
+    /// Select all the text.
+    SelectAll,
     /// Open the Alternatives panel on the target.
     OpenAlternatives,
     /// Open or close the Lab popover.
@@ -38,6 +84,59 @@ pub enum VimAction {
     FocusOverflow,
     /// Open the Command line and give it the keyboard.
     OpenCommandLine,
+}
+
+/// The actions that `:Name` in a hamishrc map runs, by name. `RunTrim1` to `RunTrim4` run
+/// Slight trim to Cut in half, as the count of the leader `t`.
+const NAMED_ACTIONS: [(&str, VimAction); 38] = [
+    ("OpenAlternatives", VimAction::OpenAlternatives),
+    ("AiAlternatives", VimAction::AiAlternatives),
+    ("ToggleGhost", VimAction::ToggleGhost),
+    ("Stash", VimAction::Stash),
+    ("DeleteActiveVariant", VimAction::DeleteActiveVariant),
+    ("UseOverflowBlock", VimAction::UseOverflowBlock),
+    ("ToggleOverflow", VimAction::ToggleOverflow),
+    ("FocusEditor", VimAction::FocusEditor),
+    ("FocusOverflow", VimAction::FocusOverflow),
+    ("ToggleLab", VimAction::ToggleLab),
+    ("AcceptLabMark", VimAction::AcceptLabMark),
+    ("DismissLabMark", VimAction::DismissLabMark),
+    ("RunTrim1", VimAction::RunTrim(TrimLevel::SlightTrim)),
+    ("RunTrim2", VimAction::RunTrim(TrimLevel::TightenMore)),
+    ("RunTrim3", VimAction::RunTrim(TrimLevel::EvenSharper)),
+    ("RunTrim4", VimAction::RunTrim(TrimLevel::CutInHalf)),
+    ("KeepTrimCut", VimAction::KeepTrimCut),
+    ("MakeTrimCuts", VimAction::MakeTrimCuts),
+    ("CloseTrim", VimAction::CloseTrim),
+    ("Save", VimAction::Save),
+    ("SaveAs", VimAction::SaveAs),
+    ("Open", VimAction::Open),
+    ("NewDocument", VimAction::NewDocument),
+    ("Quit", VimAction::Quit),
+    ("ForceQuit", VimAction::ForceQuit),
+    ("OpenSettings", VimAction::OpenSettings),
+    ("OpenShortcuts", VimAction::OpenShortcuts),
+    ("OpenCommandLine", VimAction::OpenCommandLine),
+    ("ToggleMarkers", VimAction::ToggleMarkers),
+    ("ToggleMarkdown", VimAction::ToggleMarkdown),
+    ("ReloadHamishrc", VimAction::ReloadHamishrc),
+    ("EditHamishrc", VimAction::EditHamishrc),
+    ("Undo", VimAction::Undo),
+    ("Redo", VimAction::Redo),
+    ("Copy", VimAction::Copy),
+    ("Cut", VimAction::Cut),
+    ("Paste", VimAction::Paste),
+    ("SelectAll", VimAction::SelectAll),
+];
+
+impl VimAction {
+    /// The action that `:name` names in a hamishrc map; `None` for another name.
+    pub(crate) fn named(name: &str) -> Option<Self> {
+        NAMED_ACTIONS
+            .iter()
+            .find(|(known, _)| *known == name)
+            .map(|(_, action)| *action)
+    }
 }
 
 impl Vim {

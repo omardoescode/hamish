@@ -28,7 +28,8 @@ use element::EditorElement;
 use pen::PenStroke;
 use runs::{Span, spans};
 pub(crate) use vim::{
-    VimView, gpui_action, run_text_command, run_vim, vim_key, vim_key_down, vim_on,
+    KeyPress, VimView, flush_held, gpui_action, key_press, run_text_command, run_vim, vim_key,
+    vim_key_down, vim_on,
 };
 
 mod element;
@@ -745,6 +746,9 @@ impl Editor {
         if self.context_menu.take().is_some() {
             cx.notify();
             return;
+        }
+        if self.vim_mode(cx).is_some() {
+            flush_held(self, window, cx);
         }
         let in_insert = self.vim_mode(cx) == Some(VimMode::Insert);
         if self.vim_mode(cx).is_some() {

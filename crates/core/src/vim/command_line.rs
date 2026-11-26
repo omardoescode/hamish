@@ -1,15 +1,98 @@
-//! The Command line of Vim mode: the line `:` opens, its history, Tab completion, and the
-//! grammar of its commands. Keys go in; a command or an error comes out (ADR 0008).
+//! The Command line of Vim mode: the line `:` opens, its recent commands, Tab completion,
+//! and the grammar of its commands. Keys go in; a command or an error comes out (ADR 0008).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::caret::{next_boundary, previous_boundary};
 
-/// The command names that Tab completes, in order.
-const NAMES: [&str; 8] = [
-    "chrome", "edit", "quit", "set", "settings", "write", "wq", "x",
+/// A command name of the Command line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Name {
+    Chrome,
+    Edit,
+    Quit,
+    Set,
+    Settings,
+    ReadHamishrc,
+    Write,
+    WriteQuit,
+    Exit,
+}
+
+/// One command name: the full name that Tab completes, its other spellings, and whether it
+/// takes a path.
+struct NameSpelling {
+    name: Name,
+    full: &'static str,
+    short: &'static [&'static str],
+    takes_path: bool,
+}
+
+/// The command names, in the order that Tab offers them.
+const NAMES: [NameSpelling; 9] = [
+    NameSpelling {
+        name: Name::Chrome,
+        full: "chrome",
+        short: &[],
+        takes_path: false,
+    },
+    NameSpelling {
+        name: Name::Edit,
+        full: "edit",
+        short: &["e"],
+        takes_path: true,
+    },
+    NameSpelling {
+        name: Name::Quit,
+        full: "quit",
+        short: &["q"],
+        takes_path: false,
+    },
+    NameSpelling {
+        name: Name::Set,
+        full: "set",
+        short: &["se"],
+        takes_path: false,
+    },
+    NameSpelling {
+        name: Name::Settings,
+        full: "settings",
+        short: &[],
+        takes_path: false,
+    },
+    NameSpelling {
+        name: Name::ReadHamishrc,
+        full: "source",
+        short: &["so"],
+        takes_path: false,
+    },
+    NameSpelling {
+        name: Name::Write,
+        full: "write",
+        short: &["w"],
+        takes_path: true,
+    },
+    NameSpelling {
+        name: Name::WriteQuit,
+        full: "wq",
+        short: &[],
+        takes_path: true,
+    },
+    NameSpelling {
+        name: Name::Exit,
+        full: "x",
+        short: &["xit"],
+        takes_path: true,
+    },
 ];
+
+/// The command name that `typed` spells; `None` for no command.
+fn name_of(typed: &str) -> Option<&'static NameSpelling> {
+    NAMES
+        .iter()
+        .find(|spelling| spelling.full == typed || spelling.short.contains(&typed))
+}
 
 /// The settings that `:set` changes.
 const SETTINGS: [&str; 2] = ["novim", "vim"];
@@ -92,6 +175,8 @@ pub enum LineCommand {
     ToggleChrome,
     /// `:settings`: open Settings.
     OpenSettings,
+    /// `:source`: read the hamishrc again.
+    ReadHamishrc,
 }
 
 /// Why a command of the Command line does not run. Its text is the Notice text.
@@ -129,26 +214,32 @@ impl fmt::Display for LineError {
 impl std::error::Error for LineError {}
 
 impl LineCommand {
-    /// The error that stops this command for a Document with `unsaved` changes and with a
-    /// path (`has_path`); `None` when the command can run.
-    #[must_use]
-    pub fn refusal(&self, unsaved: bool, has_path: bool) -> Option<LineError> {
+    /// The command to run for a Document with `unsaved` changes and with a path
+    /// (`has_path`). `:x` with no unsaved changes is a `:q`: it saves nothing, also with a
+    /// path.
+    ///
+    /// # Errors
+    /// [`LineError::Unsaved`] when the command drops unsaved changes with no `!`;
+    /// [`LineError::NoFileName`] when it needs the Document path and the Document has none.
+    pub fn check(self, unsaved: bool, has_path: bool) -> Result<Self, LineError> {
         match self {
             Self::Quit { force: false } | Self::Edit { force: false, .. } if unsaved => {
-                Some(LineError::Unsaved)
+                Err(LineError::Unsaved)
             }
-            Self::Edit { path: None, .. } if !has_path => Some(LineError::NoFileName),
             Self::WriteQuit {
-                path: None,
-                only_unsaved,
-            } if !has_path && (unsaved || !only_unsaved) => Some(LineError::NoFileName),
+                only_unsaved: true, ..
+            } if !unsaved => Ok(Self::Quit { force: false }),
+            Self::Edit { path: None, .. } | Self::WriteQuit { path: None, .. } if !has_path => {
+                Err(LineError::NoFileName)
+            }
             Self::Write(_)
             | Self::Quit { .. }
             | Self::WriteQuit { .. }
             | Self::Edit { .. }
             | Self::SetVimMode(_)
             | Self::ToggleChrome
-            | Self::OpenSettings => None,
+            | Self::OpenSettings
+            | Self::ReadHamishrc => Ok(self),
         }
     }
 }
@@ -160,7 +251,7 @@ pub struct DirectoryEntry {
     pub directory: bool,
 }
 
-/// The Command line: its text and caret, the history of this session, and the Tab
+/// The Command line: its text and caret, the recent commands of this session, and the Tab
 /// candidates.
 #[derive(Debug, Clone, Default)]
 pub struct CommandLine {
@@ -168,8 +259,8 @@ pub struct CommandLine {
     /// The caret, a byte offset of `text` on a char boundary.
     caret: usize,
     /// The lines run in this session, oldest first, with no repeat of the line before.
-    history: Vec<String>,
-    /// The history entry that Up or Down shows; `None` while the writer types.
+    recent: Vec<String>,
+    /// The recent command that Up or Down shows; `None` while the writer types.
     recalled: Option<usize>,
     /// The text typed before the first Up.
     typed: String,
@@ -321,8 +412,8 @@ impl CommandLine {
         if line.is_empty() {
             return LineStep::Closed;
         }
-        if self.history.last().is_none_or(|last| last != line) {
-            self.history.push(line.to_owned());
+        if self.recent.last().is_none_or(|last| last != line) {
+            self.recent.push(line.to_owned());
         }
         LineStep::Run(parse(line))
     }
@@ -330,10 +421,10 @@ impl CommandLine {
     fn recall_older(&mut self) {
         let index = match self.recalled {
             Some(index) => index.saturating_sub(1),
-            None if self.history.is_empty() => return,
+            None if self.recent.is_empty() => return,
             None => {
                 self.typed.clone_from(&self.text);
-                self.history.len() - 1
+                self.recent.len() - 1
             }
         };
         self.show_recalled(index);
@@ -343,7 +434,7 @@ impl CommandLine {
         let Some(index) = self.recalled else {
             return;
         };
-        if index + 1 < self.history.len() {
+        if index + 1 < self.recent.len() {
             self.show_recalled(index + 1);
             return;
         }
@@ -352,7 +443,7 @@ impl CommandLine {
     }
 
     fn show_recalled(&mut self, index: usize) {
-        if let Some(entry) = self.history.get(index).cloned() {
+        if let Some(entry) = self.recent.get(index).cloned() {
             self.set_text(entry);
             self.recalled = Some(index);
         }
@@ -378,23 +469,22 @@ impl CommandLine {
         if let Some((_, directory, _)) = self.path_parts() {
             return LineStep::ListDirectory(directory.to_owned());
         }
-        let (stem, word, choices): (&str, &str, &[&str]) = match self.text.split_once(' ') {
-            None => ("", self.text.as_str(), &NAMES),
-            Some(("set" | "se", setting)) => (
-                self.text
-                    .get(..=self.text.len() - setting.len() - 1)
-                    .unwrap_or_default(),
-                setting.trim_start(),
-                &SETTINGS,
+        let (stem, candidates) = match self.text.split_once(' ') {
+            None => (
+                "",
+                starting_with(NAMES.map(|spelling| spelling.full), &self.text),
             ),
+            Some((name, setting)) if name_of(name).is_some_and(|found| found.name == Name::Set) => {
+                (
+                    self.text
+                        .get(..=self.text.len() - setting.len() - 1)
+                        .unwrap_or_default(),
+                    starting_with(SETTINGS, setting.trim_start()),
+                )
+            }
             Some(_) => return LineStep::Open,
         };
         let stem = stem.to_owned();
-        let candidates = choices
-            .iter()
-            .filter(|choice| choice.starts_with(word))
-            .map(|&choice| choice.to_owned())
-            .collect();
         self.offer(stem, candidates);
         LineStep::Open
     }
@@ -416,10 +506,7 @@ impl CommandLine {
     /// to its last `/`), and the typed start of the entry name.
     fn path_parts(&self) -> Option<(&str, &str, &str)> {
         let (name, path) = self.text.split_once(' ')?;
-        if !matches!(
-            name.trim_end_matches('!'),
-            "e" | "edit" | "w" | "write" | "wq" | "x"
-        ) {
+        if !name_of(name.trim_end_matches('!')).is_some_and(|found| found.takes_path) {
             return None;
         }
         let path = path.trim_start();
@@ -427,6 +514,15 @@ impl CommandLine {
         let split = path.rfind('/').map_or(0, |slash| slash + 1);
         Some((stem, path.get(..split)?, path.get(split..)?))
     }
+}
+
+/// The `choices` that start with `typed`, in order.
+fn starting_with<const N: usize>(choices: [&str; N], typed: &str) -> Vec<String> {
+    choices
+        .into_iter()
+        .filter(|choice| choice.starts_with(typed))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// A char of a word for [`LineKey::DeleteWord`]: a letter, a digit or `_`.
@@ -450,27 +546,30 @@ fn parse(line: &str) -> Result<LineCommand, LineError> {
         Some(extra) => Err(LineError::ExtraText(extra.to_owned())),
         None => Ok(command),
     };
-    match name {
-        "w" | "write" => Ok(LineCommand::Write(path)),
-        "q" | "quit" => no_argument(LineCommand::Quit { force }),
-        "wq" => Ok(LineCommand::WriteQuit {
-            path,
-            only_unsaved: false,
-        }),
-        "x" | "xit" => Ok(LineCommand::WriteQuit {
-            path,
-            only_unsaved: true,
-        }),
-        "e" | "edit" => Ok(LineCommand::Edit { path, force }),
-        "set" | "se" => set_setting(argument),
-        "chrome" => no_argument(LineCommand::ToggleChrome),
-        "settings" => no_argument(LineCommand::OpenSettings),
-        _ => Err(LineError::Unknown(
+    let Some(spelling) = name_of(name) else {
+        return Err(LineError::Unknown(
             line.split_whitespace()
                 .next()
                 .unwrap_or_default()
                 .to_owned(),
-        )),
+        ));
+    };
+    match spelling.name {
+        Name::Write => Ok(LineCommand::Write(path)),
+        Name::Quit => no_argument(LineCommand::Quit { force }),
+        Name::WriteQuit => Ok(LineCommand::WriteQuit {
+            path,
+            only_unsaved: false,
+        }),
+        Name::Exit => Ok(LineCommand::WriteQuit {
+            path,
+            only_unsaved: true,
+        }),
+        Name::Edit => Ok(LineCommand::Edit { path, force }),
+        Name::Set => set_setting(argument),
+        Name::Chrome => no_argument(LineCommand::ToggleChrome),
+        Name::Settings => no_argument(LineCommand::OpenSettings),
+        Name::ReadHamishrc => no_argument(LineCommand::ReadHamishrc),
     }
 }
 
@@ -482,6 +581,24 @@ fn set_setting(setting: Option<&str>) -> Result<LineCommand, LineError> {
         Some(setting) => Err(LineError::UnknownSetting(setting.to_owned())),
         None => Err(LineError::NoSetting),
     }
+}
+
+/// The entries of `directory`, in no order; none when it does not list.
+#[must_use]
+pub fn directory_entries(directory: &Path) -> Vec<DirectoryEntry> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            Some(DirectoryEntry {
+                name,
+                directory: entry.path().is_dir(),
+            })
+        })
+        .collect()
 }
 
 /// The file path of `typed`: `~/` starts at `home`, and a relative path starts at

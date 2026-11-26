@@ -407,3 +407,34 @@ fn in_vim_mode_a_count_and_space_t_run_that_trim_level_and_space_k_keeps_a_cut()
         assert_eq!(text(&workspace, cx), TEXT);
     });
 }
+
+#[test]
+fn a_hamishrc_map_to_run_trim_with_a_level_number_runs_that_trim_level() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hamishrc");
+        std::fs::write(&path, "nnoremap X :RunTrim2\n").unwrap();
+        cx.update(|_, cx| {
+            app::use_settings(
+                None,
+                LoadedSettings {
+                    settings: Settings {
+                        vim_mode: true,
+                        ..Settings::default()
+                    },
+                    problem: None,
+                },
+                cx,
+            );
+            app::use_hamishrc(Some(path), cx);
+        });
+        cx.dispatch_action(app::ReloadHamishrc);
+        cx.run_until_parked();
+
+        cx.simulate_keystrokes("shift-x");
+        cx.run_until_parked();
+
+        assert_eq!(selected(&workspace, cx), TrimLevel::TightenMore);
+    });
+}

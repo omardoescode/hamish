@@ -9,11 +9,12 @@ use gpui::{
     px,
 };
 use hamish_core::{
-    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, one_char, resolve_path,
+    CommandLine, LineCommand, LineError, LineKey, LineStep, directory_entries, resolve_path,
 };
 
-use crate::actions::{OpenCommandLine, OpenSettings, Quit, Save};
+use crate::actions::{OpenCommandLine, OpenSettings, Quit, QuitIfSaved, Save};
 use crate::caret::{CARET_WIDTH, CaretBlink};
+use crate::editor::{KeyPress, key_press};
 use crate::save_open::Notice;
 use crate::{Theme, Workspace};
 
@@ -71,6 +72,17 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The `:Quit` map action: closes Hamish as `:q` does, so unsaved changes refuse with a
+    /// Notice.
+    pub(crate) fn quit_if_saved(
+        &mut self,
+        _: &QuitIfSaved,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_line_result(Ok(LineCommand::Quit { force: false }), window, cx);
+    }
+
     fn close_command_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let focus = self
             .command_line
@@ -112,13 +124,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let unsaved = self.editor.read(cx).is_unsaved();
-        let refused = result.and_then(|command| {
-            command
-                .refusal(unsaved, self.document_path().is_some())
-                .map_or(Ok(command), Err)
-        });
-        match refused {
-            Ok(command) => self.run_line_command(command, unsaved, window, cx),
+        let has_path = self.document_path().is_some();
+        match result.and_then(|command| command.check(unsaved, has_path)) {
+            Ok(command) => self.run_line_command(command, window, cx),
             Err(error) => self.show(Notice::CommandFailed(error), cx),
         }
     }
@@ -126,18 +134,12 @@ impl Workspace {
     fn run_line_command(
         &mut self,
         command: LineCommand,
-        unsaved: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match command {
             LineCommand::Write(None) => self.save(&Save, window, cx),
             LineCommand::Write(Some(typed)) => self.save_to(self.typed_path(&typed), cx),
-            LineCommand::Quit { .. }
-            | LineCommand::WriteQuit {
-                path: None,
-                only_unsaved: true,
-            } if !unsaved => window.dispatch_action(Box::new(Quit), cx),
             LineCommand::Quit { .. } => window.dispatch_action(Box::new(Quit), cx),
             LineCommand::WriteQuit { path, .. } => self.write_quit(path, cx),
             LineCommand::Edit { path, .. } => self.edit(path, cx),
@@ -149,6 +151,7 @@ impl Workspace {
                 cx.notify();
             }
             LineCommand::OpenSettings => self.open_settings(&OpenSettings, window, cx),
+            LineCommand::ReadHamishrc => Self::reload_hamishrc(true, cx),
         }
     }
 
@@ -250,33 +253,13 @@ impl Workspace {
     }
 }
 
-/// The entries of `directory`; none when it does not list.
-fn directory_entries(directory: &Path) -> Vec<DirectoryEntry> {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
-            Some(DirectoryEntry {
-                name,
-                directory: entry.path().is_dir(),
-            })
-        })
-        .collect()
-}
-
 /// `keystroke` as the Command line reads it; `None` for a key it does not use.
 fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
-    let modifiers = keystroke.modifiers;
-    if modifiers.alt || modifiers.platform || modifiers.function {
-        return None;
-    }
-    if modifiers.control {
-        return LineKey::ctrl(&keystroke.key);
-    }
-    let key = match keystroke.key.as_str() {
+    let (key, typed) = match key_press(keystroke)? {
+        KeyPress::Ctrl(key) => return LineKey::ctrl(key),
+        KeyPress::Plain { key, typed } => (key, typed),
+    };
+    let key = match key {
         "escape" => LineKey::Escape,
         "enter" => LineKey::Enter,
         "backspace" => LineKey::Backspace,
@@ -287,8 +270,7 @@ fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
         "right" => LineKey::Right,
         "home" => LineKey::Home,
         "end" => LineKey::End,
-        "space" => LineKey::Char(' '),
-        _ => return one_char(keystroke.key_char.as_deref()?).map(LineKey::Char),
+        _ => return typed.map(LineKey::Char),
     };
     Some(key)
 }

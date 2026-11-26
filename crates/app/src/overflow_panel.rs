@@ -14,7 +14,8 @@ use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock
 use crate::caret::{self, CaretBlink, CaretView, Column, caret_actions, caret_input_handler};
 use crate::chrome::elevated_surface;
 use crate::editor::{
-    PaintedText, VimView, gpui_action, run_text_command, run_vim, shape, vim_key_down, vim_on,
+    PaintedText, VimView, flush_held, gpui_action, run_text_command, run_vim, shape, vim_key_down,
+    vim_on,
 };
 use crate::{Editor, Theme};
 
@@ -119,6 +120,9 @@ impl OverflowPanel {
     /// Esc gives the keyboard back to the Document; Overflow stays open. In Vim mode, Esc in
     /// Insert or Visual mode goes to Normal mode and Overflow keeps the keyboard.
     fn leave(&mut self, _: &LeaveOverflow, window: &mut Window, cx: &mut Context<Self>) {
+        if vim_on(cx) {
+            flush_held(self, window, cx);
+        }
         let mode = self.vim_mode(cx);
         if mode.is_some() {
             run_vim(self, VimKey::Escape, window, cx);
@@ -565,6 +569,10 @@ impl Render for Tooltip {
 impl VimView for OverflowPanel {
     fn vim(&self) -> &Vim {
         &self.vim
+    }
+
+    fn vim_mut(&mut self) -> &mut Vim {
+        &mut self.vim
     }
 
     fn vim_command(&mut self, key: VimKey, cx: &mut Context<Self>) -> VimCommand {

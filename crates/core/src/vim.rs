@@ -4,6 +4,8 @@
 
 mod command_line;
 mod hamish;
+mod hamishrc;
+mod key_feed;
 mod keys;
 mod motion;
 mod normal;
@@ -19,10 +21,17 @@ use std::ops::Range;
 use crate::caret::{line_start, previous_boundary};
 use crate::{Caret, CaretEdit, Cycle, Direction, Document, EditKind, TrimProposal};
 pub use command_line::{
-    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, resolve_path,
+    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, directory_entries,
+    resolve_path,
 };
 pub use hamish::VimAction;
-pub use keys::VIM_KEYS;
+pub use hamishrc::{
+    HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, MapTarget,
+    create_hamishrc, hamishrc_text,
+};
+use key_feed::KeyFeed;
+pub use key_feed::{Fed, MAX_MAP_DEPTH};
+pub use keys::{VIM_KEYS, vim_keys};
 use motion::normal_offset;
 use operator::Operator;
 pub use panel::{AlternativesCommand, AlternativesKeys, LabCommand, RowCommand, SettingsCommand};
@@ -180,6 +189,20 @@ pub struct Vim {
     replaying: bool,
     /// The mode, anchor char and head char of the last Visual selection, for `gv`.
     last_visual: Option<(VimMode, usize, usize)>,
+    /// The key that starts the Hamish keys of Normal mode.
+    leader: Leader,
+    /// The keys typed and not yet read, for the maps of a hamishrc.
+    feed: KeyFeed,
+}
+
+/// The leader key; Space by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Leader(char);
+
+impl Default for Leader {
+    fn default() -> Self {
+        Self(' ')
+    }
 }
 
 /// The first key of a two-key command, waiting for the second key.
@@ -191,7 +214,7 @@ enum Prefix {
     Inner,
     /// `a` after an operator or in Visual mode: a text object with its blanks.
     Around,
-    /// Space: the leader of the Hamish actions.
+    /// The leader (Space by default): the Hamish actions.
     Leader,
     /// `]` (forward) or `[` (back): a jump, or a Slot cycle.
     Bracket(Direction),
@@ -200,16 +223,20 @@ enum Prefix {
 }
 
 impl Prefix {
-    /// The prefix that `key` is; `None` for a key that is no prefix.
-    fn of(key: VimKey) -> Option<Self> {
+    /// The prefix that `key` is, with `leader` as the leader; `None` for a key that is no
+    /// prefix.
+    fn of(key: VimKey, leader: Leader) -> Option<Self> {
         if key == VimKey::Ctrl('w') {
             return Some(Self::Window);
         }
-        let prefix = match char_of(key)? {
+        let typed = char_of(key)?;
+        if typed == leader.0 {
+            return Some(Self::Leader);
+        }
+        let prefix = match typed {
             'g' => Self::G,
             'i' => Self::Inner,
             'a' => Self::Around,
-            ' ' => Self::Leader,
             ']' => Self::Bracket(Direction::Forward),
             '[' => Self::Bracket(Direction::Back),
             _ => return None,

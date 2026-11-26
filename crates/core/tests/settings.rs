@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use hamish_core::{Direction, Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
+use hamish_core::{
+    Direction, Setting, Settings, ThemeName, Toggle, contrast_ratio, hamishrc_path, settings_path,
+};
 
 #[test]
 fn the_settings_file_is_in_xdg_config_home() {
@@ -26,6 +28,19 @@ fn a_relative_or_empty_xdg_config_home_is_ignored() {
     assert_eq!(settings_path(Some("cfg".as_ref()), home), expected);
     assert_eq!(settings_path(Some("".as_ref()), home), expected);
     assert_eq!(settings_path(None, None), None);
+}
+
+#[test]
+fn the_hamishrc_is_next_to_the_settings_file() {
+    assert_eq!(
+        hamishrc_path(Some("/cfg".as_ref()), Some(Path::new("/home/w"))),
+        Some(PathBuf::from("/cfg/hamish/hamishrc"))
+    );
+    assert_eq!(
+        hamishrc_path(None, Some(Path::new("/home/w"))),
+        Some(PathBuf::from("/home/w/.config/hamish/hamishrc"))
+    );
+    assert_eq!(hamishrc_path(None, None), None);
 }
 
 #[test]
@@ -180,10 +195,10 @@ fn a_value_out_of_its_limits_takes_its_default_and_names_it_in_the_problem() {
 #[test]
 fn a_step_moves_a_value_by_its_step() {
     let mut settings = Settings::default();
-    settings.increase(Setting::FontSize);
-    settings.increase(Setting::LineHeight);
-    settings.decrease(Setting::UiScale);
-    settings.decrease(Setting::ColumnWidth);
+    settings.step(Setting::FontSize, Direction::Forward);
+    settings.step(Setting::LineHeight, Direction::Forward);
+    settings.step(Setting::UiScale, Direction::Back);
+    settings.step(Setting::ColumnWidth, Direction::Back);
 
     assert!((settings.font_size - 16.0).abs() < 1e-6);
     assert!((settings.line_height - 1.9).abs() < 1e-6);
@@ -198,8 +213,8 @@ fn a_step_stops_at_the_limits() {
         ui_scale: 0.5,
         ..Settings::default()
     };
-    settings.increase(Setting::FontSize);
-    settings.decrease(Setting::UiScale);
+    settings.step(Setting::FontSize, Direction::Forward);
+    settings.step(Setting::UiScale, Direction::Back);
 
     assert!((settings.font_size - 40.0).abs() < 1e-6);
     assert!((settings.ui_scale - 0.5).abs() < 1e-6);
@@ -249,7 +264,7 @@ fn a_file_with_the_markdown_key_loads_markdown_styles() {
 fn ten_steps_of_a_tenth_land_on_the_tenth() {
     let mut settings = Settings::default();
     for _ in 0..10 {
-        settings.increase(Setting::LineHeight);
+        settings.step(Setting::LineHeight, Direction::Forward);
     }
     assert_eq!(settings.line_height, 2.8);
 }

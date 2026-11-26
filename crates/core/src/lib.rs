@@ -51,7 +51,9 @@ pub use motion::{Effect, caret_shown, next_caret_toggle};
 pub use overflow::{Overflow, OverflowError};
 pub use particles::{Particle, ParticleArea, ParticleLook};
 pub use select_search::SelectSearch;
-pub use settings::{LoadedSettings, Setting, Settings, SettingsError, Toggle, settings_path};
+pub use settings::{
+    LoadedSettings, Setting, Settings, SettingsError, Toggle, hamishrc_path, settings_path,
+};
 pub use shortcut::key_label;
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};
 pub use sound::Sound;
@@ -60,7 +62,9 @@ pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
 pub use vim::{
-    AlternativesCommand, AlternativesKeys, CommandLine, DirectoryEntry, LabCommand, LineCommand,
-    LineError, LineKey, LineStep, Put, RowCommand, SettingsCommand, VIM_KEYS, Vim, VimAction,
-    VimCommand, VimKey, VimMode, VimText, one_char, resolve_path,
+    AlternativesCommand, AlternativesKeys, CommandLine, DirectoryEntry, Fed, HAMISHRC_EXAMPLE,
+    Hamishrc, HamishrcError, HamishrcProblem, LabCommand, LineCommand, LineError, LineKey,
+    LineStep, MAX_MAP_DEPTH, MapMode, MapTarget, Put, RowCommand, SettingsCommand, VIM_KEYS, Vim,
+    VimAction, VimCommand, VimKey, VimMode, VimText, create_hamishrc, directory_entries,
+    hamishrc_text, one_char, resolve_path, vim_keys,
 };

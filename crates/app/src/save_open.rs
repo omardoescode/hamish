@@ -7,7 +7,10 @@ use gpui::{
     AnyElement, Context, IntoElement, PathPromptOptions, PromptLevel, SharedString, Window, div,
     prelude::*, px,
 };
-use hamish_core::{Document, Dropped, LabCheck, Level, LineError, Opened, StorageError};
+use hamish_core::{
+    Document, Dropped, HamishrcError, LabCheck, Level, LineError, MAX_MAP_DEPTH, Opened,
+    StorageError,
+};
 
 use crate::actions::{NewDocument, Open, Quit, Save, SaveAs};
 use crate::chrome::elevated_surface;
@@ -25,6 +28,16 @@ pub enum Notice {
     SettingsNotSaved(String),
     /// A command of the Command line did not run.
     CommandFailed(LineError),
+    /// Lines of the hamishrc that did not load.
+    Hamishrc(Vec<HamishrcError>),
+    /// The hamishrc file did not read.
+    HamishrcNotRead(String),
+    /// Edit hamishrc: the new hamishrc file was not made.
+    HamishrcNotMade(String),
+    /// No XDG config dir, so no hamishrc.
+    NoHamishrcDir,
+    /// A recursive map went through [`MAX_MAP_DEPTH`] maps; its keys are gone.
+    RecursiveMap,
 }
 
 /// Where the Document is saved, and the open notice.
@@ -35,12 +48,20 @@ pub(crate) struct SaveOpen {
     saving: bool,
     /// A save asked for while one runs; it starts when that one ends, so two saves never
     /// write the same file at once.
-    queued: Option<PathBuf>,
+    queued: Option<QueuedSave>,
     /// Counts the Documents that replaced the first one. A save that ends after a New or an
     /// Open belongs to a Document that is gone, so it changes nothing.
     generation: u64,
     /// Hamish closes when the running save ends well (`:wq`).
     quit_after_save: bool,
+}
+
+/// A save that waits for the running save to end.
+#[derive(Debug)]
+struct QueuedSave {
+    path: PathBuf,
+    /// Hamish closes when this save ends well (`:wq`).
+    quit: bool,
 }
 
 impl SaveOpen {
@@ -109,16 +130,30 @@ impl Workspace {
 
     /// Saves to `path`, then closes Hamish when the save ends well.
     pub(crate) fn save_and_quit(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.save_open.quit_after_save = true;
-        self.save_to(path, cx);
+        self.start_save(path, true, cx);
     }
 
     pub(crate) fn save_to(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.start_save(path, false, cx);
+    }
+
+    /// Saves to `path`; with `quit`, Hamish closes when this save ends well. A save asked for
+    /// while one runs replaces the queued save, and keeps its close.
+    fn start_save(&mut self, path: PathBuf, quit: bool, cx: &mut Context<Self>) {
         if self.save_open.saving {
-            self.save_open.queued = Some(path);
+            let queued_quit = self
+                .save_open
+                .queued
+                .as_ref()
+                .is_some_and(|queued| queued.quit);
+            self.save_open.queued = Some(QueuedSave {
+                path,
+                quit: quit || queued_quit,
+            });
             return;
         }
         self.save_open.saving = true;
+        self.save_open.quit_after_save = quit;
         let (document, at) = self.editor.update(cx, |editor, _| editor.snapshot());
         let target = path.clone();
         let generation = self.save_open.generation;
@@ -142,9 +177,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.save_open.saving = false;
-        if result.is_err() {
-            self.save_open.quit_after_save = false;
-        }
+        let quit = result.is_ok() && std::mem::take(&mut self.save_open.quit_after_save);
         match result {
             Ok(()) => {
                 self.editor
@@ -154,13 +187,10 @@ impl Workspace {
             }
             Err(error) => self.save_open.notice = Some(Notice::SaveFailed(error.to_string())),
         }
-        let queued = self.save_open.queued.take();
-        let quit = queued.is_none() && self.save_open.quit_after_save;
-        if let Some(queued) = queued {
-            self.save_to(queued, cx);
-        }
-        if quit {
-            cx.defer(|cx| cx.dispatch_action(&Quit));
+        match self.save_open.queued.take() {
+            Some(queued) => self.start_save(queued.path, queued.quit || quit, cx),
+            None if quit => cx.defer(|cx| cx.dispatch_action(&Quit)),
+            None => {}
         }
         cx.notify();
     }
@@ -355,6 +385,18 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
         }
         Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
         Notice::CommandFailed(error) => vec![error.to_string().into()],
+        Notice::Hamishrc(errors) => errors
+            .iter()
+            .map(|error| error.to_string().into())
+            .collect(),
+        Notice::HamishrcNotRead(error) => vec![format!("hamishrc not read: {error}").into()],
+        Notice::HamishrcNotMade(error) => vec![format!("hamishrc not made: {error}").into()],
+        Notice::NoHamishrcDir => {
+            vec!["hamishrc: no XDG config dir (set HOME or XDG_CONFIG_HOME)".into()]
+        }
+        Notice::RecursiveMap => {
+            vec![format!("hamishrc: a recursive map stopped after {MAX_MAP_DEPTH} maps").into()]
+        }
         Notice::Dropped(dropped) => {
             std::iter::once("The .md file changed outside Hamish. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))
