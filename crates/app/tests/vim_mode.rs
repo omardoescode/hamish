@@ -7,7 +7,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Pixels, TestAppContext, VisualTestContext,
     point, px,
 };
-use hamish_core::{Document, LoadedSettings, Settings};
+use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
 fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
     cx.update(|_, cx| {
@@ -31,8 +31,15 @@ fn open<'a>(
     text: &str,
     vim_mode: bool,
 ) -> (Entity<Workspace>, &'a mut VisualTestContext) {
+    open_document(cx, Document::new(text), vim_mode)
+}
+
+fn open_document(
+    cx: &mut TestAppContext,
+    document: Document,
+    vim_mode: bool,
+) -> (Entity<Workspace>, &mut VisualTestContext) {
     assert!(cx.update(app::init).is_ok(), "bundled font loads");
-    let document = Document::new(text);
     let (workspace, cx) = cx.add_window_view(|window, cx| Workspace::new(document, window, cx));
     set_vim_mode(cx, vim_mode);
     (workspace, cx)
@@ -350,5 +357,124 @@ fn dot_repeats_the_last_change_in_the_editor() {
         cx.simulate_input("six");
         cx.simulate_keystrokes("escape w .");
         assert_eq!(text(&workspace, cx), "six six three");
+    });
+}
+
+fn ghost_ranges(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<Range<usize>> {
+    cx.read(|cx| {
+        workspace
+            .read(cx)
+            .editor()
+            .read(cx)
+            .document()
+            .ghost_ranges()
+    })
+}
+
+#[test]
+fn gh_ghosts_and_capital_gh_revives_as_one_undo_step_each() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two three", true);
+
+        cx.simulate_keystrokes("w g h i w");
+        assert_eq!(ghost_ranges(&workspace, cx), vec![4..7]);
+        assert_eq!(selection(&workspace, cx), 4..4);
+
+        cx.simulate_keystrokes("g shift-h i w");
+        assert_eq!(ghost_ranges(&workspace, cx), Vec::<Range<usize>>::new());
+
+        cx.simulate_keystrokes("u");
+        assert_eq!(ghost_ranges(&workspace, cx), vec![4..7]);
+        assert_eq!(text(&workspace, cx), "one two three");
+    });
+}
+
+#[test]
+fn gs_stashes_the_visual_selection_and_shows_overflow() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two three", true);
+
+        cx.simulate_keystrokes("w v e g s");
+
+        assert_eq!(text(&workspace, cx), "one  three");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+        assert!(cx.read(|cx| workspace.read(cx).overflow_open()));
+        let overflow = cx.read(|cx| {
+            workspace
+                .read(cx)
+                .editor()
+                .read(cx)
+                .document()
+                .overflow()
+                .text()
+                .to_owned()
+        });
+        assert_eq!(overflow, "two");
+    });
+}
+
+/// "one two three" with a Word Slot over "three" (Variants "three", "3").
+fn slot_on_three() -> Document {
+    let mut document = Document::new("one two three");
+    assert!(
+        document
+            .create_slot(8..13, Level::Word, "3", Provenance::Writer)
+            .is_ok()
+    );
+    document
+}
+
+#[test]
+fn bracket_s_jumps_to_the_slot_and_bracket_v_cycles_it() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open_document(cx, slot_on_three(), true);
+
+        cx.simulate_keystrokes("] s");
+        assert_eq!(selection(&workspace, cx), 8..8);
+
+        cx.simulate_keystrokes("] v");
+        assert_eq!(text(&workspace, cx), "one two 3");
+
+        cx.simulate_keystrokes("2 [ v");
+        assert_eq!(text(&workspace, cx), "one two 3");
+
+        cx.simulate_keystrokes("[ v");
+        assert_eq!(text(&workspace, cx), "one two three");
+
+        cx.simulate_keystrokes("u");
+        assert_eq!(text(&workspace, cx), "one two 3");
+    });
+}
+
+#[test]
+fn space_a_opens_the_alternatives_panel_on_the_word_at_the_caret() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two", true);
+
+        cx.simulate_keystrokes("w space a");
+        cx.run_until_parked();
+
+        let rows = cx.read(|cx| {
+            workspace
+                .read(cx)
+                .alternatives_panel()
+                .map(|panel| panel.read(cx).rows(cx))
+        });
+        assert_eq!(
+            rows.map(|rows| rows.into_iter().map(|row| row.text).collect::<Vec<_>>()),
+            Some(vec!["two".to_owned()])
+        );
+    });
+}
+
+#[test]
+fn space_l_opens_the_lab() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two", true);
+
+        cx.simulate_keystrokes("space l");
+        cx.run_until_parked();
+
+        assert!(cx.read(|cx| workspace.read(cx).lab().read(cx).is_open()));
     });
 }

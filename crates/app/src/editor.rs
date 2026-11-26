@@ -118,6 +118,8 @@ pub(crate) enum EditorEvent {
     VariantDeleted(SlotId),
     /// An undo put a deleted Variant of the Slot back; its burst plays.
     VariantRestored(SlotId),
+    /// Text went to Overflow; Overflow shows where it went.
+    Stashed,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -440,6 +442,27 @@ impl Editor {
         true
     }
 
+    /// Cycles the Active variant of the Slot at the caret `times` times, as one undo step.
+    /// Nothing happens with the caret in no Slot.
+    fn cycle_at_caret(&mut self, cycle: Cycle, times: usize, cx: &mut Context<Self>) {
+        let Some(id) = self.session.document().slot_at(self.caret_offset()) else {
+            return;
+        };
+        let cycled = self.change_document(
+            |document| {
+                let mut switch = document.cycle_active(id, cycle)?;
+                for _ in 1..times {
+                    switch = document.cycle_active(id, cycle)?;
+                }
+                Ok::<_, SlotError>(switch)
+            },
+            cx,
+        );
+        if let Ok(switch) = cycled {
+            sounds::play(switch.sound(), cx);
+        }
+    }
+
     /// Starts the fade-in of `slot`, whose Active variant changed, `delay` from now.
     fn fade_in(&mut self, slot: Option<SlotId>, delay: Duration, cx: &App) {
         if let Some(slot) = slot {
@@ -716,14 +739,14 @@ impl Editor {
 
     /// Esc closes the context menu. With none open, Insert mode goes back to Normal mode;
     /// else a view up the tree takes it.
-    fn close_menu(&mut self, _: &CloseMenu, _: &mut Window, cx: &mut Context<Self>) {
+    fn close_menu(&mut self, _: &CloseMenu, window: &mut Window, cx: &mut Context<Self>) {
         if self.context_menu.take().is_some() {
             cx.notify();
             return;
         }
         let in_insert = self.vim_mode(cx) == Some(VimMode::Insert);
         if self.vim_mode(cx).is_some() {
-            self.run_vim(VimKey::Escape, cx);
+            self.run_vim(VimKey::Escape, window, cx);
         }
         if !in_insert {
             cx.propagate();
@@ -770,12 +793,15 @@ impl Editor {
         self.pass_on(cx);
     }
 
-    /// Moves the target to the end of Overflow as one undo step, then lets the
-    /// workspace show Overflow.
     fn stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
         self.context_menu = None;
         cx.notify();
-        let target = self.target();
+        self.stash_range(self.target(), cx);
+    }
+
+    /// Moves `target` to the end of Overflow as one undo step, then lets the workspace
+    /// show Overflow. The caret goes to where the text was.
+    fn stash_range(&mut self, target: Range<usize>, cx: &mut Context<Self>) {
         let stashed = self.session.change_then_select(
             |document| document.stash(target.clone()),
             |_, _| target.start..target.start,
@@ -785,7 +811,8 @@ impl Editor {
         }
         self.blink.restart(cx);
         self.autoscroll = true;
-        cx.propagate();
+        cx.emit(EditorEvent::Stashed);
+        cx.notify();
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {

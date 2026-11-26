@@ -24,6 +24,22 @@ use crate::sounds;
 use crate::{Editor, Theme};
 use crate::{loading, settings};
 
+#[expect(
+    clippy::disallowed_types,
+    reason = "gpui's Action derive builds actions from key binding JSON"
+)]
+mod actions {
+    use gpui::Action;
+    use hamish_core::Level;
+
+    /// Shows the word, sentence, or paragraph around the target, as a click on its Level tab.
+    #[derive(Debug, Clone, PartialEq, Action)]
+    #[action(namespace = alternatives_panel, no_json)]
+    pub struct ChooseLevel(pub Level);
+}
+
+pub use actions::ChooseLevel;
+
 /// Alternatives list text size.
 const LIST_FONT_SIZE: f32 = 12.;
 
@@ -419,7 +435,8 @@ impl Focusable for AlternativesPanel {
 }
 
 impl AlternativesPanel {
-    /// A click on a Level tab shows the word, sentence, or paragraph around the target.
+    /// A click on a Level tab or [`ChooseLevel`] shows the word, sentence, or paragraph
+    /// around the target.
     fn choose_level(&mut self, level: Level, cx: &mut Context<Self>) {
         let outcome = self
             .list
@@ -643,6 +660,9 @@ impl Render for AlternativesPanel {
             .key_context("AlternativesPanel")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(|panel, choose: &ChooseLevel, _, cx| {
+                panel.choose_level(choose.0, cx);
+            }))
             .on_action(cx.listener(Self::close))
             .on_action(cx.listener(Self::select_previous))
             .on_action(cx.listener(Self::select_next))

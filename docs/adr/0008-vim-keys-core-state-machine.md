@@ -22,3 +22,4 @@ GPUI 0.2.2 can bind multi-key sequences (`g g`) in a key context. We do not use 
 - The register is the system clipboard. Core has no clipboard, so a put comes back as `VimCommand::Put`; the Editor reads the clipboard and gives its text to `Put::command`.
 - `u` and `Ctrl+R` are the Editor undo and redo. One Vim command is one Undo step: an operator edit joins no other, and a change joins the typing of the Insert mode it starts (`EditKind::Insert`).
 - An operator edit over a Slot edge goes through the same `EditSession::edit` path as a selection delete (ADR 0006).
+- Hamish keys are in the same grammar: Ghost, Revive and Stash are operators (`gh`, `gH`, `gs`), `]` and `[` jump or cycle a Slot, and Space is the leader. A leader key comes back as `VimCommand::Run`; the Editor dispatches the same GPUI action as the key binding or menu item.
