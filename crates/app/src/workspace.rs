@@ -9,7 +9,8 @@ use gpui::{
 use hamish_core::{Document, SlotId, Toggle, document_title};
 
 use crate::actions::{
-    AiAlternatives, CloseMenu, OpenAlternatives, ToggleMarkdown, ToggleMarkers, ToggleOverflow,
+    AiAlternatives, CloseMenu, FocusEditor, FocusOverflow, OpenAlternatives, ToggleMarkdown,
+    ToggleMarkers, ToggleOverflow, UseOverflowBlock,
 };
 use crate::alternatives_panel::PanelEvent;
 use crate::chrome;
@@ -220,6 +221,30 @@ impl Workspace {
         cx.notify();
     }
 
+    /// `Ctrl+W h` in Vim mode: the Document gets the keyboard.
+    fn focus_editor(&mut self, _: &FocusEditor, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.editor.focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    /// `Ctrl+W l` in Vim mode: open Overflow gets the keyboard. A closed Overflow stays
+    /// closed.
+    fn focus_overflow(&mut self, _: &FocusOverflow, window: &mut Window, cx: &mut Context<Self>) {
+        if self.overflow_open {
+            window.focus(&self.overflow_panel.focus_handle(cx), cx);
+            cx.notify();
+        }
+    }
+
+    /// The leader `p` in the Document: a copy of the Overflow block at the Overflow caret
+    /// goes in at the Document caret.
+    fn use_overflow_block(&mut self, _: &UseOverflowBlock, _: &mut Window, cx: &mut Context<Self>) {
+        let caret = self.overflow_panel.read(cx).caret(cx);
+        self.editor.update(cx, |editor, cx| {
+            editor.use_overflow_block(caret, cx);
+        });
+    }
+
     /// The Variant dots and Markdown icons: flip `toggle` and save it. A failed save shows a
     /// notice.
     fn flip_setting(toggle: Toggle, cx: &mut Context<Self>) {
@@ -306,7 +331,13 @@ impl Workspace {
     /// The Chrome bar at the window top, with no fill: the Counter, New, Save, and Open
     /// left; the Variant dots, Markdown, and LAB center; the Vim mode, Settings, Shortcuts,
     /// and Overflow right.
-    fn chrome_bar(&self, theme: &Theme, height: Pixels, cx: &Context<Self>) -> impl IntoElement {
+    fn chrome_bar(
+        &self,
+        theme: &Theme,
+        height: Pixels,
+        vim_status: Option<String>,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let counter_label = self.editor.read(cx).counter_label();
         let markers = settings::is_on(cx, |settings| settings.markers);
         let markdown = settings::is_on(cx, |settings| settings.markdown);
@@ -349,7 +380,7 @@ impl Workspace {
                     .flex()
                     .items_center()
                     .gap(px(16.))
-                    .children(self.vim_status(cx).map(|status| {
+                    .children(vim_status.map(|status| {
                         div()
                             .id("vim-mode")
                             .debug_selector(|| "vim-mode".to_owned())
@@ -408,6 +439,13 @@ impl Render for Workspace {
         let theme = cx.global::<Theme>().clone();
         let bar_height = chrome_bar_height(cx);
         let title_label = self.title_label(cx);
+        let overflow_keys =
+            self.overflow_open && self.overflow_panel.focus_handle(cx).is_focused(window);
+        let vim_status = if overflow_keys {
+            self.overflow_panel.read(cx).vim_status(cx)
+        } else {
+            self.vim_status(cx)
+        };
         if title_label != self.window_title {
             window.set_window_title(&title_label);
             self.window_title.clone_from(&title_label);
@@ -428,6 +466,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_alternatives))
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
+            .on_action(cx.listener(Self::focus_editor))
+            .on_action(cx.listener(Self::focus_overflow))
+            .on_action(cx.listener(Self::use_overflow_block))
             .on_action(cx.listener(|_, _: &ToggleMarkers, _, cx| {
                 Self::flip_setting(Toggle::Markers, cx);
             }))
@@ -482,7 +523,7 @@ impl Render for Workspace {
                     .children(self.alternatives_panel().cloned()),
             )
             .child(title_view(title_label, &theme, bar_height))
-            .child(self.chrome_bar(&theme, bar_height, cx))
+            .child(self.chrome_bar(&theme, bar_height, vim_status, cx))
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
             .when(self.settings_open, |workspace| {

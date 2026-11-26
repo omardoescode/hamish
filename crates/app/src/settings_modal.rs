@@ -13,7 +13,10 @@ use gpui::{
     UniformListScrollHandle, Window, anchored, canvas, deferred, div, point, prelude::*, px, rgb,
     uniform_list,
 };
-use hamish_core::{Effect, SelectSearch, Setting, Settings, ThemeName, Toggle, caret_shown};
+use hamish_core::{
+    Effect, PanelCommand, PanelKeys, SelectSearch, Setting, Settings, ThemeName, Toggle, VimPanel,
+    caret_shown,
+};
 
 use crate::actions::{
     CloseSelect, CloseSettings, DeleteQueryBackward, NextRow, OpenSettings, PickRow, PreviousRow,
@@ -22,6 +25,7 @@ use crate::caret::CARET_WIDTH;
 use crate::chrome::{
     clickable_row, elevated_surface, popover_surface, selectable_row, text_button,
 };
+use crate::editor::{vim_key, vim_on};
 use crate::fonts;
 use crate::settings::{self, SettingsStore};
 use crate::{Theme, Workspace};
@@ -40,6 +44,32 @@ enum Select {
     TextFont,
 }
 
+/// One field of Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field {
+    Select(Select),
+    Stepper(Setting),
+    Toggle(Toggle),
+}
+
+/// The fields of Settings in the order they show, with the section of each. Vim mode `j`
+/// and `k` go through them in this order.
+const FIELDS: [(Section, Field); 13] = [
+    (Section::Appearance, Field::Select(Select::Theme)),
+    (Section::Appearance, Field::Select(Select::UiFont)),
+    (Section::Appearance, Field::Stepper(Setting::UiScale)),
+    (Section::Appearance, Field::Toggle(Toggle::ReducedMotion)),
+    (Section::Appearance, Field::Toggle(Toggle::FocusZoom)),
+    (Section::Editor, Field::Select(Select::TextFont)),
+    (Section::Editor, Field::Stepper(Setting::FontSize)),
+    (Section::Editor, Field::Stepper(Setting::LineHeight)),
+    (Section::Editor, Field::Stepper(Setting::ColumnWidth)),
+    (Section::Editor, Field::Toggle(Toggle::CycleSounds)),
+    (Section::Editor, Field::Toggle(Toggle::VimMode)),
+    (Section::Editor, Field::Toggle(Toggle::Markers)),
+    (Section::Editor, Field::Toggle(Toggle::Markdown)),
+];
+
 /// A settings save failed.
 pub(crate) struct SaveFailed(pub(crate) String);
 
@@ -55,6 +85,9 @@ pub struct SettingsModal {
     search_focus: FocusHandle,
     search: SelectSearch,
     scroll: UniformListScrollHandle,
+    /// The field that Vim mode keys act on: an index into [`FIELDS`].
+    vim_field: usize,
+    keys: PanelKeys,
 }
 
 impl EventEmitter<SaveFailed> for SettingsModal {}
@@ -69,6 +102,8 @@ impl SettingsModal {
             search_focus: cx.focus_handle(),
             search: SelectSearch::default(),
             scroll: UniformListScrollHandle::new(),
+            vim_field: 0,
+            keys: PanelKeys::default(),
         }
     }
 
@@ -82,6 +117,10 @@ impl SettingsModal {
 
     fn show(&mut self, section: Section, window: &mut Window, cx: &mut Context<Self>) {
         self.section = section;
+        self.vim_field = FIELDS
+            .iter()
+            .position(|(shown, _)| *shown == section)
+            .unwrap_or_default();
         self.close_select(window, cx);
         cx.notify();
     }
@@ -187,8 +226,81 @@ impl SettingsModal {
         cx.notify();
     }
 
-    /// Typed text goes into the search of the open select.
-    fn on_search_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    /// In Vim mode `j` and `k` move between the fields, `h` and `l` change a value, and
+    /// Enter opens a select or flips a toggle.
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !vim_on(cx) || self.open_select.is_some() {
+            return;
+        }
+        let field = FIELDS.get(self.vim_field).map(|(_, field)| *field);
+        match self.keys.key(VimPanel::Settings, vim_key(&event.keystroke)) {
+            PanelCommand::PassOn => return,
+            PanelCommand::Down => self.move_field(self.vim_field + 1),
+            PanelCommand::Up => self.move_field(self.vim_field.saturating_sub(1)),
+            PanelCommand::Left => Self::step(field, false, cx),
+            PanelCommand::Right => Self::step(field, true, cx),
+            PanelCommand::Enter => self.enter_field(field, window, cx),
+            PanelCommand::Close => window.dispatch_action(Box::new(CloseSettings), cx),
+            PanelCommand::Nothing
+            | PanelCommand::Insert
+            | PanelCommand::EndInsert
+            | PanelCommand::DeleteRow
+            | PanelCommand::ChooseLevel(_) => {}
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    /// Field `index` (at most the last) gets the Vim mode keys; its section shows.
+    fn move_field(&mut self, index: usize) {
+        self.vim_field = index.min(FIELDS.len() - 1);
+        if let Some((section, _)) = FIELDS.get(self.vim_field) {
+            self.section = *section;
+        }
+    }
+
+    /// `h` and `l`: a lower or higher value of a stepper; a toggle turns off or on.
+    fn step(field: Option<Field>, up: bool, cx: &mut Context<Self>) {
+        match field {
+            Some(Field::Stepper(setting)) => {
+                Self::change(cx, move |settings| step_setting(settings, setting, up));
+            }
+            Some(Field::Toggle(toggle)) => {
+                Self::change(cx, move |settings| set_toggle(settings, toggle, up));
+            }
+            Some(Field::Select(_)) | None => {}
+        }
+    }
+
+    /// Enter opens a select or flips a toggle.
+    fn enter_field(&mut self, field: Option<Field>, window: &mut Window, cx: &mut Context<Self>) {
+        match field {
+            Some(Field::Select(select)) => self.toggle_select(select, window, cx),
+            Some(Field::Toggle(toggle)) => Self::change(cx, move |settings| settings.flip(toggle)),
+            Some(Field::Stepper(_)) | None => {}
+        }
+    }
+
+    /// Typed text goes into the search of the open select. In Vim mode `j` and `k` move
+    /// between its rows.
+    fn on_search_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let keystroke = &event.keystroke;
+        let command =
+            vim_on(cx).then(|| self.keys.key(VimPanel::SettingsSelect, vim_key(keystroke)));
+        match command {
+            Some(PanelCommand::Down) => self.next_row(&NextRow, window, cx),
+            Some(PanelCommand::Up) => self.previous_row(&PreviousRow, window, cx),
+            Some(_) | None => return self.type_search(event, cx),
+        }
+        cx.stop_propagation();
+    }
+
+    fn type_search(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let Some(typed) = keystroke.key_char.as_ref() else {
             return;
@@ -384,56 +496,59 @@ impl SettingsModal {
             .child(label)
     }
 
-    fn appearance(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let current = div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(swatch(settings.theme, theme))
-            .child(settings.theme.label());
-        let ui_font = div().child(settings.ui_font.clone());
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .child(field(
-                "Theme",
-                theme,
-                self.select(Select::Theme, current, theme, cx),
-            ))
-            .child(field(
-                "UI font",
-                theme,
-                self.select(Select::UiFont, ui_font, theme, cx),
-            ))
-            .child(Self::stepper(Setting::UiScale, settings, theme, cx))
-            .child(Self::toggle(Toggle::ReducedMotion, settings, theme, cx))
-            .child(Self::toggle(Toggle::FocusZoom, settings, theme, cx))
+    /// The fields of the active section. In Vim mode the field of the keys shows the row
+    /// hover background.
+    fn fields(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
+        let vim_field = vim_on(cx).then_some(self.vim_field);
+        div().flex().flex_col().gap(px(4.)).children(
+            FIELDS
+                .iter()
+                .enumerate()
+                .filter(|(_, (section, _))| *section == self.section)
+                .map(|(index, (_, field))| {
+                    let shown = match *field {
+                        Field::Select(select) => self.select_field(select, settings, theme, cx),
+                        Field::Stepper(setting) => Self::stepper(setting, settings, theme, cx),
+                        Field::Toggle(toggle) => Self::toggle(toggle, settings, theme, cx),
+                    };
+                    selectable_row(theme, vim_field == Some(index))
+                        .px(px(4.))
+                        .py(px(4.))
+                        .child(shown)
+                }),
+        )
     }
 
-    fn editor(&self, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let current = div().child(
-            settings
-                .text_font
-                .clone()
-                .unwrap_or_else(|| "Default".to_owned()),
-        );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .child(field(
+    /// A select field with its label; the button shows the current choice.
+    fn select_field(
+        &self,
+        select: Select,
+        settings: &Settings,
+        theme: &Theme,
+        cx: &Context<Self>,
+    ) -> Div {
+        let (label, current) = match select {
+            Select::Theme => (
+                "Theme",
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(swatch(settings.theme, theme))
+                    .child(settings.theme.label()),
+            ),
+            Select::UiFont => ("UI font", div().child(settings.ui_font.clone())),
+            Select::TextFont => (
                 "Text font",
-                theme,
-                self.select(Select::TextFont, current, theme, cx),
-            ))
-            .child(Self::stepper(Setting::FontSize, settings, theme, cx))
-            .child(Self::stepper(Setting::LineHeight, settings, theme, cx))
-            .child(Self::stepper(Setting::ColumnWidth, settings, theme, cx))
-            .child(Self::toggle(Toggle::CycleSounds, settings, theme, cx))
-            .child(Self::toggle(Toggle::VimMode, settings, theme, cx))
-            .child(Self::toggle(Toggle::Markers, settings, theme, cx))
-            .child(Self::toggle(Toggle::Markdown, settings, theme, cx))
+                div().child(
+                    settings
+                        .text_font
+                        .clone()
+                        .unwrap_or_else(|| "Default".to_owned()),
+                ),
+            ),
+        };
+        field(label, theme, self.select(select, current, theme, cx))
     }
 
     /// A label and one button that shows "On" or "Off" and flips the setting.
@@ -477,13 +592,7 @@ impl SettingsModal {
                 .flex()
                 .justify_center()
                 .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    Self::change(cx, |settings| {
-                        if up {
-                            settings.increase(setting);
-                        } else {
-                            settings.decrease(setting);
-                        }
-                    });
+                    Self::change(cx, move |settings| step_setting(settings, setting, up));
                 }))
                 .child(if up { "+" } else { "-" })
         };
@@ -504,6 +613,22 @@ impl SettingsModal {
                 )
                 .child(button(true)),
         )
+    }
+}
+
+/// A higher (`up`) or lower value of `setting`.
+fn step_setting(settings: &mut Settings, setting: Setting, up: bool) {
+    if up {
+        settings.increase(setting);
+    } else {
+        settings.decrease(setting);
+    }
+}
+
+/// `toggle` on or off.
+fn set_toggle(settings: &mut Settings, toggle: Toggle, on: bool) {
+    if settings.is_on(toggle) != on {
+        settings.flip(toggle);
     }
 }
 
@@ -685,15 +810,13 @@ impl Render for SettingsModal {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
         let settings = cx.global::<SettingsStore>().settings.clone();
-        let fields = match self.section {
-            Section::Appearance => self.appearance(&settings, &theme, cx),
-            Section::Editor => self.editor(&settings, &theme, cx),
-        };
+        let fields = self.fields(&settings, &theme, cx);
         let scale = theme.font_size_hint / px(10.);
         div()
             .id("settings-backdrop")
             .key_context("SettingsModal")
             .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(Self::on_key_down))
             .occlude()
             .absolute()
             .top_0()

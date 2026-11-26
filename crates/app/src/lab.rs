@@ -4,14 +4,18 @@
 use std::collections::HashMap;
 
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, MouseButton, Render,
-    SharedString, Subscription, Window, anchored, deferred, div, point, prelude::*, px,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, KeyDownEvent,
+    MouseButton, Render, SharedString, Subscription, Window, anchored, deferred, div, point,
+    prelude::*, px,
 };
-use hamish_core::{LabCheck, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
+use hamish_core::{
+    LabCheck, LabError, LabMark, LabMarkId, PanelCommand, PanelKeys, TrimError, TrimLevel, VimPanel,
+};
 
 use crate::actions::{Redo, Undo};
 use crate::ai::{AiFailure, AiRun, AiStatus};
 use crate::chrome::{clickable_row, popover_surface, text_button};
+use crate::editor::{vim_key, vim_on};
 use crate::{Editor, Theme};
 
 #[expect(
@@ -75,6 +79,9 @@ pub struct Lab {
     checks: HashMap<LabCheck, AiRun<LabCheck, LabError>>,
     /// The Trim run; a new level cancels the one that runs.
     pub(crate) trim: AiRun<TrimLevel, TrimError>,
+    /// The row of the Lab check that Vim mode keys act on: an index into [`LabCheck::ALL`].
+    vim_row: usize,
+    keys: PanelKeys,
     focus_handle: FocusHandle,
     _editor_changes: Subscription,
 }
@@ -126,6 +133,8 @@ impl Lab {
             guide: false,
             checks: HashMap::new(),
             trim: AiRun::default(),
+            vim_row: 0,
+            keys: PanelKeys::default(),
             focus_handle: cx.focus_handle(),
             _editor_changes: editor_changes,
         }
@@ -194,6 +203,36 @@ impl Lab {
 
     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         self.editor.update(cx, Editor::undo_step);
+    }
+
+    fn run_vim_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(check) = LabCheck::ALL.get(self.vim_row) {
+            self.run_lab_check(&RunLabCheck(*check), window, cx);
+        }
+    }
+
+    /// In Vim mode `j` and `k` move between the Lab checks and Enter runs one.
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !vim_on(cx) {
+            return;
+        }
+        let last = LabCheck::ALL.len() - 1;
+        match self.keys.key(VimPanel::Lab, vim_key(&event.keystroke)) {
+            PanelCommand::PassOn => return,
+            PanelCommand::Down => self.vim_row = (self.vim_row + 1).min(last),
+            PanelCommand::Up => self.vim_row = self.vim_row.saturating_sub(1),
+            PanelCommand::Enter => self.run_vim_row(window, cx),
+            PanelCommand::Close => self.close(&CloseLab, window, cx),
+            PanelCommand::Nothing
+            | PanelCommand::Left
+            | PanelCommand::Right
+            | PanelCommand::Insert
+            | PanelCommand::EndInsert
+            | PanelCommand::DeleteRow
+            | PanelCommand::ChooseLevel(_) => {}
+        }
+        cx.stop_propagation();
+        cx.notify();
     }
 
     fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
@@ -275,6 +314,7 @@ impl Lab {
     }
 
     fn popover(&self, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let vim_row = vim_on(cx).then_some(self.vim_row);
         let header = div()
             .id("lab-guide")
             .debug_selector(|| "lab-guide".to_owned())
@@ -305,6 +345,9 @@ impl Lab {
                 }
             };
             clickable_row(theme)
+                .when(vim_row == Some(index), |row| {
+                    row.bg(theme.elevated_row_hover)
+                })
                 .id(("lab-check", index))
                 .debug_selector(move || format!("lab-check-{index}"))
                 .px(px(12.))
@@ -351,6 +394,7 @@ impl Lab {
             .on_action(cx.listener(Self::run_lab_check))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
+            .on_key_down(cx.listener(Self::on_key_down))
             .debug_selector(|| "lab-popover".to_owned())
             .occlude()
             .w(POPOVER_WIDTH)

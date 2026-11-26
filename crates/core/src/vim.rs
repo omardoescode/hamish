@@ -5,19 +5,22 @@
 mod hamish;
 mod keys;
 mod motion;
+mod panel;
 mod put;
 mod text_object;
 
 use std::ops::Range;
 
 use crate::caret::{line_start, next_boundary, previous_boundary};
-use crate::{Caret, CaretEdit, Cycle, Document, EditKind, Motion};
+use crate::{Caret, CaretEdit, Cycle, Document, EditKind, Motion, TrimProposal};
 pub use hamish::VimAction;
+use hamish::WINDOW_PREFIX;
 pub use keys::VIM_KEYS;
 use motion::{
     at_column, column_of, first_non_blank, left, line_number, lines_down, lines_up, motion_span,
     repeat, right, word_end_after, word_start_after, word_start_before,
 };
+pub use panel::{PanelCommand, PanelKeys, VimPanel};
 pub use put::Put;
 use text_object::text_object;
 
@@ -101,13 +104,16 @@ pub enum VimCommand {
 }
 
 /// The text Vim mode reads: the Document text, with the spans of its Slots and Ghost ranges
-/// for the text objects `iv` and `ig`. Plain text has neither.
+/// for the text objects `iv` and `ig`, its Lab marks, and the open cuts of its Trim
+/// proposal. Plain text has none of them.
 #[derive(Debug, Clone, Default)]
 pub struct VimText<'a> {
     text: &'a str,
     slots: Vec<Range<usize>>,
     ghosts: Vec<Range<usize>>,
     lab_marks: Vec<Range<usize>>,
+    /// The cuts still in the Trim proposal; `None` with no proposal open.
+    trim_cuts: Option<Vec<Range<usize>>>,
 }
 
 impl<'a> From<&'a str> for VimText<'a> {
@@ -134,6 +140,7 @@ impl<'a> From<&'a Document> for VimText<'a> {
                 .iter()
                 .map(|mark| mark.range.clone())
                 .collect(),
+            trim_cuts: document.trim_proposal().map(TrimProposal::open_ranges),
         }
     }
 }
@@ -442,7 +449,11 @@ impl Vim {
             return Step::Pending;
         }
         if key == VimKey::Escape {
-            return Step::Done(VimCommand::Nothing);
+            return Step::Done(self.escape(text));
+        }
+        if self.operator.is_none() && key == VimKey::Ctrl('w') {
+            self.prefix = Some(WINDOW_PREFIX);
+            return Step::Pending;
         }
         let object = self.operator.is_some() && matches!(key, VimKey::Char('i' | 'a'));
         let hamish = self.operator.is_none() && matches!(key, VimKey::Char(' ' | ']' | '['));
@@ -503,6 +514,9 @@ impl Vim {
 
     fn command(&mut self, key: VimKey, text: &VimText<'_>, offset: usize) -> Step {
         let count = self.take_count();
+        if let Some(step) = self.trim_walk(key, count, text, offset) {
+            return step;
+        }
         if let Some(target) = self.motion(key, count, text.text, offset) {
             return Step::Done(select(target));
         }

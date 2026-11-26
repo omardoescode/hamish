@@ -1,18 +1,19 @@
 //! The Overflow panel: right side, a free text area over the Document's
-//! Overflow. Edits go through the [`Editor`], so they share its undo history.
+//! Overflow, with the same Vim mode as the Document. Edits go through the [`Editor`], so
+//! they share its undo history.
 
 use gpui::{
     App, Bounds, Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity,
-    FocusHandle, Focusable, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    MouseButton, MouseDownEvent, PaintQuad, Pixels, Render, ScrollHandle, SharedString, Size,
-    Style, Subscription, TextRun, Window, div, prelude::*, px, relative,
+    FocusHandle, Focusable, GlobalElementId, InspectorElementId, IntoElement, KeyDownEvent,
+    LayoutId, MouseButton, MouseDownEvent, PaintQuad, Pixels, Render, ScrollHandle, SharedString,
+    Size, Style, Subscription, TextRun, Window, div, prelude::*, px, relative,
 };
-use hamish_core::{Caret, CaretEdit};
+use hamish_core::{Caret, CaretEdit, Vim, VimCommand, VimKey, VimMode};
 
 use crate::actions::{LeaveOverflow, Redo, ToggleOverflow, Undo, UseOverflowBlock};
 use crate::caret::{self, CaretBlink, CaretView, Column, caret_actions, caret_input_handler};
 use crate::chrome::elevated_surface;
-use crate::editor::{PaintedText, shape};
+use crate::editor::{PaintedText, gpui_action, run_text_command, shape, vim_key, vim_on};
 use crate::{Editor, Theme};
 
 /// The value a drag from the Overflow text carries: the block at the panel caret.
@@ -29,6 +30,8 @@ pub struct OverflowPanel {
     blink: CaretBlink,
     autoscroll: bool,
     column: Option<Column>,
+    /// The Vim key state of the Overflow text; it starts again each time Vim mode turns on.
+    vim: Vim,
     /// The font family of the text as last painted.
     text_font: SharedString,
     _editor_changes: Subscription,
@@ -47,6 +50,7 @@ impl OverflowPanel {
             blink: CaretBlink::new(cx),
             autoscroll: false,
             column: None,
+            vim: Vim::default(),
             text_font: SharedString::default(),
             _editor_changes: editor_changes,
         }
@@ -110,9 +114,71 @@ impl OverflowPanel {
             .update(cx, |editor, cx| editor.use_overflow_block(caret, cx));
     }
 
-    /// Esc gives the keyboard back to the Document; Overflow stays open.
+    /// Esc gives the keyboard back to the Document; Overflow stays open. In Vim mode, Esc in
+    /// Insert or Visual mode goes to Normal mode and Overflow keeps the keyboard.
     fn leave(&mut self, _: &LeaveOverflow, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.editor.focus_handle(cx), cx);
+        let mode = self.vim_mode(cx);
+        if mode.is_some() {
+            self.run_vim(VimKey::Escape, window, cx);
+        }
+        if matches!(mode, None | Some(VimMode::Normal)) {
+            window.focus(&self.editor.focus_handle(cx), cx);
+        }
+    }
+
+    /// The Vim mode of the Overflow text; `None` when the Vim mode setting is off.
+    #[must_use]
+    pub fn vim_mode(&self, cx: &App) -> Option<VimMode> {
+        vim_on(cx).then(|| self.vim.mode())
+    }
+
+    /// The Vim mode and the keys of a command not yet complete, as the Chrome bar shows
+    /// them while Overflow has the keyboard; `None` when the Vim mode setting is off.
+    #[must_use]
+    pub fn vim_status(&self, cx: &App) -> Option<String> {
+        vim_on(cx).then(|| self.vim.status())
+    }
+
+    /// A key that no key binding took goes to Vim mode, as in the Document.
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if vim_on(cx) && self.run_vim(vim_key(&event.keystroke), window, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key
+    /// on. Ghost, Revive, Stash and the Slot cycle act on the Document only, so here they do
+    /// nothing.
+    fn run_vim(&mut self, key: VimKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let text = self.text(cx);
+        let command = self.vim.key(key, text.as_str(), &self.caret);
+        if command == VimCommand::PassOn {
+            return false;
+        }
+        match run_text_command(self, command, cx) {
+            Some(VimCommand::Undo(times)) => self.undo_redo(times, Editor::undo_step, cx),
+            Some(VimCommand::Redo(times)) => self.undo_redo(times, Editor::redo_step, cx),
+            Some(VimCommand::Run(action)) => window.dispatch_action(gpui_action(action), cx),
+            Some(_) | None => {}
+        }
+        cx.notify();
+        true
+    }
+
+    /// Runs `step` `times` times; the caret follows, then goes to the start of the selection.
+    fn undo_redo(
+        &mut self,
+        times: usize,
+        step: fn(&mut Editor, &mut Context<Editor>),
+        cx: &mut Context<Self>,
+    ) {
+        let old = self.text(cx);
+        for _ in 0..times {
+            self.editor.update(cx, step);
+        }
+        self.follow(&old, cx);
+        let start = self.caret.selection().start;
+        self.select(Caret::at(start), cx);
     }
 
     fn on_mouse_down(
@@ -155,7 +221,12 @@ impl CaretView for OverflowPanel {
     }
 
     fn select(&mut self, caret: Caret, cx: &mut Context<Self>) {
-        self.caret = caret;
+        self.caret = if vim_on(cx) {
+            let text = self.text(cx);
+            self.vim.settle(&text, caret)
+        } else {
+            caret
+        };
         self.editor.update(cx, |editor, _| editor.close_history());
         self.blink.restart(cx);
         self.autoscroll = true;
@@ -186,6 +257,10 @@ impl CaretView for OverflowPanel {
     fn column(&mut self) -> &mut Option<Column> {
         &mut self.column
     }
+
+    fn takes_text(&self, cx: &App) -> bool {
+        matches!(self.vim_mode(cx), None | Some(VimMode::Insert))
+    }
 }
 
 caret_input_handler!(OverflowPanel);
@@ -200,9 +275,18 @@ impl Render for OverflowPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
         let panel = cx.entity();
+        if !vim_on(cx) {
+            self.vim = Vim::default();
+        }
+        let key_context = match self.vim_mode(cx) {
+            None => "OverflowPanel",
+            Some(VimMode::Normal) => "OverflowPanel VimNormal",
+            Some(VimMode::Insert) => "OverflowPanel VimInsert",
+            Some(VimMode::Visual | VimMode::VisualLine) => "OverflowPanel VimVisual",
+        };
         let element = div()
             .id("overflow-panel")
-            .key_context("OverflowPanel")
+            .key_context(key_context)
             .track_focus(&self.focus_handle);
         caret_actions(element, cx)
             .occlude()
@@ -220,6 +304,7 @@ impl Render for OverflowPanel {
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::use_block))
             .on_action(cx.listener(Self::leave))
+            .on_key_down(cx.listener(Self::on_key_down))
             .child(
                 div()
                     .px(px(16.))
