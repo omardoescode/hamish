@@ -1,6 +1,6 @@
 //! Focus zoom. The paragraph with the caret paints a little larger about the middle
 //! of its rows; the layout stays, so the paragraph may overlap its neighbors a little.
-//! GPUI 0.2.2 has no transform for text or quads (`TransformationMatrix` is for SVG only),
+//! GPUI has no transform for text or quads (`TransformationMatrix` is for SVG only),
 //! so this paints the glyphs of the zoomed paragraph itself and moves every quad, the caret,
 //! and the pen strokes over it. Mouse positions map back before the hit tests.
 

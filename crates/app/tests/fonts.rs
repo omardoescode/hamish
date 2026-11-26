@@ -1,5 +1,7 @@
+mod system_text;
+
 use app::{ToggleOverflow, Workspace};
-use gpui::{Entity, Modifiers, TestAppContext, TestDispatcher, VisualTestContext};
+use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
 use hamish_core::{Document, LoadedSettings, Settings};
 
 /// Opens a window with `settings` and `text`, and shows the Chrome and Overflow.
@@ -27,15 +29,6 @@ fn open<'a>(
     (workspace, cx)
 }
 
-/// A test app on the system text system, so the font list holds the system fonts.
-fn system_fonts_cx() -> TestAppContext {
-    TestAppContext::build_with_text_system(
-        TestDispatcher::new(0),
-        None,
-        gpui_platform::current_platform(true).text_system(),
-    )
-}
-
 /// The font family of the Chrome, the Document text, and the Overflow text, as last painted.
 fn painted_fonts(
     workspace: &Entity<Workspace>,
@@ -58,56 +51,61 @@ fn click(cx: &mut VisualTestContext, id: &'static str) {
     cx.run_until_parked();
 }
 
-#[gpui::test]
-fn the_chrome_uses_the_ui_font_and_the_document_text_uses_the_text_font(cx: &mut TestAppContext) {
-    let settings = Settings {
-        ui_font: "DejaVu Sans".to_owned(),
-        text_font: Some("DejaVu Serif".to_owned()),
-        ..Settings::default()
-    };
-    let (workspace, cx) = open(cx, settings, "Title\nBody.");
+#[test]
+fn the_chrome_uses_the_ui_font_and_the_document_text_uses_the_text_font() {
+    system_text::run(1, |cx| {
+        let settings = Settings {
+            ui_font: "DejaVu Sans".to_owned(),
+            text_font: Some("DejaVu Serif".to_owned()),
+            ..Settings::default()
+        };
+        let (workspace, cx) = open(cx, settings, "Title\nBody.");
 
-    assert_eq!(
-        painted_fonts(&workspace, cx),
-        (
-            "DejaVu Sans".to_owned(),
-            "DejaVu Serif".to_owned(),
-            "DejaVu Serif".to_owned()
-        )
-    );
+        assert_eq!(
+            painted_fonts(&workspace, cx),
+            (
+                "DejaVu Sans".to_owned(),
+                "DejaVu Serif".to_owned(),
+                "DejaVu Serif".to_owned()
+            )
+        );
+    });
 }
 
 #[test]
 fn the_default_text_font_follows_the_ui_font_when_it_changes() {
-    let cx = &mut system_fonts_cx();
-    let (workspace, cx) = open(cx, Settings::default(), "Title\nBody.");
-    let plex = "IBM Plex Mono".to_owned();
-    assert_eq!(
-        painted_fonts(&workspace, cx),
-        (plex.clone(), plex.clone(), plex.clone())
-    );
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Settings::default(), "Title\nBody.");
+        let plex = "IBM Plex Mono".to_owned();
+        assert_eq!(
+            painted_fonts(&workspace, cx),
+            (plex.clone(), plex.clone(), plex.clone())
+        );
 
-    cx.simulate_keystrokes("ctrl-,");
-    click(cx, "settings-ui-font-select");
-    click(cx, "settings-ui-font-1");
-    cx.simulate_keystrokes("escape");
-    cx.run_until_parked();
+        cx.simulate_keystrokes("ctrl-,");
+        click(cx, "settings-ui-font-select");
+        click(cx, "settings-ui-font-1");
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
 
-    let (chrome, text, overflow) = painted_fonts(&workspace, cx);
-    assert_ne!(chrome, plex);
-    assert_eq!(text, chrome);
-    assert_eq!(overflow, chrome);
+        let (chrome, text, overflow) = painted_fonts(&workspace, cx);
+        assert_ne!(chrome, plex);
+        assert_eq!(text, chrome);
+        assert_eq!(overflow, chrome);
+    });
 }
 
-#[gpui::test]
-fn bold_text_keeps_its_weight_in_a_text_font_with_no_bold_face(cx: &mut TestAppContext) {
-    let settings = Settings {
-        text_font: Some("Adwaita Sans".to_owned()),
-        ..Settings::default()
-    };
-    let (workspace, cx) = open(cx, settings, "# Head\nBody **b** end.");
+#[test]
+fn bold_text_keeps_its_weight_in_a_text_font_with_no_bold_face() {
+    system_text::run(1, |cx| {
+        let settings = Settings {
+            text_font: Some("Adwaita Sans".to_owned()),
+            ..Settings::default()
+        };
+        let (workspace, cx) = open(cx, settings, "# Head\nBody **b** end.");
 
-    let bold = cx.read(|cx| workspace.read(cx).editor().read(cx).synthetic_bold());
+        let bold = cx.read(|cx| workspace.read(cx).editor().read(cx).synthetic_bold());
 
-    assert_eq!(bold, vec![0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16]);
+        assert_eq!(bold, vec![0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16]);
+    });
 }

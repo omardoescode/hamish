@@ -1,3 +1,5 @@
+mod system_text;
+
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -109,174 +111,190 @@ fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
     })
 }
 
-#[gpui::test]
-fn ai_alternatives_shows_progress_then_ai_variants_under_the_original(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(client_and_patron()));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
+#[test]
+fn ai_alternatives_shows_progress_then_ai_variants_under_the_original() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(client_and_patron()));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
 
-    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
-    assert_eq!(status(&workspace, cx), AiStatus::Running);
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![row("customer", Provenance::Writer, true)]
-    );
+        cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+        assert_eq!(status(&workspace, cx), AiStatus::Running);
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![row("customer", Provenance::Writer, true)]
+        );
 
-    cx.run_until_parked();
-    assert_eq!(status(&workspace, cx), AiStatus::Done);
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![
-            row("customer", Provenance::Writer, true),
-            row("client", Provenance::Ai, false),
-            row("patron", Provenance::Ai, false),
-        ]
-    );
-    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
-}
-
-#[gpui::test]
-fn a_failed_request_shows_why_and_changes_nothing(cx: &mut TestAppContext) {
-    let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
-    let (workspace, cx) = open(cx, Some(failing));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-
-    cx.simulate_keystrokes("ctrl-shift-g");
-
-    assert_eq!(
-        status(&workspace, cx),
-        AiStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
-    );
-    assert!(cx.debug_bounds("alternatives-ai-status").is_some());
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![row("customer", Provenance::Writer, true)]
-    );
-    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
-}
-
-#[gpui::test]
-fn the_empty_row_dances_while_the_ai_works_as_in_a_quick_fill(cx: &mut TestAppContext) {
-    let (_workspace, cx) = open(cx, Some(client_and_patron()));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-
-    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
-    cx.update(|window, _| window.refresh());
-
-    assert!(cx.debug_bounds("alternatives-loading").is_some());
-    assert!(cx.debug_bounds("alternatives-loading-still").is_none());
-    assert!(cx.debug_bounds("alternatives-ai-status").is_none());
-    assert!(cx.debug_bounds("alternatives-row-1").is_none());
-}
-
-#[gpui::test]
-fn with_reduced_motion_the_loading_row_is_still(cx: &mut TestAppContext) {
-    let (_workspace, cx) = open(cx, Some(client_and_patron()));
-    let settings = LoadedSettings {
-        settings: Settings {
-            reduced_motion: true,
-            ..Settings::default()
-        },
-        problem: None,
-    };
-    cx.update(|_, cx| app::use_settings(None, settings, cx));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-
-    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
-    cx.update(|window, _| window.refresh());
-
-    assert!(cx.debug_bounds("alternatives-loading-still").is_some());
-}
-
-#[gpui::test]
-fn one_undo_removes_the_whole_ai_request(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(client_and_patron()));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-g");
-    assert_eq!(rows(&workspace, cx).len(), 3);
-
-    cx.simulate_keystrokes("escape ctrl-z");
-
-    let slots = cx.read(|cx| {
-        workspace
-            .read(cx)
-            .editor()
-            .read(cx)
-            .document()
-            .slots()
-            .len()
+        cx.run_until_parked();
+        assert_eq!(status(&workspace, cx), AiStatus::Done);
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![
+                row("customer", Provenance::Writer, true),
+                row("client", Provenance::Ai, false),
+                row("patron", Provenance::Ai, false),
+            ]
+        );
+        assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
     });
-    assert_eq!(slots, 0);
-    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
 }
 
-#[gpui::test]
-fn ai_variants_can_be_removed_one_by_one(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(client_and_patron()));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-g");
+#[test]
+fn a_failed_request_shows_why_and_changes_nothing() {
+    system_text::run(1, |cx| {
+        let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
+        let (workspace, cx) = open(cx, Some(failing));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
 
-    cx.simulate_keystrokes("up ctrl-backspace");
+        cx.simulate_keystrokes("ctrl-shift-g");
 
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![
-            row("customer", Provenance::Writer, true),
-            row("client", Provenance::Ai, false),
-        ]
-    );
-    assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
-}
-
-#[gpui::test]
-fn ctrl_shift_g_in_the_panel_adds_ai_variants_to_the_slot_it_shows(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(client_and_patron()));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-    cx.simulate_keystrokes("ctrl-shift-a up");
-    cx.simulate_input("buyer");
-    cx.simulate_keystrokes("enter up");
-    assert_eq!(text(&workspace, cx), "Title\nThe buyer waits.");
-
-    cx.simulate_keystrokes("ctrl-shift-g");
-
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![
-            row("customer", Provenance::Writer, false),
-            row("buyer", Provenance::Writer, true),
-            row("client", Provenance::Ai, false),
-            row("patron", Provenance::Ai, false),
-        ]
-    );
-    assert_eq!(text(&workspace, cx), "Title\nThe buyer waits.");
-}
-
-#[gpui::test]
-fn escape_while_the_ai_works_stops_the_request_and_keeps_the_panel_open(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(client_and_patron()));
-    cx.simulate_keystrokes(INTO_CUSTOMER);
-
-    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
-    cx.update(|window, cx| {
-        let escape = Keystroke::parse("escape").expect("a valid keystroke");
-        window.dispatch_keystroke(escape, cx)
+        assert_eq!(
+            status(&workspace, cx),
+            AiStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
+        );
+        assert!(cx.debug_bounds("alternatives-ai-status").is_some());
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![row("customer", Provenance::Writer, true)]
+        );
+        assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
     });
-    cx.run_until_parked();
+}
 
-    assert_eq!(status(&workspace, cx), AiStatus::Idle);
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![row("customer", Provenance::Writer, true)]
-    );
-    let slots = cx.read(|cx| {
-        workspace
-            .read(cx)
-            .editor()
-            .read(cx)
-            .document()
-            .slots()
-            .len()
+#[test]
+fn the_empty_row_dances_while_the_ai_works_as_in_a_quick_fill() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx) = open(cx, Some(client_and_patron()));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+
+        cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+        cx.update(|window, _| window.refresh());
+
+        assert!(cx.debug_bounds("alternatives-loading").is_some());
+        assert!(cx.debug_bounds("alternatives-loading-still").is_none());
+        assert!(cx.debug_bounds("alternatives-ai-status").is_none());
+        assert!(cx.debug_bounds("alternatives-row-1").is_none());
     });
-    assert_eq!(slots, 0);
+}
+
+#[test]
+fn with_reduced_motion_the_loading_row_is_still() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx) = open(cx, Some(client_and_patron()));
+        let settings = LoadedSettings {
+            settings: Settings {
+                reduced_motion: true,
+                ..Settings::default()
+            },
+            problem: None,
+        };
+        cx.update(|_, cx| app::use_settings(None, settings, cx));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+
+        cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+        cx.update(|window, _| window.refresh());
+
+        assert!(cx.debug_bounds("alternatives-loading-still").is_some());
+    });
+}
+
+#[test]
+fn one_undo_removes_the_whole_ai_request() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(client_and_patron()));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        cx.simulate_keystrokes("ctrl-shift-g");
+        assert_eq!(rows(&workspace, cx).len(), 3);
+
+        cx.simulate_keystrokes("escape ctrl-z");
+
+        let slots = cx.read(|cx| {
+            workspace
+                .read(cx)
+                .editor()
+                .read(cx)
+                .document()
+                .slots()
+                .len()
+        });
+        assert_eq!(slots, 0);
+        assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    });
+}
+
+#[test]
+fn ai_variants_can_be_removed_one_by_one() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(client_and_patron()));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        cx.simulate_keystrokes("ctrl-shift-g");
+
+        cx.simulate_keystrokes("up ctrl-backspace");
+
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![
+                row("customer", Provenance::Writer, true),
+                row("client", Provenance::Ai, false),
+            ]
+        );
+        assert_eq!(text(&workspace, cx), "Title\nThe customer waits.");
+    });
+}
+
+#[test]
+fn ctrl_shift_g_in_the_panel_adds_ai_variants_to_the_slot_it_shows() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(client_and_patron()));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        cx.simulate_keystrokes("ctrl-shift-a up");
+        cx.simulate_input("buyer");
+        cx.simulate_keystrokes("enter up");
+        assert_eq!(text(&workspace, cx), "Title\nThe buyer waits.");
+
+        cx.simulate_keystrokes("ctrl-shift-g");
+
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![
+                row("customer", Provenance::Writer, false),
+                row("buyer", Provenance::Writer, true),
+                row("client", Provenance::Ai, false),
+                row("patron", Provenance::Ai, false),
+            ]
+        );
+        assert_eq!(text(&workspace, cx), "Title\nThe buyer waits.");
+    });
+}
+
+#[test]
+fn escape_while_the_ai_works_stops_the_request_and_keeps_the_panel_open() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(client_and_patron()));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+
+        cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+        cx.update(|window, cx| {
+            let escape = Keystroke::parse("escape").expect("a valid keystroke");
+            window.dispatch_keystroke(escape, cx)
+        });
+        cx.run_until_parked();
+
+        assert_eq!(status(&workspace, cx), AiStatus::Idle);
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![row("customer", Provenance::Writer, true)]
+        );
+        let slots = cx.read(|cx| {
+            workspace
+                .read(cx)
+                .editor()
+                .read(cx)
+                .document()
+                .slots()
+                .len()
+        });
+        assert_eq!(slots, 0);
+    });
 }
 
 #[expect(clippy::expect_used, reason = "test fixture")]
@@ -294,22 +312,24 @@ fn right_click_on(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, off
     cx.simulate_mouse_up(position, MouseButton::Right, Modifiers::none());
 }
 
-#[gpui::test]
-fn the_context_menu_row_asks_the_ai_for_the_word(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(client_and_patron()));
-    right_click_on(&workspace, cx, 13);
+#[test]
+fn the_context_menu_row_asks_the_ai_for_the_word() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(client_and_patron()));
+        right_click_on(&workspace, cx, 13);
 
-    let menu_row = cx
-        .debug_bounds("context-menu-row-1")
-        .expect("the menu is open");
-    cx.simulate_click(menu_row.center(), Modifiers::none());
+        let menu_row = cx
+            .debug_bounds("context-menu-row-1")
+            .expect("the menu is open");
+        cx.simulate_click(menu_row.center(), Modifiers::none());
 
-    assert_eq!(
-        rows(&workspace, cx),
-        vec![
-            row("customer", Provenance::Writer, true),
-            row("client", Provenance::Ai, false),
-            row("patron", Provenance::Ai, false),
-        ]
-    );
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![
+                row("customer", Provenance::Writer, true),
+                row("client", Provenance::Ai, false),
+                row("patron", Provenance::Ai, false),
+            ]
+        );
+    });
 }

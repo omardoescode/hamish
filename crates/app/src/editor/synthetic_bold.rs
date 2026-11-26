@@ -1,5 +1,5 @@
-//! Synthetic bold for a font with no bold face. GPUI 0.2.2 on Linux uses no font variation
-//! axes, so a variable font (Adwaita Sans, say) has no bold; its bold glyphs paint twice.
+//! Synthetic bold for a font with no bold face. GPUI on Linux uses no font variation axes,
+//! so a variable font (Adwaita Sans, say) has no bold; its bold glyphs paint twice.
 
 use std::ops::Range;
 
