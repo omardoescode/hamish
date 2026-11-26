@@ -4,7 +4,7 @@ use hamish_core::{
 };
 
 fn parse(text: &str) -> Hamishrc {
-    Hamishrc::parse(text)
+    Hamishrc::parse(text, &[])
 }
 
 /// The keys of `typed` (one char each) through the maps of `rc` in `mode`, until the feed
@@ -274,4 +274,38 @@ fn a_flush_gives_the_held_keys_with_no_wait_for_a_longer_map() {
     assert_eq!(normal.next_key(&rc), None);
     assert_eq!(normal.flush_key(&rc), Some(Fed::Key(VimKey::Char('X'))));
     assert_eq!(normal.flush_key(&rc), None);
+}
+
+#[test]
+fn a_map_on_a_key_that_a_key_binding_takes_is_an_error_with_its_line_number() {
+    let bound = [
+        (MapMode::Insert, VimKey::Enter),
+        (MapMode::Normal, VimKey::Escape),
+    ];
+    let rc = Hamishrc::parse(
+        "inoremap <CR> x\nnnoremap <CR> x\nnnoremap a<Esc> b\n",
+        &bound,
+    );
+
+    assert_eq!(
+        rc.errors(),
+        [
+            HamishrcError {
+                line: 1,
+                problem: HamishrcProblem::BoundKey("<CR>".to_owned()),
+            },
+            HamishrcError {
+                line: 3,
+                problem: HamishrcProblem::BoundKey("a<Esc>".to_owned()),
+            },
+        ]
+    );
+    assert_eq!(
+        rc.errors()[0].to_string(),
+        "hamishrc line 1: A key binding takes a key of <CR> first, so the map cannot run"
+    );
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "x"),
+        [Fed::Key(VimKey::Char('x'))]
+    );
 }

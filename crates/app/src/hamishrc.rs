@@ -7,11 +7,31 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{App, AppContext, Context, Global, InteractiveElement, Window};
-use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, Toggle};
+use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, MapMode, Toggle, VimKey};
 
 use crate::actions::{EditHamishrc, RecursiveMap, ReloadHamishrc};
 use crate::save_open::Notice;
 use crate::{Workspace, settings};
+
+/// The keys that a GPUI key binding takes before Vim mode reads them (`crate::init`), per
+/// map mode. Escape and the Ctrl shortcuts in each mode; Enter, Backspace, Ctrl+X and Ctrl+V
+/// only in Insert mode.
+fn bound_keys() -> Vec<(MapMode, VimKey)> {
+    let each_mode = [VimKey::Escape]
+        .into_iter()
+        .chain("acz/son,".chars().map(VimKey::Ctrl));
+    let insert_only = [
+        VimKey::Enter,
+        VimKey::Backspace,
+        VimKey::Ctrl('x'),
+        VimKey::Ctrl('v'),
+    ];
+    [MapMode::Normal, MapMode::Insert, MapMode::Visual]
+        .into_iter()
+        .flat_map(|mode| each_mode.clone().map(move |key| (mode, key)))
+        .chain(insert_only.map(|key| (MapMode::Insert, key)))
+        .collect()
+}
 
 /// The hamishrc in use and its file; a global.
 #[derive(Default)]
@@ -82,7 +102,7 @@ impl Workspace {
         };
         let reading = cx.background_spawn(async move {
             read(&path).map(|text| {
-                let rc = Hamishrc::parse(&text);
+                let rc = Hamishrc::parse(&text, &bound_keys());
                 (text, rc)
             })
         });
@@ -102,17 +122,14 @@ impl Workspace {
         let (text, rc) = match read {
             Ok(read) => read,
             Err(error) => {
-                self.show(
-                    Notice::Hamishrc(vec![format!("hamishrc not read: {error}")]),
-                    cx,
-                );
+                self.show(Notice::HamishrcNotRead(error.to_string()), cx);
                 return;
             }
         };
         let vim_mode = settings::is_on(cx, |settings| settings.is_on(Toggle::VimMode));
         let store = cx.global_mut::<HamishrcStore>();
         let changed = store.text.as_ref() != Some(&text);
-        let errors: Vec<String> = rc.errors().iter().map(ToString::to_string).collect();
+        let errors = rc.errors().to_vec();
         store.text = Some(text);
         store.rc = Arc::new(rc);
         if !errors.is_empty() && (asked || (changed && vim_mode)) {
@@ -130,8 +147,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let Some(path) = path(cx) else {
-            let notice = "hamishrc: no config dir (set HOME or XDG_CONFIG_HOME)".to_owned();
-            self.show(Notice::Hamishrc(vec![notice]), cx);
+            self.show(Notice::NoHamishrcDir, cx);
             return;
         };
         let creating = cx.background_spawn(async move { create_if_missing(&path).map(|()| path) });
@@ -139,10 +155,7 @@ impl Workspace {
             let created = creating.await;
             this.update(cx, |workspace, cx| match created {
                 Ok(path) => cx.open_with_system(&path),
-                Err(error) => {
-                    let notice = format!("hamishrc not made: {error}");
-                    workspace.show(Notice::Hamishrc(vec![notice]), cx);
-                }
+                Err(error) => workspace.show(Notice::HamishrcNotMade(error.to_string()), cx),
             })
         })
         .detach();
@@ -155,11 +168,7 @@ impl Workspace {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let notice = format!(
-            "hamishrc: a recursive map stopped after {} maps",
-            hamish_core::MAX_MAP_DEPTH
-        );
-        self.show(Notice::Hamishrc(vec![notice]), cx);
+        self.show(Notice::RecursiveMap, cx);
     }
 }
 

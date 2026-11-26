@@ -78,6 +78,8 @@ pub enum HamishrcProblem {
     UnknownVariable(String),
     /// A `mapleader` value that is not one quoted key that types a char.
     BadLeader(String),
+    /// Map keys with a key that a GPUI key binding takes before Vim mode reads it.
+    BoundKey(String),
 }
 
 impl fmt::Display for HamishrcProblem {
@@ -97,6 +99,10 @@ impl fmt::Display for HamishrcProblem {
                 write!(f, "Not a hamishrc variable: {name} (use mapleader)")
             }
             Self::BadLeader(value) => write!(f, "The leader must be one quoted key: {value}"),
+            Self::BoundKey(keys) => write!(
+                f,
+                "A key binding takes a key of {keys} first, so the map cannot run"
+            ),
         }
     }
 }
@@ -137,12 +143,14 @@ impl Default for Hamishrc {
 
 impl Hamishrc {
     /// Reads the hamishrc `text`, line by line. A line with an error does not load; the
-    /// other lines do. `<leader>` is the leader at its line.
+    /// other lines do. `<leader>` is the leader at its line. `bound` are the keys that a
+    /// key binding takes before Vim mode reads them, per mode: a map with one of them is an
+    /// error.
     #[must_use]
-    pub fn parse(text: &str) -> Self {
+    pub fn parse(text: &str, bound: &[(MapMode, VimKey)]) -> Self {
         let mut rc = Self::default();
         for (index, line) in text.lines().enumerate() {
-            if let Err(problem) = rc.read_line(line) {
+            if let Err(problem) = rc.read_line(line, bound) {
                 rc.errors.push(HamishrcError {
                     line: index + 1,
                     problem,
@@ -169,7 +177,11 @@ impl Hamishrc {
         self.maps.iter().filter(move |map| map.mode == mode)
     }
 
-    fn read_line(&mut self, line: &str) -> Result<(), HamishrcProblem> {
+    fn read_line(
+        &mut self,
+        line: &str,
+        bound: &[(MapMode, VimKey)],
+    ) -> Result<(), HamishrcProblem> {
         let line = line.trim();
         if line.is_empty() || line.starts_with('"') {
             return Ok(());
@@ -194,6 +206,9 @@ impl Hamishrc {
         };
         if target.is_empty() {
             return Err(HamishrcProblem::NoTarget);
+        }
+        if keys.iter().any(|key| bound.contains(&(mode, *key))) {
+            return Err(HamishrcProblem::BoundKey(typed.to_owned()));
         }
         let target = parse_target(target, self.leader)?;
         self.maps

@@ -7,7 +7,10 @@ use gpui::{
     AnyElement, Context, IntoElement, PathPromptOptions, PromptLevel, SharedString, Window, div,
     prelude::*, px,
 };
-use hamish_core::{Document, Dropped, LabCheck, Level, LineError, Opened, StorageError};
+use hamish_core::{
+    Document, Dropped, HamishrcError, LabCheck, Level, LineError, MAX_MAP_DEPTH, Opened,
+    StorageError,
+};
 
 use crate::actions::{NewDocument, Open, Quit, Save, SaveAs};
 use crate::chrome::elevated_surface;
@@ -25,9 +28,16 @@ pub enum Notice {
     SettingsNotSaved(String),
     /// A command of the Command line did not run.
     CommandFailed(LineError),
-    /// The hamishrc did not read, a line of it did not load, or a map went wrong: one line
-    /// each.
-    Hamishrc(Vec<String>),
+    /// Lines of the hamishrc that did not load.
+    Hamishrc(Vec<HamishrcError>),
+    /// The hamishrc file did not read.
+    HamishrcNotRead(String),
+    /// Edit hamishrc: the new hamishrc file was not made.
+    HamishrcNotMade(String),
+    /// No XDG config dir, so no hamishrc.
+    NoHamishrcDir,
+    /// A recursive map went through [`MAX_MAP_DEPTH`] maps; its keys are gone.
+    RecursiveMap,
 }
 
 /// Where the Document is saved, and the open notice.
@@ -375,7 +385,18 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
         }
         Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
         Notice::CommandFailed(error) => vec![error.to_string().into()],
-        Notice::Hamishrc(lines) => lines.iter().cloned().map(SharedString::from).collect(),
+        Notice::Hamishrc(errors) => errors
+            .iter()
+            .map(|error| error.to_string().into())
+            .collect(),
+        Notice::HamishrcNotRead(error) => vec![format!("hamishrc not read: {error}").into()],
+        Notice::HamishrcNotMade(error) => vec![format!("hamishrc not made: {error}").into()],
+        Notice::NoHamishrcDir => {
+            vec!["hamishrc: no XDG config dir (set HOME or XDG_CONFIG_HOME)".into()]
+        }
+        Notice::RecursiveMap => {
+            vec![format!("hamishrc: a recursive map stopped after {MAX_MAP_DEPTH} maps").into()]
+        }
         Notice::Dropped(dropped) => {
             std::iter::once("The .md file changed outside Hamish. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))

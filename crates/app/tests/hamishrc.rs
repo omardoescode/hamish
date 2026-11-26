@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use app::{Notice, Quit, Workspace};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use hamish_core::{Document, LineError, LoadedSettings, Settings};
+use hamish_core::{Document, HamishrcError, HamishrcProblem, LineError, LoadedSettings, Settings};
 use tempfile::TempDir;
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
@@ -154,9 +154,10 @@ fn a_bad_line_shows_its_line_number_in_a_notice_and_the_good_lines_load() {
 
         assert_eq!(
             notice(&workspace, cx),
-            Some(Notice::Hamishrc(vec![
-                "hamishrc line 2: Not a key: <Nope>".to_owned()
-            ]))
+            Some(Notice::Hamishrc(vec![HamishrcError {
+                line: 2,
+                problem: HamishrcProblem::UnknownKey("<Nope>".to_owned()),
+            }]))
         );
         keys(cx, "shift-x");
         assert_eq!(text(&workspace, cx), "two");
@@ -197,12 +198,7 @@ fn a_recursive_map_stops_with_a_notice() {
 
         keys(cx, "a");
 
-        assert_eq!(
-            notice(&workspace, cx),
-            Some(Notice::Hamishrc(vec![
-                "hamishrc: a recursive map stopped after 1000 maps".to_owned()
-            ]))
-        );
+        assert_eq!(notice(&workspace, cx), Some(Notice::RecursiveMap));
         assert_eq!(text(&workspace, cx), "one");
     });
 }
@@ -272,5 +268,30 @@ fn a_map_to_force_quit_closes_hamish_with_unsaved_changes() {
         keys(cx, "x shift-q");
 
         assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn a_map_on_a_key_that_a_key_binding_takes_shows_its_line_number_in_a_notice() {
+    system_text::run(1, |cx| {
+        let (workspace, cx, _dir) = open(
+            cx,
+            "one",
+            "nnoremap <Esc> x\ninoremap <CR> x\nnnoremap <CR> x\ninoremap <C-z> x\n",
+            true,
+        );
+
+        let error = |line, keys: &str| HamishrcError {
+            line,
+            problem: HamishrcProblem::BoundKey(keys.to_owned()),
+        };
+        assert_eq!(
+            notice(&workspace, cx),
+            Some(Notice::Hamishrc(vec![
+                error(1, "<Esc>"),
+                error(2, "<CR>"),
+                error(4, "<C-z>"),
+            ]))
+        );
     });
 }
