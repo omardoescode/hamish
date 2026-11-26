@@ -2,7 +2,6 @@
 //! hover box, selection, Lab marks, pen underlines, Effects and caret.
 
 use std::ops::Range;
-use std::time::Instant;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
@@ -69,11 +68,12 @@ impl EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Vec<(Particles, f32, Vec<Bounds<Pixels>>)> {
+        let now = cx.background_executor().now();
         let effects: Vec<_> = self
             .editor
             .read(cx)
             .effects
-            .frames(Instant::now())
+            .frames(now)
             .into_iter()
             .map(|(playing, progress)| {
                 let rows = painted

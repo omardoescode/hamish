@@ -70,6 +70,19 @@ jobs:
       - name: doc tests
         run: cargo test --workspace --doc
 
+  macos:
+    if: github.event_name == 'push' || !github.event.pull_request.draft
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-on-failure: true
+      - run: cargo check --workspace --all-targets --target aarch64-apple-darwin
+
   packaging:
     if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04

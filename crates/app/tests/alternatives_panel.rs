@@ -1,6 +1,7 @@
 mod system_text;
 
 use std::ops::Range;
+use std::time::Duration;
 
 use app::{AlternativesPanel, Workspace};
 use gpui::{
@@ -297,8 +298,8 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span() {
         cx.simulate_keystrokes("ctrl-shift-a up up ctrl-backspace");
 
         let panel = panel(&workspace, cx).expect("the panel is open");
-        assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), Some(1));
-        let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
+        assert_eq!(cx.read(|cx| panel.read(cx).exploding_row(cx)), Some(1));
+        let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects(cx));
         assert_eq!(
             effects,
             vec![app::PlayingEffect {
@@ -306,6 +307,23 @@ fn a_row_delete_plays_the_explosion_on_the_row_and_at_the_span() {
                 range: 10..16
             }]
         );
+    });
+}
+
+#[test]
+fn a_row_explosion_ends_after_650_ms() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, slot_document());
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        cx.simulate_keystrokes("ctrl-shift-a up up ctrl-backspace");
+        let panel = panel(&workspace, cx).expect("the panel is open");
+
+        cx.executor().advance_clock(Duration::from_millis(600));
+        assert_eq!(cx.read(|cx| panel.read(cx).exploding_row(cx)), Some(1));
+        cx.executor().advance_clock(Duration::from_millis(100));
+        assert_eq!(cx.read(|cx| panel.read(cx).exploding_row(cx)), None);
+        let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects(cx));
+        assert_eq!(effects, vec![]);
     });
 }
 
@@ -481,8 +499,8 @@ fn with_reduced_motion_a_row_delete_plays_no_explosion() {
         cx.simulate_keystrokes("ctrl-shift-a up up ctrl-backspace");
 
         let panel = panel(&workspace, cx).expect("the panel is open");
-        assert_eq!(cx.read(|cx| panel.read(cx).exploding_row()), None);
-        let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects());
+        assert_eq!(cx.read(|cx| panel.read(cx).exploding_row(cx)), None);
+        let effects = cx.read(|cx| workspace.read(cx).editor().read(cx).effects(cx));
         assert_eq!(effects, Vec::new());
     });
 }
