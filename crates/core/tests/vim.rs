@@ -46,7 +46,12 @@ fn run_with(text: &str, offset: usize, keys: &str, register: &str) -> Run {
             VimCommand::Nothing
             | VimCommand::Put(_)
             | VimCommand::Undo(_)
-            | VimCommand::Redo(_) => {}
+            | VimCommand::Redo(_)
+            | VimCommand::Ghost(_)
+            | VimCommand::Revive(_)
+            | VimCommand::Stash(_)
+            | VimCommand::CycleSlot { .. }
+            | VimCommand::Run(_) => {}
             VimCommand::Select(next) => caret = next,
             VimCommand::Edit(edit) => {
                 text.replace_range(edit.range, &edit.text);
@@ -712,7 +717,13 @@ fn run_session(session: &mut EditSession, vim: &mut Vim, keys: &str) {
                     session.redo();
                 }
             }
-            VimCommand::Nothing | VimCommand::Put(_) => {}
+            VimCommand::Nothing
+            | VimCommand::Put(_)
+            | VimCommand::Ghost(_)
+            | VimCommand::Revive(_)
+            | VimCommand::Stash(_)
+            | VimCommand::CycleSlot { .. }
+            | VimCommand::Run(_) => {}
         }
     }
 }

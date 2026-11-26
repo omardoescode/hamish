@@ -46,13 +46,15 @@ pub use actions::{
     Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};
-pub use alternatives_panel::AlternativesPanel;
+pub use alternatives_panel::{AlternativesPanel, ChooseLevel};
 pub use context_menu::ContextMenuItem;
 pub use editor::{Editor, Marker, MarkerKind};
 pub use effects::PlayingEffect;
 pub use fonts::{font_names, load_fonts_in_background};
 pub use hamish_core::{AiAlternativesError, VariantRow};
-pub use lab::{CloseLab, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab};
+pub use lab::{
+    AcceptLabMark, CloseLab, DismissLabMark, Lab, LabRow, LabStatus, RunLabCheck, ToggleLab,
+};
 pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings::use_settings;
@@ -60,7 +62,9 @@ pub use settings_modal::SettingsModal;
 pub use shortcuts_sheet::{ShortcutGroup, ShortcutRow, shortcut_groups};
 pub use sounds::{DeviceSounds, SoundSink, Sounds};
 pub use theme::Theme;
-pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
+pub use trim::{
+    CloseTrim, KeepTrimCut, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim,
+};
 pub use workspace::Workspace;
 
 /// Loads the bundled font (Regular, Bold, Italic, Bold Italic), sets the default settings

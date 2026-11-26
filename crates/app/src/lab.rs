@@ -22,7 +22,7 @@ mod actions {
     use gpui::Action;
     use hamish_core::LabCheck;
 
-    gpui::actions!(lab, [ToggleLab, CloseLab]);
+    gpui::actions!(lab, [ToggleLab, CloseLab, AcceptLabMark, DismissLabMark]);
 
     /// Runs a Lab check from the open popover.
     #[derive(Debug, Clone, PartialEq, Action)]
@@ -30,7 +30,7 @@ mod actions {
     pub struct RunLabCheck(pub LabCheck);
 }
 
-pub use actions::{CloseLab, RunLabCheck, ToggleLab};
+pub use actions::{AcceptLabMark, CloseLab, DismissLabMark, RunLabCheck, ToggleLab};
 
 /// Width of the Lab popover.
 const POPOVER_WIDTH: gpui::Pixels = px(270.);
@@ -247,6 +247,30 @@ impl Lab {
         });
         if dismissed.is_ok() {
             cx.notify();
+        }
+    }
+
+    /// Puts the fix of the Lab mark at the caret in place, as the Accept button of its card.
+    pub(crate) fn accept_lab_mark(
+        &mut self,
+        _: &AcceptLabMark,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(mark) = self.mark_at_caret(cx) {
+            self.accept_fix(mark.id, cx);
+        }
+    }
+
+    /// Ends the Lab mark at the caret, as the Dismiss button of its card.
+    pub(crate) fn dismiss_lab_mark(
+        &mut self,
+        _: &DismissLabMark,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(mark) = self.mark_at_caret(cx) {
+            self.dismiss_mark(mark.id, cx);
         }
     }
 

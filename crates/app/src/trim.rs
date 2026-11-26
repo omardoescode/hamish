@@ -18,7 +18,17 @@ mod actions {
     use gpui::Action;
     use hamish_core::TrimLevel;
 
-    gpui::actions!(trim, [MakeTrimCuts, WalkTrim, WalkKeep, WalkCut, CloseTrim]);
+    gpui::actions!(
+        trim,
+        [
+            MakeTrimCuts,
+            WalkTrim,
+            WalkKeep,
+            WalkCut,
+            CloseTrim,
+            KeepTrimCut
+        ]
+    );
 
     /// Runs a Trim at this level; Original removes the Trim fades.
     #[derive(Debug, Clone, PartialEq, Action)]
@@ -26,7 +36,7 @@ mod actions {
     pub struct RunTrim(pub TrimLevel);
 }
 
-pub use actions::{CloseTrim, MakeTrimCuts, RunTrim, WalkCut, WalkKeep, WalkTrim};
+pub use actions::{CloseTrim, KeepTrimCut, MakeTrimCuts, RunTrim, WalkCut, WalkKeep, WalkTrim};
 
 /// What the trim bar shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +174,26 @@ impl Lab {
     /// Starts a Walk through at the first cut still in the proposal.
     pub(crate) fn walk_trim(&mut self, _: &WalkTrim, _: &mut Window, cx: &mut Context<Self>) {
         self.trim_step(hamish_core::Document::walk_trim, cx);
+    }
+
+    /// Keeps the cut still in the proposal at the caret, as a click on its faded words.
+    /// Nothing happens with text selected or no open cut there.
+    pub(crate) fn keep_trim_cut(
+        &mut self,
+        _: &KeepTrimCut,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.read(cx);
+        let selection = editor.selection();
+        let index = editor
+            .document()
+            .trim_proposal()
+            .filter(|_| selection.is_empty())
+            .and_then(|proposal| proposal.open_cut_at(selection.start));
+        if let Some(index) = index {
+            self.trim_step(|document| document.keep_trim_cut(index), cx);
+        }
     }
 
     /// Walk through: keeps the current cut and goes to the next.

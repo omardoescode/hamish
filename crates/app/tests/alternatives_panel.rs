@@ -3,7 +3,7 @@ mod system_text;
 use std::ops::Range;
 use std::time::Duration;
 
-use app::{AlternativesPanel, Workspace};
+use app::{AlternativesPanel, ChooseLevel, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, ScrollDelta,
     ScrollEvent, TestAppContext, VisualTestContext, point, px,
@@ -615,5 +615,23 @@ fn typing_scrolls_the_last_row_into_the_panel() {
             row.bottom() <= panel.bottom(),
             "row {row:?} panel {panel:?}"
         );
+    });
+}
+
+#[test]
+fn the_choose_level_action_shows_the_paragraph_around_the_word() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Document::new("Title\nThe customer waits. She leaves."));
+        cx.simulate_keystrokes(INTO_CUSTOMER);
+        cx.simulate_keystrokes("ctrl-shift-a");
+
+        cx.dispatch_action(ChooseLevel(Level::Paragraph));
+
+        assert_eq!(
+            rows(&workspace, cx),
+            vec![row("The customer waits. She leaves.", true)]
+        );
+        let level = panel(&workspace, cx).map(|panel| cx.read(|cx| panel.read(cx).level(cx)));
+        assert_eq!(level, Some(Some(Level::Paragraph)));
     });
 }

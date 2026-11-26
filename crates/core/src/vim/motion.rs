@@ -2,7 +2,7 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{line_end, normal_offset};
+use super::{Operator, Span, VimKey, forward, line_end, normal_offset};
 use crate::caret::{line_start, next_boundary, previous_boundary};
 
 /// The kind of a grapheme for word moves.
@@ -191,4 +191,68 @@ pub(super) fn word_start_before(text: &str, offset: usize) -> usize {
         at = before;
     }
     at
+}
+
+/// The span of a motion after `operator`; `None` when `key` is no motion.
+pub(super) fn motion_span(
+    operator: Operator,
+    key: VimKey,
+    count: Option<usize>,
+    text: &str,
+    offset: usize,
+) -> Option<Span> {
+    let times = count.unwrap_or(1);
+    let span = match key {
+        VimKey::Char('h') | VimKey::Backspace => Span::Chars(left(text, offset, times)..offset),
+        VimKey::Char('l') => Span::Chars(offset..forward(text, offset, times)),
+        VimKey::Char('w')
+            if operator == Operator::Change && class(text, offset) != Class::Blank =>
+        {
+            Span::Chars(offset..next_boundary(text, change_word_end(text, offset, times)))
+        }
+        VimKey::Char('w') => {
+            let end = steps(text, offset, times, word_start_after);
+            Span::Chars(offset..exclusive_end(text, offset, end))
+        }
+        VimKey::Char('b') => Span::Chars(steps(text, offset, times, word_start_before)..offset),
+        VimKey::Char('e') => {
+            Span::Chars(offset..next_boundary(text, steps(text, offset, times, word_end_after)))
+        }
+        VimKey::Char('0') => Span::Chars(line_start(text, offset)..offset),
+        VimKey::Char('$') => {
+            Span::Chars(offset..line_end(text, lines_down(text, offset, times - 1)))
+        }
+        VimKey::Char('j') | VimKey::Enter => Span::Lines(offset, lines_down(text, offset, times)),
+        VimKey::Char('k') => Span::Lines(lines_up(text, offset, times), offset),
+        VimKey::Char('G') => Span::Lines(
+            offset,
+            count.map_or_else(|| line_start(text, text.len()), |n| line_number(text, n)),
+        ),
+        VimKey::Char(_) | VimKey::Ctrl(_) | VimKey::Escape | VimKey::Other => return None,
+    };
+    Some(span)
+}
+
+/// `cw` on a word or run of punctuation: its last char, then `times - 1` word ends more.
+fn change_word_end(text: &str, offset: usize, times: usize) -> usize {
+    let run = class(text, offset);
+    let mut at = offset;
+    loop {
+        let next = next_boundary(text, at);
+        if next >= text.len() || class(text, next) != run {
+            break;
+        }
+        at = next;
+    }
+    steps(text, at, times - 1, word_end_after)
+}
+
+/// The end of an exclusive motion from `start` to `end`. An end at the start of a later
+/// line moves back to the end of the line before it.
+fn exclusive_end(text: &str, start: usize, end: usize) -> usize {
+    let at_line_start = end > start && line_start(text, end) == end;
+    if at_line_start && line_start(text, start) != end {
+        return end - 1;
+    }
+    end
 }

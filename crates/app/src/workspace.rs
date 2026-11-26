@@ -9,8 +9,7 @@ use gpui::{
 use hamish_core::{Document, SlotId, Toggle, document_title};
 
 use crate::actions::{
-    AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleMarkdown, ToggleMarkers,
-    ToggleOverflow,
+    AiAlternatives, CloseMenu, OpenAlternatives, ToggleMarkdown, ToggleMarkers, ToggleOverflow,
 };
 use crate::alternatives_panel::PanelEvent;
 use crate::chrome;
@@ -64,6 +63,7 @@ impl Workspace {
             window,
             |workspace, _, event: &EditorEvent, window, cx| match *event {
                 EditorEvent::SlotClicked(slot) => workspace.show_slot(slot, window, cx),
+                EditorEvent::Stashed => workspace.show_stash(cx),
                 EditorEvent::VariantDeleted(_) | EditorEvent::VariantRestored(_) => {}
             },
         );
@@ -237,7 +237,7 @@ impl Workspace {
     }
 
     /// After a Stash, Overflow shows where the text went. The Document keeps the keyboard.
-    fn show_stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
+    fn show_stash(&mut self, cx: &mut Context<Self>) {
         self.overflow_open = true;
         cx.notify();
     }
@@ -287,6 +287,9 @@ impl Workspace {
             .on_action(to_lab(lab, Lab::walk_keep))
             .on_action(to_lab(lab, Lab::walk_cut))
             .on_action(to_lab(lab, Lab::close_trim))
+            .on_action(to_lab(lab, Lab::keep_trim_cut))
+            .on_action(to_lab(lab, Lab::accept_lab_mark))
+            .on_action(to_lab(lab, Lab::dismiss_lab_mark))
     }
 }
 
@@ -425,7 +428,6 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_alternatives))
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
-            .on_action(cx.listener(Self::show_stash))
             .on_action(cx.listener(|_, _: &ToggleMarkers, _, cx| {
                 Self::flip_setting(Toggle::Markers, cx);
             }))
