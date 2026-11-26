@@ -9,6 +9,7 @@ mod ai;
 mod alternatives_panel;
 mod caret;
 mod chrome;
+mod command_line;
 mod context_menu;
 mod editor;
 mod effects;
@@ -23,6 +24,7 @@ mod shortcuts_sheet;
 mod sounds;
 mod theme;
 mod trim;
+mod vim_rows;
 mod workspace;
 
 #[cfg(test)]
@@ -41,7 +43,7 @@ use gpui::{App, KeyBinding};
 pub use actions::{
     AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, DeleteActiveVariant,
     LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart, MoveUp,
-    NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Redo, Save, SaveAs,
+    NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Quit, Redo, Save, SaveAs,
     SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp,
     Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
@@ -87,6 +89,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         },
         cx,
     );
+    cx.on_action(|_: &Quit, cx| cx.quit());
     for context in ["Editor", "OverflowPanel"] {
         let context = Some(context);
         cx.bind_keys([

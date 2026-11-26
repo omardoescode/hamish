@@ -8,14 +8,13 @@ use gpui::{
     MouseButton, Render, SharedString, Subscription, Window, anchored, deferred, div, point,
     prelude::*, px,
 };
-use hamish_core::{
-    LabCheck, LabError, LabMark, LabMarkId, PanelCommand, PanelKeys, TrimError, TrimLevel, VimPanel,
-};
+use hamish_core::{LabCheck, LabCommand, LabError, LabMark, LabMarkId, TrimError, TrimLevel};
 
 use crate::actions::{Redo, Undo};
 use crate::ai::{AiFailure, AiRun, AiStatus};
 use crate::chrome::{clickable_row, popover_surface, text_button};
 use crate::editor::{vim_key, vim_on};
+use crate::vim_rows::{VimRows, run_row_command};
 use crate::{Editor, Theme};
 
 #[expect(
@@ -81,7 +80,6 @@ pub struct Lab {
     pub(crate) trim: AiRun<TrimLevel, TrimError>,
     /// The row of the Lab check that Vim mode keys act on: an index into [`LabCheck::ALL`].
     vim_row: usize,
-    keys: PanelKeys,
     focus_handle: FocusHandle,
     _editor_changes: Subscription,
 }
@@ -134,7 +132,6 @@ impl Lab {
             checks: HashMap::new(),
             trim: AiRun::default(),
             vim_row: 0,
-            keys: PanelKeys::default(),
             focus_handle: cx.focus_handle(),
             _editor_changes: editor_changes,
         }
@@ -205,31 +202,15 @@ impl Lab {
         self.editor.update(cx, Editor::undo_step);
     }
 
-    fn run_vim_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(check) = LabCheck::ALL.get(self.vim_row) {
-            self.run_lab_check(&RunLabCheck(*check), window, cx);
-        }
-    }
-
     /// In Vim mode `j` and `k` move between the Lab checks and Enter runs one.
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !vim_on(cx) {
             return;
         }
-        let last = LabCheck::ALL.len() - 1;
-        match self.keys.key(VimPanel::Lab, vim_key(&event.keystroke)) {
-            PanelCommand::PassOn => return,
-            PanelCommand::Down => self.vim_row = (self.vim_row + 1).min(last),
-            PanelCommand::Up => self.vim_row = self.vim_row.saturating_sub(1),
-            PanelCommand::Enter => self.run_vim_row(window, cx),
-            PanelCommand::Close => self.close(&CloseLab, window, cx),
-            PanelCommand::Nothing
-            | PanelCommand::Left
-            | PanelCommand::Right
-            | PanelCommand::Insert
-            | PanelCommand::EndInsert
-            | PanelCommand::DeleteRow
-            | PanelCommand::ChooseLevel(_) => {}
+        match LabCommand::of(vim_key(&event.keystroke)) {
+            LabCommand::PassOn => return,
+            LabCommand::Nothing => {}
+            LabCommand::Row(command) => run_row_command(self, command, window, cx),
         }
         cx.stop_propagation();
         cx.notify();
@@ -468,6 +449,26 @@ impl Lab {
 impl Focusable for Lab {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+impl VimRows for Lab {
+    fn vim_row(&self, _: &App) -> usize {
+        self.vim_row
+    }
+
+    fn select_vim_row(&mut self, row: usize, _: &mut Context<Self>) {
+        self.vim_row = row.min(LabCheck::ALL.len() - 1);
+    }
+
+    fn enter_vim_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(check) = LabCheck::ALL.get(self.vim_row) {
+            self.run_lab_check(&RunLabCheck(*check), window, cx);
+        }
+    }
+
+    fn close_vim_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close(&CloseLab, window, cx);
     }
 }
 

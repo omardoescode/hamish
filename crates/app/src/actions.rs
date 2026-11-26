@@ -64,7 +64,9 @@ gpui::actions!(
         OpenShortcuts,
         CloseShortcuts,
         FocusEditor,
-        FocusOverflow
+        FocusOverflow,
+        OpenCommandLine,
+        Quit
     ]
 );
 

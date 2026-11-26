@@ -14,7 +14,7 @@
 | `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
 | `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). It keeps the Document `Caret` and makes its `CaretEdit`s. The Editor and all views change the Document only through it. |
 | `crates/core/src/caret.rs` | `Caret`: selection, caret end, input method composed text over a plain text. Grapheme, word and line moves (`Motion`), the word at an offset (`word_at`), edits at the caret (`CaretEdit`), clamp to a changed text, UTF-16 ranges (`utf16_range`, `byte_range`), `follow_change`. No pixels. |
-| `crates/core/src/vim.rs` | `Vim`: Vim mode key state machine (Normal and Insert mode, counts, motions, `i a o O`). Keys in, `VimCommand` out; no GPUI (ADR 0008). `VIM_KEYS`: the Vim mode rows of the Shortcuts sheet. |
+| `crates/core/src/vim.rs` | `Vim`: Vim mode key state machine (Normal, Insert, Visual and Visual line mode; `Prefix`, the first key of a two-key command). Keys in, `VimCommand` out; no GPUI (ADR 0008). Its modules in `crates/core/src/vim/`: `normal` (counts, motions, commands, `:` opens the Command line), `visual` (the selection, its operators and puts; `Vim::click`), `operator` (`d c y gh gH gs` over a span), `repeat` (dot repeat), `motion`, `text_object` (`iw` to `ag`), `put`, `hamish` (leader, `]` `[` jumps and Slot cycle, `g` keys, `Ctrl+W`, Trim walk), `panel` (`RowCommand`, `AlternativesKeys`, `LabCommand`, `SettingsCommand`), `keys` (`VIM_KEYS`, the Vim mode rows of the Shortcuts sheet; `tests/vim_keys.rs` checks each row against the grammar), `command_line` (`CommandLine`: the Command line grammar, history, Tab completion; `LineKey`; `resolve_path`). |
 | `crates/core/src/shortcut.rs` | `key_label`: a key binding as the writer reads it ("Ctrl+Shift+O"). |
 | `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`; edits in the Document text and in Overflow never join. `EditKind`: Typing, Deleting, Other. |
 | `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time. |
@@ -24,12 +24,15 @@
 | `crates/core/src/around.rs` | The sentence and paragraph around a text range. |
 | `crates/core/src/ai/claude.rs` | `ClaudeBackend`: runs `claude -p` with the API credentials removed from its environment. Tested with a stub `claude` on `PATH` (`crates/core/tests/claude_backend.rs`). |
 | `crates/app/src/ai.rs` | Global `Ai`: the adapter the app calls on the background executor. `main` sets `ClaudeBackend`; tests set a fake. `AiRun`: one AI call of a view (Lab checks, Trim, AI alternatives, Quick fill) with its `AiStatus`; a new start, `cancel`, or a drop cancels the call and drops its answer. `AiFailure`: typed reason, formatted only at render. |
+| `crates/app/src/command_line.rs` | The Command line at the window bottom: draws the core `CommandLine`, runs its commands through the save and open code, lists directories for Tab on the background executor. |
 | `crates/app/src/loading.rs` | The "??" loading dance of the empty panel row, for Quick fill and AI alternatives; still with Reduced motion. |
 | `crates/app/src/caret.rs` | `CaretView`: the one GPUI adapter of `Caret` for the Editor and Overflow: caret key actions, clipboard, `EntityInputHandler` (macro `caret_input_handler!`), row moves from the painted text, caret quad (2 px) and scroll (edge fade margin). |
 | `crates/app/src/effects.rs` | `EffectPlayer`: the particle Effects of one view (Editor, Alternatives panel); `PlayingEffect` (a core `Effect` at a text range); paints the Explosion and the Undo burst. |
 | `crates/app/src/alternatives_panel.rs` | Alternatives panel: Variant rows, live preview of the empty row, Quick fill. |
 | `crates/app/` | Package `app`: library (thin GPUI views, actions, key bindings, theme) + binary `hamish`. |
 | `crates/app/src/editor.rs` | `Editor` entity: view state (hover, Markers, preview, spotlight, fade-in, Effects), its actions, `EditorEvent`s, `CaretView` adapter. |
+| `crates/app/src/editor/vim.rs` | Vim mode in the Editor and Overflow: `VimView` (the key path they share: `vim_key_down`, `run_vim`), `run_text_command`, `vim_key` (a keystroke as a `VimKey`), `gpui_action`. |
+| `crates/app/src/vim_rows.rs` | `VimRows`: the row keys (`j` `k` Enter Esc) that the Alternatives panel, the Lab and Settings share. |
 | `crates/app/src/editor/painted_text.rs` | `PaintedText`: the text as last painted (`shape`, positions, offsets, rows, selection quads). Shared by the Editor, Overflow and `CaretView`. |
 | `crates/app/src/editor/runs.rs` | Editor text runs: styled spans (title, Slot, Ghost, Trim cut, Markdown, dim), heading sizes, fade-in. |
 | `crates/app/src/editor/pen.rs` | Slot underlines as pen strokes: rows, wobble seeded per Slot. |
@@ -58,7 +61,7 @@
 | `crates/app/tests/system_text/mod.rs` | `system_text::run`: runs an app GPUI test (also the `app` unit tests) on the system text system, as `#[gpui::test]` does on a text system with no fonts. |
 | `.claude/settings.json` | Claude Code project settings: attribution off, permissions, worktree hooks. |
 | `.claude/hooks/` | WorktreeCreate / WorktreeRemove scripts; PostToolUse pedant check. |
-| `.github/workflows/checks.yml` | CI: parallel jobs fmt, clippy, test (unit, integration, doc), packaging (`scripts/packaging-test.sh`), guards (cargo-deny, cargo-shear, pedant). |
+| `.github/workflows/checks.yml` | CI: parallel jobs fmt, clippy, test (unit, integration, doc), macOS (`cargo check` for `aarch64-apple-darwin`), packaging (`scripts/packaging-test.sh`), guards (cargo-deny, cargo-shear, pedant). |
 | `.github/workflows/release.yml` | Generated by cargo-dist (`dist generate`). Do not edit by hand. |
 | `dist-workspace.toml` | cargo-dist config: targets, apt build libraries, Linux install files in each archive, the macOS `Hamish.app` zips (extra artifacts). |
 | `packaging/icons/` | App icon: `hamish.svg` (the source) and the hicolor PNGs (16 to 512 px). `make icons` (`scripts/render-icons.sh`: rsvg-convert, uvx icnsutil) renders the PNGs and `packaging/macos/Hamish.icns`. |

@@ -1,6 +1,6 @@
 use hamish_core::{
-    Caret, Document, Level, PanelCommand, PanelKeys, TrimLevel, Vim, VimAction, VimCommand, VimKey,
-    VimPanel,
+    AlternativesCommand, AlternativesKeys, Caret, Direction, Document, LabCommand, Level,
+    RowCommand, SettingsCommand, TrimLevel, Vim, VimAction, VimCommand, VimKey,
 };
 
 fn vim_key(key: char) -> VimKey {
@@ -12,62 +12,68 @@ fn vim_key(key: char) -> VimKey {
     }
 }
 
-/// The commands of `keys` in `panel`, one per key.
-fn panel_commands(keys: &mut PanelKeys, panel: VimPanel, typed: &str) -> Vec<PanelCommand> {
-    typed
-        .chars()
-        .map(|key| keys.key(panel, vim_key(key)))
-        .collect()
+/// The commands of `typed` in the Alternatives panel, one per key.
+fn alternatives_commands(keys: &mut AlternativesKeys, typed: &str) -> Vec<AlternativesCommand> {
+    typed.chars().map(|key| keys.key(vim_key(key))).collect()
+}
+
+/// The command of each key of `typed`, from `of`.
+fn each<C>(typed: &str, of: fn(VimKey) -> C) -> Vec<C> {
+    typed.chars().map(|key| of(vim_key(key))).collect()
 }
 
 #[test]
 fn in_the_alternatives_panel_j_k_move_rows_and_enter_takes_the_row() {
-    let mut keys = PanelKeys::default();
+    let mut keys = AlternativesKeys::default();
 
-    let commands = panel_commands(&mut keys, VimPanel::Alternatives, "jk\n");
+    let commands = alternatives_commands(&mut keys, "jk\n");
 
     assert_eq!(
         commands,
-        vec![PanelCommand::Down, PanelCommand::Up, PanelCommand::Enter]
+        vec![
+            AlternativesCommand::Row(RowCommand::Down),
+            AlternativesCommand::Row(RowCommand::Up),
+            AlternativesCommand::Row(RowCommand::Enter),
+        ]
     );
 }
 
 #[test]
 fn in_the_alternatives_panel_dd_deletes_the_variant_and_digits_choose_the_level() {
-    let mut keys = PanelKeys::default();
+    let mut keys = AlternativesKeys::default();
 
-    let commands = panel_commands(&mut keys, VimPanel::Alternatives, "dd123dx");
+    let commands = alternatives_commands(&mut keys, "dd123dx");
 
     assert_eq!(
         commands,
         vec![
-            PanelCommand::Nothing,
-            PanelCommand::DeleteRow,
-            PanelCommand::ChooseLevel(Level::Word),
-            PanelCommand::ChooseLevel(Level::Sentence),
-            PanelCommand::ChooseLevel(Level::Paragraph),
-            PanelCommand::Nothing,
-            PanelCommand::Nothing,
+            AlternativesCommand::Nothing,
+            AlternativesCommand::DeleteRow,
+            AlternativesCommand::ChooseLevel(Level::Word),
+            AlternativesCommand::ChooseLevel(Level::Sentence),
+            AlternativesCommand::ChooseLevel(Level::Paragraph),
+            AlternativesCommand::Nothing,
+            AlternativesCommand::Nothing,
         ]
     );
 }
 
 #[test]
 fn in_the_alternatives_panel_i_types_in_the_row_until_escape() {
-    let mut keys = PanelKeys::default();
+    let mut keys = AlternativesKeys::default();
 
-    let commands = panel_commands(&mut keys, VimPanel::Alternatives, "ijk\u{8}\u{1b}j\u{1b}");
+    let commands = alternatives_commands(&mut keys, "ijk\u{8}\u{1b}j\u{1b}");
 
     assert_eq!(
         commands,
         vec![
-            PanelCommand::Insert,
-            PanelCommand::PassOn,
-            PanelCommand::PassOn,
-            PanelCommand::PassOn,
-            PanelCommand::EndInsert,
-            PanelCommand::Down,
-            PanelCommand::Close,
+            AlternativesCommand::Insert,
+            AlternativesCommand::PassOn,
+            AlternativesCommand::PassOn,
+            AlternativesCommand::PassOn,
+            AlternativesCommand::EndInsert,
+            AlternativesCommand::Row(RowCommand::Down),
+            AlternativesCommand::Row(RowCommand::Close),
         ]
     );
     assert!(!keys.inserting());
@@ -75,69 +81,65 @@ fn in_the_alternatives_panel_i_types_in_the_row_until_escape() {
 
 #[test]
 fn in_the_alternatives_panel_rows_take_no_text_and_no_backspace() {
-    let mut keys = PanelKeys::default();
+    let mut keys = AlternativesKeys::default();
 
-    let commands = panel_commands(&mut keys, VimPanel::Alternatives, "x\u{8}");
+    let commands = alternatives_commands(&mut keys, "x\u{8}");
 
-    assert_eq!(commands, vec![PanelCommand::Nothing, PanelCommand::Nothing]);
     assert_eq!(
-        keys.key(VimPanel::Alternatives, VimKey::Ctrl('z')),
-        PanelCommand::PassOn
+        commands,
+        vec![AlternativesCommand::Nothing, AlternativesCommand::Nothing]
     );
+    assert_eq!(keys.key(VimKey::Ctrl('z')), AlternativesCommand::PassOn);
 }
 
 #[test]
 fn in_the_lab_j_k_move_between_checks_and_enter_runs_one() {
-    let mut keys = PanelKeys::default();
-
-    let commands = panel_commands(&mut keys, VimPanel::Lab, "jk\nhi\u{1b}");
+    let commands = each("jk\nhi\u{1b}\u{8}", LabCommand::of);
 
     assert_eq!(
         commands,
         vec![
-            PanelCommand::Down,
-            PanelCommand::Up,
-            PanelCommand::Enter,
-            PanelCommand::Nothing,
-            PanelCommand::Nothing,
-            PanelCommand::Close,
+            LabCommand::Row(RowCommand::Down),
+            LabCommand::Row(RowCommand::Up),
+            LabCommand::Row(RowCommand::Enter),
+            LabCommand::Nothing,
+            LabCommand::Nothing,
+            LabCommand::Row(RowCommand::Close),
+            LabCommand::PassOn,
         ]
     );
 }
 
 #[test]
 fn in_settings_j_k_move_fields_and_h_l_change_a_value() {
-    let mut keys = PanelKeys::default();
-
-    let commands = panel_commands(&mut keys, VimPanel::Settings, "jkhl\nx");
+    let commands = each("jkhl\nx\u{8}", SettingsCommand::of);
 
     assert_eq!(
         commands,
         vec![
-            PanelCommand::Down,
-            PanelCommand::Up,
-            PanelCommand::Left,
-            PanelCommand::Right,
-            PanelCommand::Enter,
-            PanelCommand::Nothing,
+            SettingsCommand::Row(RowCommand::Down),
+            SettingsCommand::Row(RowCommand::Up),
+            SettingsCommand::Step(Direction::Back),
+            SettingsCommand::Step(Direction::Forward),
+            SettingsCommand::Row(RowCommand::Enter),
+            SettingsCommand::Nothing,
+            SettingsCommand::PassOn,
         ]
     );
 }
 
 #[test]
 fn in_an_open_settings_select_j_k_move_rows_and_other_keys_search() {
-    let mut keys = PanelKeys::default();
-
-    let commands = panel_commands(&mut keys, VimPanel::SettingsSelect, "jkhx\n");
+    let commands = each("jkhx\n", RowCommand::in_select);
 
     assert_eq!(
         commands,
         vec![
-            PanelCommand::Down,
-            PanelCommand::Up,
-            PanelCommand::PassOn,
-            PanelCommand::PassOn,
-            PanelCommand::Enter,
+            Some(RowCommand::Down),
+            Some(RowCommand::Up),
+            None,
+            None,
+            None
         ]
     );
 }

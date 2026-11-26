@@ -1,5 +1,6 @@
 use hamish_core::{
     Caret, Document, EditSession, Level, Motion, Provenance, Vim, VimCommand, VimKey, VimMode,
+    one_char,
 };
 
 /// Text, caret offset, mode and register after Vim keys, with the commands run as the
@@ -897,4 +898,12 @@ fn an_operator_over_a_slot_edge_edits_as_a_selection_delete_does() {
     assert_eq!(by_vim.document().text(), by_selection.document().text());
     assert_eq!(by_vim.document().slots(), by_selection.document().slots());
     assert_eq!(by_vim.document().text(), "onwo three");
+}
+
+#[test]
+fn one_char_is_the_char_of_a_text_of_exactly_one_char() {
+    assert_eq!(one_char("x"), Some('x'));
+    assert_eq!(one_char("λ"), Some('λ'));
+    assert_eq!(one_char(""), None);
+    assert_eq!(one_char("ab"), None);
 }

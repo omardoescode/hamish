@@ -1,7 +1,7 @@
 //! The Vim mode rows of the Shortcuts sheet.
 
 /// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
-pub const VIM_KEYS: [(&str, &str); 37] = [
+pub const VIM_KEYS: [(&str, &str); 45] = [
     ("Move left, down, up, right", "h j k l"),
     ("Next word start, word start before, word end", "w b e"),
     ("Line start, line end", "0 $"),
@@ -20,12 +20,19 @@ pub const VIM_KEYS: [(&str, &str); 37] = [
         "x D C",
     ),
     ("Text objects: word, sentence, paragraph", "i w  a s  i p"),
-    ("Text objects: Active variant, Ghost range", "i v  i g"),
+    (
+        "Text objects: Active variant, Ghost range (a: with the blank around)",
+        "i v  a v  i g  a g",
+    ),
     ("Put the clipboard after, before the caret", "p P"),
     ("Repeat the last change", "."),
     ("Undo, redo", "u  Ctrl+R"),
     ("Visual mode, Visual line mode", "v V"),
     ("Select the last Visual area again", "g v"),
+    (
+        "Visual mode: the head goes to a click; the nearer end goes to a shift-click",
+        "Click  Shift+Click",
+    ),
     (
         "Ghost, Revive, Stash over a motion, a text object or the Visual selection",
         "g h  g H  g s",
@@ -74,6 +81,34 @@ pub const VIM_KEYS: [(&str, &str); 37] = [
     (
         "Settings: fields, change a value, open a select (in it: rows; letters search)",
         "j k  h l  Enter",
+    ),
+    (
+        "Command line: save, save to a path; close, close and drop changes",
+        ":w  :w path  :q  :q!",
+    ),
+    (
+        "Command line: save and close; save if changed and close",
+        ":wq  :x",
+    ),
+    (
+        "Command line: open a file, the file again; drop changes and open",
+        ":e path  :e  :e! path",
+    ),
+    (
+        "Command line: Vim mode off, on; Chrome bar off or on; Settings",
+        ":set novim  :set vim  :chrome  :settings",
+    ),
+    (
+        "Command line: caret; start, end; delete the word, delete to the start",
+        "Left Right  Home End  Ctrl+B Ctrl+E  Ctrl+W  Ctrl+U",
+    ),
+    (
+        "Command line: complete, history, close",
+        "Tab  Up Down  Esc",
+    ),
+    (
+        "Command line: run; delete the char before the caret (on an empty line: close)",
+        "Enter  Backspace",
     ),
     ("Back to Normal mode", "Esc"),
     ("Text edits in Insert mode", "Ctrl keys as usual"),

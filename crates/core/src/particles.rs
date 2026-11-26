@@ -35,13 +35,29 @@ pub struct ParticleLook {
     pub glow_size: f32,
 }
 
+/// An Effect with particles.
+#[derive(Clone, Copy)]
+enum Burst {
+    Explosion,
+    UndoBurst,
+}
+
 impl Effect {
+    /// The particle kind of this Effect; `None` for an Effect with no particles.
+    fn burst(self) -> Option<Burst> {
+        match self {
+            Self::Explosion => Some(Burst::Explosion),
+            Self::UndoBurst => Some(Burst::UndoBurst),
+            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => None,
+        }
+    }
+
     /// The look at `progress` (0.0..=1.0). `None` for an Effect with no particles.
     #[must_use]
     pub fn particle_look(self, progress: f32) -> Option<ParticleLook> {
         let glow_size = 0.5 + 0.5 * ease_out(progress);
-        match self {
-            Self::Explosion => {
+        match self.burst()? {
+            Burst::Explosion => {
                 let glow = (1. - progress).powi(2);
                 Some(ParticleLook {
                     cover: 1. - ramp(progress, 0.45, 1.),
@@ -50,7 +66,7 @@ impl Effect {
                     glow_size,
                 })
             }
-            Self::UndoBurst => {
+            Burst::UndoBurst => {
                 let glow = (progress * std::f32::consts::PI).sin();
                 Some(ParticleLook {
                     cover: 1. - ramp(progress, 0.6, 1.),
@@ -59,7 +75,6 @@ impl Effect {
                     glow_size,
                 })
             }
-            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => None,
         }
     }
 
@@ -69,12 +84,10 @@ impl Effect {
     /// Effect with no particles.
     #[must_use]
     pub fn sparks(self, area: ParticleArea, seed: u64, progress: f32) -> Vec<Particle> {
-        let travel = match self {
-            Self::Explosion => ease_out(progress),
-            Self::UndoBurst => 1. - ease_out(progress),
-            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => {
-                return Vec::new();
-            }
+        let travel = match self.burst() {
+            Some(Burst::Explosion) => ease_out(progress),
+            Some(Burst::UndoBurst) => 1. - ease_out(progress),
+            None => return Vec::new(),
         };
         (0..SPARKS)
             .map(|index| {
@@ -97,12 +110,10 @@ impl Effect {
     /// Effect with no particles.
     #[must_use]
     pub fn flames(self, area: ParticleArea, seed: u64, progress: f32) -> Vec<Particle> {
-        let grow = match self {
-            Self::Explosion => ease_out(progress),
-            Self::UndoBurst => progress,
-            Self::VariantFadeIn | Self::FocusZoom | Self::QuickFillDance | Self::CaretBlink => {
-                return Vec::new();
-            }
+        let grow = match self.burst() {
+            Some(Burst::Explosion) => ease_out(progress),
+            Some(Burst::UndoBurst) => progress,
+            None => return Vec::new(),
         };
         (0..FLAMES)
             .map(|index| {

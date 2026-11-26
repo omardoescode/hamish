@@ -145,6 +145,10 @@ The Vim mode state where keys type text, as with Vim mode off. Escape goes back 
 The Vim mode state where motions grow a selection of chars (`v`) or of whole lines (`V`), and an operator acts on it.
 _Avoid_: Select mode
 
+**Command line**:
+The one line at the window bottom that `:` in Normal mode opens. The writer types a command there (`:w`, `:e`, `:q`, `:set vim`, `:chrome`, `:settings`); Enter runs it, and an error shows as a Notice.
+_Avoid_: Ex mode, command palette
+
 **Register**:
 Where Vim mode yanks and deletes text to, and puts text from. It is the system clipboard; there are no named registers.
 _Avoid_: Buffer, kill ring

@@ -6,6 +6,7 @@ mod around;
 mod article;
 mod caret;
 mod counter;
+mod direction;
 mod document;
 mod edit_history;
 mod edit_session;
@@ -37,6 +38,7 @@ pub use alternatives_list::{
 pub use around::{paragraph_around, sentence_around};
 pub use caret::{Caret, CaretEdit, Motion, byte_range, follow_change, utf16_range, word_at};
 pub use counter::Counter;
+pub use direction::Direction;
 pub use document::{Document, RangeError};
 pub use edit_history::EditKind;
 pub(crate) use edit_history::{EditHistory, EditedText};
@@ -58,6 +60,7 @@ pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
 pub use vim::{
-    PanelCommand, PanelKeys, Put, VIM_KEYS, Vim, VimAction, VimCommand, VimKey, VimMode, VimPanel,
-    VimText,
+    AlternativesCommand, AlternativesKeys, CommandLine, DirectoryEntry, LabCommand, LineCommand,
+    LineError, LineKey, LineStep, Put, RowCommand, SettingsCommand, VIM_KEYS, Vim, VimAction,
+    VimCommand, VimKey, VimMode, VimText, one_char, resolve_path,
 };
