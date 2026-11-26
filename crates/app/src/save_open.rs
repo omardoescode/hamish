@@ -38,12 +38,20 @@ pub(crate) struct SaveOpen {
     saving: bool,
     /// A save asked for while one runs; it starts when that one ends, so two saves never
     /// write the same file at once.
-    queued: Option<PathBuf>,
+    queued: Option<QueuedSave>,
     /// Counts the Documents that replaced the first one. A save that ends after a New or an
     /// Open belongs to a Document that is gone, so it changes nothing.
     generation: u64,
     /// Hamish closes when the running save ends well (`:wq`).
     quit_after_save: bool,
+}
+
+/// A save that waits for the running save to end.
+#[derive(Debug)]
+struct QueuedSave {
+    path: PathBuf,
+    /// Hamish closes when this save ends well (`:wq`).
+    quit: bool,
 }
 
 impl SaveOpen {
@@ -112,16 +120,30 @@ impl Workspace {
 
     /// Saves to `path`, then closes Hamish when the save ends well.
     pub(crate) fn save_and_quit(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.save_open.quit_after_save = true;
-        self.save_to(path, cx);
+        self.start_save(path, true, cx);
     }
 
     pub(crate) fn save_to(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.start_save(path, false, cx);
+    }
+
+    /// Saves to `path`; with `quit`, Hamish closes when this save ends well. A save asked for
+    /// while one runs replaces the queued save, and keeps its close.
+    fn start_save(&mut self, path: PathBuf, quit: bool, cx: &mut Context<Self>) {
         if self.save_open.saving {
-            self.save_open.queued = Some(path);
+            let queued_quit = self
+                .save_open
+                .queued
+                .as_ref()
+                .is_some_and(|queued| queued.quit);
+            self.save_open.queued = Some(QueuedSave {
+                path,
+                quit: quit || queued_quit,
+            });
             return;
         }
         self.save_open.saving = true;
+        self.save_open.quit_after_save = quit;
         let (document, at) = self.editor.update(cx, |editor, _| editor.snapshot());
         let target = path.clone();
         let generation = self.save_open.generation;
@@ -145,9 +167,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.save_open.saving = false;
-        if result.is_err() {
-            self.save_open.quit_after_save = false;
-        }
+        let quit = result.is_ok() && std::mem::take(&mut self.save_open.quit_after_save);
         match result {
             Ok(()) => {
                 self.editor
@@ -157,13 +177,10 @@ impl Workspace {
             }
             Err(error) => self.save_open.notice = Some(Notice::SaveFailed(error.to_string())),
         }
-        let queued = self.save_open.queued.take();
-        let quit = queued.is_none() && self.save_open.quit_after_save;
-        if let Some(queued) = queued {
-            self.save_to(queued, cx);
-        }
-        if quit {
-            cx.defer(|cx| cx.dispatch_action(&Quit));
+        match self.save_open.queued.take() {
+            Some(queued) => self.start_save(queued.path, queued.quit || quit, cx),
+            None if quit => cx.defer(|cx| cx.dispatch_action(&Quit)),
+            None => {}
         }
         cx.notify();
     }
