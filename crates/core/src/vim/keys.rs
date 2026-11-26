@@ -1,7 +1,7 @@
 //! The Vim mode rows of the Shortcuts sheet.
 
 /// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
-pub const VIM_KEYS: [(&str, &str); 43] = [
+pub const VIM_KEYS: [(&str, &str); 45] = [
     ("Move left, down, up, right", "h j k l"),
     ("Next word start, word start before, word end", "w b e"),
     ("Line start, line end", "0 $"),
@@ -20,12 +20,19 @@ pub const VIM_KEYS: [(&str, &str); 43] = [
         "x D C",
     ),
     ("Text objects: word, sentence, paragraph", "i w  a s  i p"),
-    ("Text objects: Active variant, Ghost range", "i v  i g"),
+    (
+        "Text objects: Active variant, Ghost range (a: with the blank around)",
+        "i v  a v  i g  a g",
+    ),
     ("Put the clipboard after, before the caret", "p P"),
     ("Repeat the last change", "."),
     ("Undo, redo", "u  Ctrl+R"),
     ("Visual mode, Visual line mode", "v V"),
     ("Select the last Visual area again", "g v"),
+    (
+        "Visual mode: the head goes to a click; the nearer end goes to a shift-click",
+        "Click  Shift+Click",
+    ),
     (
         "Ghost, Revive, Stash over a motion, a text object or the Visual selection",
         "g h  g H  g s",
@@ -98,6 +105,10 @@ pub const VIM_KEYS: [(&str, &str); 43] = [
     (
         "Command line: complete, history, close",
         "Tab  Up Down  Esc",
+    ),
+    (
+        "Command line: run; delete the char before the caret (on an empty line: close)",
+        "Enter  Backspace",
     ),
     ("Back to Normal mode", "Esc"),
     ("Text edits in Insert mode", "Ctrl keys as usual"),

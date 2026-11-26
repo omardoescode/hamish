@@ -274,7 +274,7 @@ fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
         return None;
     }
     if modifiers.control {
-        return ctrl_line_key(&keystroke.key);
+        return LineKey::ctrl(&keystroke.key);
     }
     let key = match keystroke.key.as_str() {
         "escape" => LineKey::Escape,
@@ -291,15 +291,4 @@ fn line_key(keystroke: &Keystroke) -> Option<LineKey> {
         _ => return one_char(keystroke.key_char.as_deref()?).map(LineKey::Char),
     };
     Some(key)
-}
-
-/// The Command line key of Ctrl with `key`.
-fn ctrl_line_key(key: &str) -> Option<LineKey> {
-    match key {
-        "b" => Some(LineKey::Home),
-        "e" => Some(LineKey::End),
-        "w" => Some(LineKey::DeleteWord),
-        "u" => Some(LineKey::DeleteToStart),
-        _ => None,
-    }
 }
