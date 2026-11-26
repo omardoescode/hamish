@@ -1,13 +1,18 @@
 //! The GPUI side of the core `Caret`, for the Editor and Overflow: key actions, clipboard,
 //! input method, and the painted caret with its scroll.
 
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
+use std::time::Instant;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, Hsla, InteractiveElement, PaintQuad, Pixels, Point,
-    ScrollHandle, UTF16Selection, fill, point, px, size,
+    ScrollHandle, Task, UTF16Selection, Window, fill, point, px, size,
 };
-use hamish_core::{Caret, CaretEdit, Cycle, Motion, byte_range, utf16_range};
+use hamish_core::{
+    Caret, CaretEdit, Cycle, Motion, byte_range, caret_shown, next_caret_toggle, utf16_range,
+};
 
 use crate::Theme;
 use crate::actions::{
@@ -16,6 +21,7 @@ use crate::actions::{
     SelectRight, SelectToLineEnd, SelectToLineStart, SelectUp, SelectWordLeft, SelectWordRight,
 };
 use crate::editor::PaintedText;
+use crate::settings;
 
 pub(crate) const CARET_WIDTH: Pixels = px(2.);
 
@@ -25,6 +31,55 @@ pub(crate) const CARET_WIDTH: Pixels = px(2.);
 pub(crate) struct Column {
     x: Pixels,
     at: usize,
+}
+
+/// The blink of a painted caret: on and off by the caret blink Effect, counted from its
+/// last restart.
+pub(crate) struct CaretBlink {
+    started: Rc<Cell<Instant>>,
+    _toggles: Task<()>,
+}
+
+impl CaretBlink {
+    /// A blink that starts now. It repaints the view each time the caret turns on or off.
+    pub(crate) fn new<V: 'static>(cx: &mut Context<V>) -> Self {
+        let started = Rc::new(Cell::new(cx.background_executor().now()));
+        let blink_start = Rc::clone(&started);
+        let toggles = cx.spawn(async move |view, cx| {
+            loop {
+                let elapsed = cx
+                    .background_executor()
+                    .now()
+                    .saturating_duration_since(blink_start.get());
+                cx.background_executor()
+                    .timer(next_caret_toggle(elapsed))
+                    .await;
+                if view.update(cx, |_, cx| cx.notify()).is_err() {
+                    return;
+                }
+            }
+        });
+        Self {
+            started,
+            _toggles: toggles,
+        }
+    }
+
+    /// Starts the blink again with the caret on, after a caret move or an edit.
+    pub(crate) fn restart(&self, cx: &App) {
+        self.started.set(cx.background_executor().now());
+    }
+
+    /// Whether the caret shows now. It stays on with Reduced motion or while the window has
+    /// no focus.
+    pub(crate) fn shown(&self, window: &Window, cx: &App) -> bool {
+        let elapsed = cx
+            .background_executor()
+            .now()
+            .saturating_duration_since(self.started.get());
+        let still = settings::is_on(cx, |settings| settings.reduced_motion);
+        !window.is_window_active() || caret_shown(elapsed, still)
+    }
 }
 
 /// A view that edits one text with a [`Caret`].

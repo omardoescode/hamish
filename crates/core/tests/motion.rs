@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use hamish_core::{Effect, caret_shown};
+use hamish_core::{Effect, caret_shown, next_caret_toggle};
 
 fn ms(millis: u64) -> Duration {
     Duration::from_millis(millis)
@@ -58,4 +58,12 @@ fn a_caret_blink_round_is_on_for_500_ms_then_off_for_500_ms() {
 #[test]
 fn with_reduced_motion_the_caret_stays_on() {
     assert!(caret_shown(ms(700), true));
+}
+
+#[test]
+fn a_blinking_caret_turns_on_or_off_at_each_500_ms() {
+    assert_eq!(next_caret_toggle(ms(0)), ms(500));
+    assert_eq!(next_caret_toggle(ms(120)), ms(380));
+    assert_eq!(next_caret_toggle(ms(500)), ms(500));
+    assert_eq!(next_caret_toggle(ms(1730)), ms(270));
 }
