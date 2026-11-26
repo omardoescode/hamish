@@ -3,7 +3,7 @@ mod system_text;
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, AiFailure, LabRow, LabStatus, RunLabCheck, Workspace};
+use app::{Ai, AiFailure, DismissLabMark, LabRow, LabStatus, RunLabCheck, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
@@ -519,5 +519,63 @@ fn a_running_check_shows_the_ai_bar_clear_of_the_rows() {
 fn a_running_check_shows_the_ai_bar_clear_of_the_rows_at_a_large_ui_scale() {
     system_text::run(1, |cx| {
         assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 2.);
+    });
+}
+
+fn set_vim_mode(cx: &mut VisualTestContext) {
+    cx.update(|_, cx| {
+        app::use_settings(
+            None,
+            LoadedSettings {
+                settings: Settings {
+                    vim_mode: true,
+                    ..Settings::default()
+                },
+                problem: None,
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+}
+
+#[test]
+fn in_vim_mode_bracket_m_goes_to_a_mark_and_space_y_accepts_it_and_space_x_dismisses() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        run_checks(cx, &["lab-check-0", "lab-check-5"]);
+        set_vim_mode(cx);
+
+        cx.simulate_keystrokes("] m");
+        assert_eq!(card(&workspace, cx), Some(12..15));
+        cx.simulate_keystrokes("space y");
+        cx.run_until_parked();
+        assert_eq!(
+            text(&workspace, cx),
+            "Title\nI saw the cat. It was very good."
+        );
+
+        cx.simulate_keystrokes("] m");
+        assert_eq!(card(&workspace, cx), Some(26..30));
+        cx.simulate_keystrokes("space x");
+        cx.run_until_parked();
+        assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
+        assert_eq!(
+            text(&workspace, cx),
+            "Title\nI saw the cat. It was very good."
+        );
+    });
+}
+
+#[test]
+fn the_dismiss_action_ends_the_mark_at_the_caret() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        run_checks(cx, &["lab-check-5"]);
+        click_text(&workspace, cx, 27);
+
+        cx.dispatch_action(DismissLabMark);
+
+        assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
     });
 }

@@ -3,14 +3,14 @@ mod system_text;
 use std::ops::Range;
 use std::sync::Arc;
 
-use app::{Ai, RunTrim, TrimBar, Workspace};
+use app::{Ai, KeepTrimCut, RunTrim, TrimBar, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Point, TestAppContext, VisualTestContext, point,
     px,
 };
 use hamish_core::{
-    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, TrimCut,
-    TrimLevel, TrimRequest,
+    AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, LoadedSettings,
+    Settings, TrimCut, TrimLevel, TrimRequest,
 };
 
 /// Gives fixed cuts for each Trim level, or fails, as an AI backend would.
@@ -355,5 +355,55 @@ fn a_running_trim_shows_the_ai_bar_above_the_popover() {
             bar.bottom() <= popover.top(),
             "the AI bar {bar:?} overlaps the popover {popover:?}"
         );
+    });
+}
+
+#[test]
+fn the_keep_action_keeps_the_cut_at_the_caret() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        trim(cx, "trim-level-1");
+        click_text(&workspace, cx, 22);
+        cx.simulate_keystrokes("escape");
+        cx.simulate_keystrokes("left left left left left left left left left left left left");
+
+        cx.dispatch_action(KeepTrimCut);
+
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..15, true), cut(33..38, false)]
+        );
+    });
+}
+
+#[test]
+fn in_vim_mode_a_count_and_space_t_run_that_trim_level_and_space_k_keeps_a_cut() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(two_levels()));
+        cx.update(|_, cx| {
+            app::use_settings(
+                None,
+                LoadedSettings {
+                    settings: Settings {
+                        vim_mode: true,
+                        ..Settings::default()
+                    },
+                    problem: None,
+                },
+                cx,
+            );
+        });
+
+        cx.simulate_keystrokes("2 space t");
+        cx.run_until_parked();
+        assert_eq!(selected(&workspace, cx), TrimLevel::TightenMore);
+
+        cx.simulate_keystrokes("j w w");
+        cx.simulate_keystrokes("space k");
+        assert_eq!(
+            cuts(&workspace, cx),
+            vec![cut(8..21, true), cut(33..38, false)]
+        );
+        assert_eq!(text(&workspace, cx), TEXT);
     });
 }
