@@ -39,6 +39,21 @@ pub enum LineKey {
     DeleteToStart,
 }
 
+impl LineKey {
+    /// The key of Ctrl with `key`: `b` Home, `e` End, `w` the word before the caret, `u`
+    /// the text before the caret. `None` for another key.
+    #[must_use]
+    pub fn ctrl(key: &str) -> Option<Self> {
+        match key {
+            "b" => Some(Self::Home),
+            "e" => Some(Self::End),
+            "w" => Some(Self::DeleteWord),
+            "u" => Some(Self::DeleteToStart),
+            _ => None,
+        }
+    }
+}
+
 /// What the Command line does after one key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LineStep {

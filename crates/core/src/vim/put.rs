@@ -73,16 +73,20 @@ impl Put {
 }
 
 fn chars_at(text: &str, at: usize, body: &str) -> VimCommand {
-    let after = replaced(text, &(at..at), body);
-    let mut edit = CaretEdit::new(at..at, body, EditKind::Other);
-    edit.caret = Caret::at(previous_boundary(&after, at + body.len()).max(at));
-    VimCommand::Edit(edit)
+    inserted(text, at, body, |after| {
+        previous_boundary(after, at + body.len()).max(at)
+    })
 }
 
 fn lines_at(text: &str, at: usize, body: &str) -> VimCommand {
+    inserted(text, at, body, |after| first_non_blank(after, at))
+}
+
+/// `body` in at `at`; `caret` gives the caret offset in the text after the edit.
+fn inserted(text: &str, at: usize, body: &str, caret: impl FnOnce(&str) -> usize) -> VimCommand {
     let after = replaced(text, &(at..at), body);
     let mut edit = CaretEdit::new(at..at, body, EditKind::Other);
-    edit.caret = Caret::at(first_non_blank(&after, at));
+    edit.caret = Caret::at(caret(&after));
     VimCommand::Edit(edit)
 }
 
@@ -94,10 +98,7 @@ fn lines_after(text: &str, offset: usize, body: &str) -> VimCommand {
     }
     let body = format!("\n{}", body.strip_suffix('\n').unwrap_or(body));
     let at = text.len();
-    let after = replaced(text, &(at..at), &body);
-    let mut edit = CaretEdit::new(at..at, &body, EditKind::Other);
-    edit.caret = Caret::at(first_non_blank(&after, at + 1));
-    VimCommand::Edit(edit)
+    inserted(text, at, &body, |after| first_non_blank(after, at + 1))
 }
 
 /// `body` in place of `range`. Over whole lines `body` is lines; lines over chars go

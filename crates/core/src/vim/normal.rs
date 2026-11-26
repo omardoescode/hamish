@@ -1,7 +1,6 @@
 //! Normal mode of Vim: counts, motions, operators with their motion or text object, and the
 //! commands that start Insert or Visual mode.
 
-use super::hamish::WINDOW_PREFIX;
 use super::motion::{
     append_offset, at_column, column_of, first_non_blank, forward, left, line_end, line_number,
     lines_down, lines_up, motion_span, normal_offset, repeat, right, word_end_after,
@@ -9,7 +8,9 @@ use super::motion::{
 };
 use super::operator::{Operator, Span};
 use super::text_object::text_object;
-use super::{Put, Step, Vim, VimAction, VimCommand, VimKey, VimMode, VimText, char_of, select};
+use super::{
+    Prefix, Put, Step, Vim, VimAction, VimCommand, VimKey, VimMode, VimText, char_of, select,
+};
 use crate::caret::line_start;
 use crate::{Caret, CaretEdit, EditKind};
 
@@ -35,14 +36,9 @@ impl Vim {
         if key == VimKey::Escape {
             return Step::Done(self.escape(text));
         }
-        if self.operator.is_none() && key == VimKey::Ctrl('w') {
-            self.prefix = Some(WINDOW_PREFIX);
-            return Step::Pending;
-        }
-        let object = self.operator.is_some() && matches!(key, VimKey::Char('i' | 'a'));
-        let hamish = self.operator.is_none() && matches!(key, VimKey::Char(' ' | ']' | '['));
-        if object || hamish || key == VimKey::Char('g') {
-            self.prefix = char_of(key);
+        let operator = self.operator.is_some();
+        if let Some(prefix) = Prefix::of(key).filter(|prefix| prefix.in_normal(operator)) {
+            self.prefix = Some(prefix);
             return Step::Pending;
         }
         match self.operator {
@@ -67,7 +63,7 @@ impl Vim {
     /// The key after `g` (a motion), or after `i` or `a` (a text object).
     fn after_prefix(
         &mut self,
-        prefix: char,
+        prefix: Prefix,
         key: VimKey,
         text: &VimText<'_>,
         offset: usize,
@@ -77,11 +73,17 @@ impl Vim {
         }
         let operator = self.operator.map(|(operator, _)| operator);
         let count = self.take_count();
-        let span = if prefix == 'g' {
+        let span = if prefix == Prefix::G {
             gg_target(key, count, text.text).map(|target| Span::Lines(offset, target))
         } else {
             char_of(key).and_then(|object| {
-                text_object(text, offset, prefix == 'a', object, count.unwrap_or(1))
+                text_object(
+                    text,
+                    offset,
+                    prefix == Prefix::Around,
+                    object,
+                    count.unwrap_or(1),
+                )
             })
         };
         match (operator, span) {

@@ -86,12 +86,12 @@ fn the_markdown_icon_turns_the_markdown_styles_off_and_on_and_saves() {
         click(cx, "markdown-button");
 
         assert_eq!(bold_glyphs(&workspace, cx), vec![0, 1, 2, 3, 4]);
-        assert!(!Settings::load(&path).settings.markdown);
+        assert!(!Settings::load(&path).settings.markdown_styles);
 
         click(cx, "markdown-button");
 
         assert_eq!(bold_glyphs(&workspace, cx), title_and_bold);
-        assert!(Settings::load(&path).settings.markdown);
+        assert!(Settings::load(&path).settings.markdown_styles);
     });
 }
 
@@ -110,6 +110,6 @@ fn markers_and_markdown_styles_turn_off_in_settings() {
         assert_eq!(marker_count(&workspace, cx), 0);
         assert_eq!(bold_glyphs(&workspace, cx), vec![0, 1, 2, 3, 4]);
         let saved = Settings::load(&path).settings;
-        assert!(!saved.markers && !saved.markdown);
+        assert!(!saved.markers && !saved.markdown_styles);
     });
 }

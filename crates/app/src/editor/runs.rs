@@ -23,7 +23,7 @@ pub(super) fn text_runs(
     let style = window.text_style();
     let shown = editor.shown_document();
     let text = shown.text();
-    let markdown = if settings::is_on(cx, |settings| settings.markdown) {
+    let markdown = if settings::is_on(cx, |settings| settings.markdown_styles) {
         shown.markdown_styles()
     } else {
         Vec::new()

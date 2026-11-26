@@ -14,8 +14,8 @@ use gpui::{
     uniform_list,
 };
 use hamish_core::{
-    Effect, PanelCommand, PanelKeys, SelectSearch, Setting, Settings, ThemeName, Toggle, VimPanel,
-    caret_shown,
+    Direction, Effect, RowCommand, SelectSearch, Setting, Settings, SettingsCommand, ThemeName,
+    Toggle, caret_shown,
 };
 
 use crate::actions::{
@@ -28,6 +28,8 @@ use crate::chrome::{
 use crate::editor::{vim_key, vim_on};
 use crate::fonts;
 use crate::settings::{self, SettingsStore};
+use crate::vim_rows::{VimRows, run_row_command};
+use crate::workspace::Visibility;
 use crate::{Theme, Workspace};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +69,7 @@ const FIELDS: [(Section, Field); 13] = [
     (Section::Editor, Field::Toggle(Toggle::CycleSounds)),
     (Section::Editor, Field::Toggle(Toggle::VimMode)),
     (Section::Editor, Field::Toggle(Toggle::Markers)),
-    (Section::Editor, Field::Toggle(Toggle::Markdown)),
+    (Section::Editor, Field::Toggle(Toggle::MarkdownStyles)),
 ];
 
 /// A settings save failed.
@@ -87,7 +89,6 @@ pub struct SettingsModal {
     scroll: UniformListScrollHandle,
     /// The field that Vim mode keys act on: an index into [`FIELDS`].
     vim_field: usize,
-    keys: PanelKeys,
 }
 
 impl EventEmitter<SaveFailed> for SettingsModal {}
@@ -103,7 +104,6 @@ impl SettingsModal {
             search: SelectSearch::default(),
             scroll: UniformListScrollHandle::new(),
             vim_field: 0,
-            keys: PanelKeys::default(),
         }
     }
 
@@ -232,52 +232,32 @@ impl SettingsModal {
         if !vim_on(cx) || self.open_select.is_some() {
             return;
         }
-        let field = FIELDS.get(self.vim_field).map(|(_, field)| *field);
-        match self.keys.key(VimPanel::Settings, vim_key(&event.keystroke)) {
-            PanelCommand::PassOn => return,
-            PanelCommand::Down => self.move_field(self.vim_field + 1),
-            PanelCommand::Up => self.move_field(self.vim_field.saturating_sub(1)),
-            PanelCommand::Left => Self::step(field, false, cx),
-            PanelCommand::Right => Self::step(field, true, cx),
-            PanelCommand::Enter => self.enter_field(field, window, cx),
-            PanelCommand::Close => window.dispatch_action(Box::new(CloseSettings), cx),
-            PanelCommand::Nothing
-            | PanelCommand::Insert
-            | PanelCommand::EndInsert
-            | PanelCommand::DeleteRow
-            | PanelCommand::ChooseLevel(_) => {}
+        match SettingsCommand::of(vim_key(&event.keystroke)) {
+            SettingsCommand::PassOn => return,
+            SettingsCommand::Nothing => {}
+            SettingsCommand::Row(command) => run_row_command(self, command, window, cx),
+            SettingsCommand::Step(direction) => Self::step(self.vim_field(), direction, cx),
         }
         cx.stop_propagation();
         cx.notify();
     }
 
-    /// Field `index` (at most the last) gets the Vim mode keys; its section shows.
-    fn move_field(&mut self, index: usize) {
-        self.vim_field = index.min(FIELDS.len() - 1);
-        if let Some((section, _)) = FIELDS.get(self.vim_field) {
-            self.section = *section;
-        }
+    /// The field that the Vim mode keys act on.
+    fn vim_field(&self) -> Option<Field> {
+        FIELDS.get(self.vim_field).map(|(_, field)| *field)
     }
 
     /// `h` and `l`: a lower or higher value of a stepper; a toggle turns off or on.
-    fn step(field: Option<Field>, up: bool, cx: &mut Context<Self>) {
+    fn step(field: Option<Field>, direction: Direction, cx: &mut Context<Self>) {
         match field {
             Some(Field::Stepper(setting)) => {
-                Self::change(cx, move |settings| step_setting(settings, setting, up));
+                Self::change(cx, move |settings| settings.step(setting, direction));
             }
             Some(Field::Toggle(toggle)) => {
-                Self::change(cx, move |settings| set_toggle(settings, toggle, up));
+                let on = direction == Direction::Forward;
+                Self::change(cx, move |settings| settings.set(toggle, on));
             }
             Some(Field::Select(_)) | None => {}
-        }
-    }
-
-    /// Enter opens a select or flips a toggle.
-    fn enter_field(&mut self, field: Option<Field>, window: &mut Window, cx: &mut Context<Self>) {
-        match field {
-            Some(Field::Select(select)) => self.toggle_select(select, window, cx),
-            Some(Field::Toggle(toggle)) => Self::change(cx, move |settings| settings.flip(toggle)),
-            Some(Field::Stepper(_)) | None => {}
         }
     }
 
@@ -290,12 +270,15 @@ impl SettingsModal {
         cx: &mut Context<Self>,
     ) {
         let keystroke = &event.keystroke;
-        let command =
-            vim_on(cx).then(|| self.keys.key(VimPanel::SettingsSelect, vim_key(keystroke)));
+        let command = vim_on(cx)
+            .then(|| RowCommand::in_select(vim_key(keystroke)))
+            .flatten();
         match command {
-            Some(PanelCommand::Down) => self.next_row(&NextRow, window, cx),
-            Some(PanelCommand::Up) => self.previous_row(&PreviousRow, window, cx),
-            Some(_) | None => return self.type_search(event, cx),
+            Some(RowCommand::Down) => self.next_row(&NextRow, window, cx),
+            Some(RowCommand::Up) => self.previous_row(&PreviousRow, window, cx),
+            Some(RowCommand::Enter | RowCommand::Close) | None => {
+                return self.type_search(event, cx);
+            }
         }
         cx.stop_propagation();
     }
@@ -579,12 +562,12 @@ impl SettingsModal {
 
     /// A label, a "-" button, the value, and a "+" button.
     fn stepper(setting: Setting, settings: &Settings, theme: &Theme, cx: &Context<Self>) -> Div {
-        let button = |up: bool| {
-            let id = format!(
-                "settings-{}-{}",
-                setting.slug(),
-                if up { "up" } else { "down" }
-            );
+        let button = |direction: Direction| {
+            let (name, sign) = match direction {
+                Direction::Forward => ("up", "+"),
+                Direction::Back => ("down", "-"),
+            };
+            let id = format!("settings-{}-{name}", setting.slug());
             text_button(theme, theme.panel_border)
                 .id(SharedString::from(id.clone()))
                 .debug_selector(move || id.clone())
@@ -592,9 +575,9 @@ impl SettingsModal {
                 .flex()
                 .justify_center()
                 .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    Self::change(cx, move |settings| step_setting(settings, setting, up));
+                    Self::change(cx, move |settings| settings.step(setting, direction));
                 }))
-                .child(if up { "+" } else { "-" })
+                .child(sign)
         };
         field(
             setting.label(),
@@ -603,7 +586,7 @@ impl SettingsModal {
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(button(false))
+                .child(button(Direction::Back))
                 .child(
                     div()
                         .min_w(px(56.))
@@ -611,24 +594,8 @@ impl SettingsModal {
                         .justify_center()
                         .child(settings.shown(setting)),
                 )
-                .child(button(true)),
+                .child(button(Direction::Forward)),
         )
-    }
-}
-
-/// A higher (`up`) or lower value of `setting`.
-fn step_setting(settings: &mut Settings, setting: Setting, up: bool) {
-    if up {
-        settings.increase(setting);
-    } else {
-        settings.decrease(setting);
-    }
-}
-
-/// `toggle` on or off.
-fn set_toggle(settings: &mut Settings, toggle: Toggle, on: bool) {
-    if settings.is_on(toggle) != on {
-        settings.flip(toggle);
     }
 }
 
@@ -806,6 +773,33 @@ impl Focusable for SettingsModal {
     }
 }
 
+impl VimRows for SettingsModal {
+    fn vim_row(&self, _: &App) -> usize {
+        self.vim_field
+    }
+
+    /// The section of the field shows.
+    fn select_vim_row(&mut self, row: usize, _: &mut Context<Self>) {
+        self.vim_field = row.min(FIELDS.len() - 1);
+        if let Some((section, _)) = FIELDS.get(self.vim_field) {
+            self.section = *section;
+        }
+    }
+
+    /// Enter opens a select or flips a toggle.
+    fn enter_vim_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.vim_field() {
+            Some(Field::Select(select)) => self.toggle_select(select, window, cx),
+            Some(Field::Toggle(toggle)) => Self::change(cx, move |settings| settings.flip(toggle)),
+            Some(Field::Stepper(_)) | None => {}
+        }
+    }
+
+    fn close_vim_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        window.dispatch_action(Box::new(CloseSettings), cx);
+    }
+}
+
 impl Render for SettingsModal {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
@@ -868,7 +862,7 @@ impl Workspace {
     /// Settings are open.
     #[must_use]
     pub fn settings_open(&self) -> bool {
-        self.settings_open
+        self.settings_shown.is_shown()
     }
 
     /// Ctrl+, and the Chrome icon: opens Settings and gives them the keyboard.
@@ -878,7 +872,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.settings_open = true;
+        self.settings_shown = Visibility::Shown;
         self.settings_modal
             .update(cx, |modal, cx| modal.close_select(window, cx));
         window.focus(&self.settings_modal.focus_handle(cx), cx);
@@ -892,7 +886,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.settings_open = false;
+        self.settings_shown = Visibility::Hidden;
         window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }

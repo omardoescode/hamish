@@ -1,5 +1,5 @@
 [graph]
-targets = ["x86_64-unknown-linux-gnu"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]
 
 [advisories]
 ignore = []
@@ -38,7 +38,7 @@ deny = [
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# GPUI comes from Zed git (ADR 0009). Each entry is a git source in the Linux graph.
+# GPUI comes from Zed git (ADR 0009). Each entry is a git source in the Linux or macOS graph.
 allow-git = [
     "https://github.com/zed-industries/zed",
     "https://github.com/gfx-rs/wgpu",

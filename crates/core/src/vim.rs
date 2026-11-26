@@ -17,7 +17,7 @@ mod visual;
 use std::ops::Range;
 
 use crate::caret::{line_start, previous_boundary};
-use crate::{Caret, CaretEdit, Cycle, Document, EditKind, TrimProposal};
+use crate::{Caret, CaretEdit, Cycle, Direction, Document, EditKind, TrimProposal};
 pub use command_line::{
     CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, resolve_path,
 };
@@ -25,7 +25,7 @@ pub use hamish::VimAction;
 pub use keys::VIM_KEYS;
 use motion::normal_offset;
 use operator::Operator;
-pub use panel::{PanelCommand, PanelKeys, VimPanel};
+pub use panel::{AlternativesCommand, AlternativesKeys, LabCommand, RowCommand, SettingsCommand};
 pub use put::Put;
 use repeat::LastChange;
 
@@ -158,8 +158,8 @@ pub struct Vim {
     count: Option<usize>,
     /// The operator of a command not yet complete, with the count typed before it.
     operator: Option<(Operator, Option<usize>)>,
-    /// The first key of a two-key motion or text object: `g`, `i` or `a`.
-    prefix: Option<char>,
+    /// The first key of a two-key command.
+    prefix: Option<Prefix>,
     /// The keys of the command not yet complete.
     typed: Vec<VimKey>,
     /// The column that `j` and `k` keep, in graphemes from the line start. `usize::MAX`
@@ -180,6 +180,60 @@ pub struct Vim {
     replaying: bool,
     /// The mode, anchor char and head char of the last Visual selection, for `gv`.
     last_visual: Option<(VimMode, usize, usize)>,
+}
+
+/// The first key of a two-key command, waiting for the second key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Prefix {
+    /// `g`: `gg`, `gv`, and the operators Ghost, Revive and Stash.
+    G,
+    /// `i` after an operator or in Visual mode: an inner text object.
+    Inner,
+    /// `a` after an operator or in Visual mode: a text object with its blanks.
+    Around,
+    /// Space: the leader of the Hamish actions.
+    Leader,
+    /// `]` (forward) or `[` (back): a jump, or a Slot cycle.
+    Bracket(Direction),
+    /// `Ctrl+W`: the next key moves the keyboard between the Editor and Overflow.
+    Window,
+}
+
+impl Prefix {
+    /// The prefix that `key` is; `None` for a key that is no prefix.
+    fn of(key: VimKey) -> Option<Self> {
+        if key == VimKey::Ctrl('w') {
+            return Some(Self::Window);
+        }
+        let prefix = match char_of(key)? {
+            'g' => Self::G,
+            'i' => Self::Inner,
+            'a' => Self::Around,
+            ' ' => Self::Leader,
+            ']' => Self::Bracket(Direction::Forward),
+            '[' => Self::Bracket(Direction::Back),
+            _ => return None,
+        };
+        Some(prefix)
+    }
+
+    /// The prefix starts a command in Normal mode, with `operator` when an operator waits.
+    /// Text objects need an operator; the Hamish keys need none.
+    fn in_normal(self, operator: bool) -> bool {
+        match self {
+            Self::G => true,
+            Self::Inner | Self::Around => operator,
+            Self::Leader | Self::Bracket(_) | Self::Window => !operator,
+        }
+    }
+
+    /// The prefix starts a command in Visual mode.
+    fn in_visual(self) -> bool {
+        match self {
+            Self::G | Self::Inner | Self::Around | Self::Bracket(_) => true,
+            Self::Leader | Self::Window => false,
+        }
+    }
 }
 
 /// The result of one Normal or Visual mode key.
@@ -264,12 +318,12 @@ impl Vim {
     /// `jk` typed in a row acts as Escape and removes the `j`.
     fn insert_key(&mut self, key: VimKey, text: &str, offset: usize) -> VimCommand {
         let after_j = self.after_j.take();
-        match key {
-            VimKey::Escape => {
-                self.end_insert(text, offset);
-                VimCommand::Select(Caret::at(step_back(text, offset)))
-            }
-            VimKey::Char('k')
+        if key == VimKey::Escape {
+            self.end_insert(text, offset);
+            return VimCommand::Select(Caret::at(step_back(text, offset)));
+        }
+        match char_of(key) {
+            Some('k')
                 if after_j == Some(offset)
                     && text
                         .get(..offset)
@@ -281,15 +335,11 @@ impl Vim {
                 edit.caret = Caret::at(step_back(text, j));
                 VimCommand::Edit(edit)
             }
-            VimKey::Char('j') => {
+            Some('j') => {
                 self.after_j = Some(offset + 'j'.len_utf8());
                 VimCommand::PassOn
             }
-            VimKey::Char(_)
-            | VimKey::Ctrl(_)
-            | VimKey::Enter
-            | VimKey::Backspace
-            | VimKey::Other => VimCommand::PassOn,
+            Some(_) | None => VimCommand::PassOn,
         }
     }
 
@@ -342,6 +392,14 @@ impl Vim {
             (before, after) => before.or(after),
         }
     }
+}
+
+/// The char of `typed` when it is exactly one char.
+#[must_use]
+pub fn one_char(typed: &str) -> Option<char> {
+    let mut chars = typed.chars();
+    let first = chars.next()?;
+    chars.next().is_none().then_some(first)
 }
 
 fn char_of(key: VimKey) -> Option<char> {

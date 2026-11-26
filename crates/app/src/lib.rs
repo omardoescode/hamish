@@ -24,6 +24,7 @@ mod shortcuts_sheet;
 mod sounds;
 mod theme;
 mod trim;
+mod vim_rows;
 mod workspace;
 
 #[cfg(test)]

@@ -24,26 +24,43 @@ use crate::settings;
 use crate::settings_modal::{self, SaveFailed, SettingsModal};
 use crate::{AlternativesPanel, Editor, Theme};
 
+/// Whether a panel, a sheet or a bar of the Workspace shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Visibility {
+    Shown,
+    Hidden,
+}
+
+impl Visibility {
+    pub(crate) fn is_shown(self) -> bool {
+        self == Self::Shown
+    }
+
+    /// Hidden when shown, shown when hidden.
+    pub(crate) fn toggled(self) -> Self {
+        match self {
+            Self::Shown => Self::Hidden,
+            Self::Hidden => Self::Shown,
+        }
+    }
+}
+
 /// The root view: the text column, the Document title, the Counter, and the Chrome.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each bool is one panel or bar that shows or not, and none depends on another"
-)]
 pub struct Workspace {
     pub(crate) editor: Entity<Editor>,
     pub(crate) save_open: SaveOpen,
     lab: Entity<Lab>,
     overflow_panel: Entity<OverflowPanel>,
     alternatives: Option<(Entity<AlternativesPanel>, Subscription)>,
-    overflow_open: bool,
+    overflow_shown: Visibility,
     pub(crate) settings_modal: Entity<SettingsModal>,
-    pub(crate) settings_open: bool,
-    pub(crate) shortcuts_open: bool,
+    pub(crate) settings_shown: Visibility,
+    pub(crate) shortcuts_shown: Visibility,
     /// The Shortcuts sheet has this focus while it is open.
     pub(crate) shortcuts_focus: FocusHandle,
     pub(crate) command_line: CommandLineBar,
     /// `:chrome` turns the Chrome bar off and on.
-    pub(crate) chrome_shown: bool,
+    pub(crate) chrome_shown: Visibility,
     /// The title last set on the window, so a frame sets it only when it changes.
     window_title: String,
     /// The font family of the Chrome bar as last painted.
@@ -90,13 +107,13 @@ impl Workspace {
             save_open: SaveOpen::with_notice(settings::take_start_notice(cx)),
             lab,
             alternatives: None,
-            overflow_open: false,
+            overflow_shown: Visibility::Hidden,
             settings_modal,
-            settings_open: false,
-            shortcuts_open: false,
+            settings_shown: Visibility::Hidden,
+            shortcuts_shown: Visibility::Hidden,
             shortcuts_focus: cx.focus_handle(),
             command_line: CommandLineBar::new(cx.focus_handle()),
-            chrome_shown: true,
+            chrome_shown: Visibility::Shown,
             window_title: String::new(),
             chrome_font: SharedString::default(),
             _editor_changes: editor_changes,
@@ -211,7 +228,7 @@ impl Workspace {
     /// The Overflow panel is open.
     #[must_use]
     pub fn overflow_open(&self) -> bool {
-        self.overflow_open
+        self.overflow_shown.is_shown()
     }
 
     #[must_use]
@@ -221,8 +238,8 @@ impl Workspace {
 
     /// Opening gives Overflow the keyboard; closing gives it back to the Document.
     fn toggle_overflow(&mut self, _: &ToggleOverflow, window: &mut Window, cx: &mut Context<Self>) {
-        self.overflow_open = !self.overflow_open;
-        let focus = if self.overflow_open {
+        self.overflow_shown = self.overflow_shown.toggled();
+        let focus = if self.overflow_shown.is_shown() {
             self.overflow_panel.focus_handle(cx)
         } else {
             self.editor.focus_handle(cx)
@@ -240,7 +257,7 @@ impl Workspace {
     /// `Ctrl+W l` in Vim mode: open Overflow gets the keyboard. A closed Overflow stays
     /// closed.
     fn focus_overflow(&mut self, _: &FocusOverflow, window: &mut Window, cx: &mut Context<Self>) {
-        if self.overflow_open {
+        if self.overflow_shown.is_shown() {
             window.focus(&self.overflow_panel.focus_handle(cx), cx);
             cx.notify();
         }
@@ -268,7 +285,7 @@ impl Workspace {
 
     /// After a Stash, Overflow shows where the text went. The Document keeps the keyboard.
     fn show_stash(&mut self, cx: &mut Context<Self>) {
-        self.overflow_open = true;
+        self.overflow_shown = Visibility::Shown;
         cx.notify();
     }
 
@@ -298,7 +315,7 @@ impl Workspace {
     /// Document gets the keyboard.
     pub(crate) fn reset_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.alternatives = None;
-        self.overflow_open = false;
+        self.overflow_shown = Visibility::Hidden;
         let editor = self.editor.clone();
         self.overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
         self.lab = cx.new(|cx| Lab::new(editor, cx));
@@ -345,7 +362,7 @@ impl Workspace {
     ) -> impl IntoElement {
         let counter_label = self.editor.read(cx).counter_label();
         let markers = settings::is_on(cx, |settings| settings.markers);
-        let markdown = settings::is_on(cx, |settings| settings.markdown);
+        let markdown = settings::is_on(cx, |settings| settings.markdown_styles);
         div()
             .id("chrome")
             .debug_selector(|| "chrome-bar".to_owned())
@@ -395,7 +412,10 @@ impl Workspace {
                     }))
                     .child(settings_modal::settings_button(theme))
                     .child(chrome::shortcuts_button(theme))
-                    .child(overflow_panel::overflow_button(self.overflow_open, theme)),
+                    .child(overflow_panel::overflow_button(
+                        self.overflow_shown.is_shown(),
+                        theme,
+                    )),
             )
     }
 }
@@ -444,8 +464,8 @@ impl Render for Workspace {
         let theme = cx.global::<Theme>().clone();
         let bar_height = chrome_bar_height(cx);
         let title_label = self.title_label(cx);
-        let overflow_keys =
-            self.overflow_open && self.overflow_panel.focus_handle(cx).is_focused(window);
+        let overflow_keys = self.overflow_shown.is_shown()
+            && self.overflow_panel.focus_handle(cx).is_focused(window);
         let vim_status = if overflow_keys {
             self.overflow_panel.read(cx).vim_status(cx)
         } else {
@@ -478,7 +498,7 @@ impl Render for Workspace {
                 Self::change_setting(|settings| settings.flip(Toggle::Markers), cx);
             }))
             .on_action(cx.listener(|_, _: &ToggleMarkdown, _, cx| {
-                Self::change_setting(|settings| settings.flip(Toggle::Markdown), cx);
+                Self::change_setting(|settings| settings.flip(Toggle::MarkdownStyles), cx);
             }))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::close_settings))
@@ -523,22 +543,22 @@ impl Render for Workspace {
                     .left_0()
                     .right_0()
                     .bottom_0()
-                    .when(self.overflow_open, |panels| {
+                    .when(self.overflow_shown.is_shown(), |panels| {
                         panels.child(self.overflow_panel.clone())
                     })
                     .children(self.alternatives_panel().cloned()),
             )
             .child(title_view(title_label, &theme, bar_height))
-            .when(self.chrome_shown, |workspace| {
+            .when(self.chrome_shown.is_shown(), |workspace| {
                 workspace.child(self.chrome_bar(&theme, bar_height, vim_status, cx))
             })
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
             .children(self.command_line_view(&theme, window, cx))
-            .when(self.settings_open, |workspace| {
+            .when(self.settings_shown.is_shown(), |workspace| {
                 workspace.child(self.settings_modal.clone())
             })
-            .when(self.shortcuts_open, |workspace| {
+            .when(self.shortcuts_shown.is_shown(), |workspace| {
                 workspace.child(self.shortcuts_sheet(&theme, cx))
             })
     }

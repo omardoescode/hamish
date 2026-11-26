@@ -8,7 +8,7 @@ use super::normal::gg_target;
 use super::operator::{Operator, Span};
 use super::repeat::VisualSize;
 use super::text_object::text_object;
-use super::{Put, Step, Vim, VimCommand, VimKey, VimMode, VimText, char_of, select};
+use super::{Prefix, Put, Step, Vim, VimCommand, VimKey, VimMode, VimText, char_of, select};
 use crate::caret::{line_start, next_boundary, previous_boundary};
 use crate::{Caret, Motion};
 
@@ -77,8 +77,8 @@ impl Vim {
         if self.take_digit(key) {
             return Step::Pending;
         }
-        if matches!(key, VimKey::Char('g' | 'i' | 'a' | ']' | '[')) {
-            self.prefix = char_of(key);
+        if let Some(prefix) = Prefix::of(key).filter(|prefix| prefix.in_visual()) {
+            self.prefix = Some(prefix);
             return Step::Pending;
         }
         let plain = text.text;
@@ -128,7 +128,7 @@ impl Vim {
     /// The key after `g` moves the head; the key after `i` or `a` selects a text object.
     fn visual_prefix(
         &mut self,
-        prefix: char,
+        prefix: Prefix,
         key: VimKey,
         text: &VimText<'_>,
         head: usize,
@@ -137,16 +137,22 @@ impl Vim {
             return step;
         }
         let count = self.take_count();
-        let span = if prefix == 'g' {
+        let span = if prefix == Prefix::G {
             gg_target(key, count, text.text).map(|target| Span::Chars(target..target))
         } else {
             char_of(key).and_then(|object| {
-                text_object(text, head, prefix == 'a', object, count.unwrap_or(1))
+                text_object(
+                    text,
+                    head,
+                    prefix == Prefix::Around,
+                    object,
+                    count.unwrap_or(1),
+                )
             })
         };
         match span {
             None => return Step::Done(VimCommand::Nothing),
-            Some(Span::Chars(range)) if prefix == 'g' => self.head = range.start,
+            Some(Span::Chars(range)) if prefix == Prefix::G => self.head = range.start,
             Some(Span::Chars(range)) => {
                 self.anchor = range.start;
                 self.head = previous_boundary(text.text, range.end).max(range.start);

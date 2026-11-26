@@ -27,7 +27,9 @@ use hamish_core::{
 use element::EditorElement;
 use pen::PenStroke;
 use runs::{Span, spans};
-pub(crate) use vim::{gpui_action, run_text_command, vim_key, vim_on};
+pub(crate) use vim::{
+    VimView, gpui_action, run_text_command, run_vim, vim_key, vim_key_down, vim_on,
+};
 
 mod element;
 mod focus_zoom;
@@ -746,7 +748,7 @@ impl Editor {
         }
         let in_insert = self.vim_mode(cx) == Some(VimMode::Insert);
         if self.vim_mode(cx).is_some() {
-            self.run_vim(VimKey::Escape, window, cx);
+            run_vim(self, VimKey::Escape, window, cx);
         }
         if !in_insert {
             cx.propagate();
@@ -915,7 +917,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::stash))
             .on_action(cx.listener(Self::close_menu))
             .on_action(cx.listener(Self::delete_active_variant))
-            .on_key_down(cx.listener(Self::on_key_down))
+            .on_key_down(cx.listener(vim_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
