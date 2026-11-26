@@ -9,7 +9,8 @@ use gpui::{
     px,
 };
 use hamish_core::{
-    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, one_char, resolve_path,
+    CommandLine, LineCommand, LineError, LineKey, LineStep, directory_entries, one_char,
+    resolve_path,
 };
 
 use crate::actions::{OpenCommandLine, OpenSettings, Quit, QuitIfSaved, Save};
@@ -250,23 +251,6 @@ impl Workspace {
                 .into_any_element(),
         )
     }
-}
-
-/// The entries of `directory`; none when it does not list.
-fn directory_entries(directory: &Path) -> Vec<DirectoryEntry> {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
-            Some(DirectoryEntry {
-                name,
-                directory: entry.path().is_dir(),
-            })
-        })
-        .collect()
 }
 
 /// `keystroke` as the Command line reads it; `None` for a key it does not use.

@@ -65,5 +65,6 @@ pub use vim::{
     AlternativesCommand, AlternativesKeys, CommandLine, DirectoryEntry, Fed, HAMISHRC_EXAMPLE,
     Hamishrc, HamishrcError, HamishrcProblem, LabCommand, LineCommand, LineError, LineKey,
     LineStep, MAX_MAP_DEPTH, MapMode, MapTarget, Put, RowCommand, SettingsCommand, VIM_KEYS, Vim,
-    VimAction, VimCommand, VimKey, VimMode, VimText, one_char, resolve_path, vim_keys,
+    VimAction, VimCommand, VimKey, VimMode, VimText, create_hamishrc, directory_entries,
+    hamishrc_text, one_char, resolve_path, vim_keys,
 };

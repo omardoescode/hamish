@@ -1,13 +1,12 @@
 //! The hamishrc global: the key maps in use and where the file is. The file reads on the
 //! background executor at start, on window focus, on `:source` and on "Reload hamishrc".
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{App, AppContext, Context, Global, InteractiveElement, Window};
-use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, MapMode, Toggle, VimKey};
+use hamish_core::{Hamishrc, MapMode, Toggle, VimKey, create_hamishrc, hamishrc_text};
 
 use crate::actions::{EditHamishrc, RecursiveMap, ReloadHamishrc};
 use crate::save_open::Notice;
@@ -64,26 +63,6 @@ fn path(cx: &App) -> Option<PathBuf> {
     cx.try_global::<HamishrcStore>()?.path.clone()
 }
 
-/// The text of the file at `path`; empty when it does not exist.
-fn read(path: &Path) -> io::Result<String> {
-    match fs::read_to_string(path) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
-        read => read,
-    }
-}
-
-/// Writes [`HAMISHRC_EXAMPLE`] to `path` when no file is there.
-fn create_if_missing(path: &Path) -> io::Result<()> {
-    if let Some(directory) = path.parent() {
-        fs::create_dir_all(directory)?;
-    }
-    match OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(mut created) => created.write_all(HAMISHRC_EXAMPLE.as_bytes()),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
 impl Workspace {
     /// `root` with the hamishrc actions of the Workspace.
     pub(crate) fn hamishrc_actions(root: gpui::Div, cx: &Context<Self>) -> gpui::Div {
@@ -101,7 +80,7 @@ impl Workspace {
             return;
         };
         let reading = cx.background_spawn(async move {
-            read(&path).map(|text| {
+            hamishrc_text(&path).map(|text| {
                 let rc = Hamishrc::parse(&text, &bound_keys());
                 (text, rc)
             })
@@ -150,7 +129,7 @@ impl Workspace {
             self.show(Notice::NoHamishrcDir, cx);
             return;
         };
-        let creating = cx.background_spawn(async move { create_if_missing(&path).map(|()| path) });
+        let creating = cx.background_spawn(async move { create_hamishrc(&path).map(|()| path) });
         cx.spawn(async move |this, cx| {
             let created = creating.await;
             this.update(cx, |workspace, cx| match created {
@@ -169,35 +148,5 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.show(Notice::RecursiveMap, cx);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use hamish_core::HAMISHRC_EXAMPLE;
-
-    use super::create_if_missing;
-
-    #[test]
-    fn a_missing_hamishrc_is_made_with_the_example_and_its_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("hamish").join("hamishrc");
-
-        create_if_missing(&path).unwrap();
-
-        assert_eq!(fs::read_to_string(&path).unwrap(), HAMISHRC_EXAMPLE);
-    }
-
-    #[test]
-    fn a_hamishrc_that_exists_stays_as_it_is() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("hamishrc");
-        fs::write(&path, "nnoremap Y y$\n").unwrap();
-
-        create_if_missing(&path).unwrap();
-
-        assert_eq!(fs::read_to_string(&path).unwrap(), "nnoremap Y y$\n");
     }
 }

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use hamish_core::{
     Caret, CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, Vim, VimAction,
-    VimCommand, VimKey, resolve_path,
+    VimCommand, VimKey, directory_entries, resolve_path,
 };
 
 fn type_line(line: &mut CommandLine, typed: &str) {
@@ -503,4 +503,17 @@ fn up_and_tab_put_the_caret_at_the_line_end() {
         line_after(&then(typed("setti"), &[LineKey::Home, LineKey::Tab])),
         "settings|"
     );
+}
+
+#[test]
+fn directory_entries_list_files_and_directories_and_none_for_a_missing_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("draft.md"), "").unwrap();
+    std::fs::create_dir(dir.path().join("notes")).unwrap();
+
+    let mut entries = directory_entries(dir.path());
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    assert_eq!(entries, [entry("draft.md", false), entry("notes", true)]);
+    assert_eq!(directory_entries(&dir.path().join("missing")), []);
 }

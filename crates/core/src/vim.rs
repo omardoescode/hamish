@@ -21,11 +21,13 @@ use std::ops::Range;
 use crate::caret::{line_start, previous_boundary};
 use crate::{Caret, CaretEdit, Cycle, Direction, Document, EditKind, TrimProposal};
 pub use command_line::{
-    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, resolve_path,
+    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, directory_entries,
+    resolve_path,
 };
 pub use hamish::VimAction;
 pub use hamishrc::{
     HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, MapTarget,
+    create_hamishrc, hamishrc_text,
 };
 use key_feed::KeyFeed;
 pub use key_feed::{Fed, MAX_MAP_DEPTH};

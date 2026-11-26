@@ -583,6 +583,24 @@ fn set_setting(setting: Option<&str>) -> Result<LineCommand, LineError> {
     }
 }
 
+/// The entries of `directory`, in no order; none when it does not list.
+#[must_use]
+pub fn directory_entries(directory: &Path) -> Vec<DirectoryEntry> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            Some(DirectoryEntry {
+                name,
+                directory: entry.path().is_dir(),
+            })
+        })
+        .collect()
+}
+
 /// The file path of `typed`: `~/` starts at `home`, and a relative path starts at
 /// `document_folder` (the folder of the Document file), else at `home`.
 #[must_use]

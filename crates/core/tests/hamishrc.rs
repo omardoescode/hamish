@@ -1,6 +1,8 @@
+use std::fs;
+
 use hamish_core::{
     Caret, Fed, HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, TrimLevel,
-    Vim, VimAction, VimCommand, VimKey,
+    Vim, VimAction, VimCommand, VimKey, create_hamishrc, hamishrc_text,
 };
 
 fn parse(text: &str) -> Hamishrc {
@@ -308,4 +310,35 @@ fn a_map_on_a_key_that_a_key_binding_takes_is_an_error_with_its_line_number() {
         fed(&rc, MapMode::Normal, "x"),
         [Fed::Key(VimKey::Char('x'))]
     );
+}
+
+#[test]
+fn a_missing_hamishrc_is_made_with_the_example_and_its_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hamish").join("hamishrc");
+
+    create_hamishrc(&path).unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), HAMISHRC_EXAMPLE);
+}
+
+#[test]
+fn a_hamishrc_that_exists_stays_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hamishrc");
+    fs::write(&path, "nnoremap Y y$\n").unwrap();
+
+    create_hamishrc(&path).unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "nnoremap Y y$\n");
+}
+
+#[test]
+fn the_text_of_a_missing_hamishrc_is_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hamishrc");
+
+    assert_eq!(hamishrc_text(&path).unwrap(), "");
+    fs::write(&path, "nnoremap Y y$\n").unwrap();
+    assert_eq!(hamishrc_text(&path).unwrap(), "nnoremap Y y$\n");
 }

@@ -2,6 +2,9 @@
 //! goes in; the maps and the line-numbered errors come out.
 
 use std::fmt;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
+use std::path::Path;
 
 use super::{VimAction, VimKey};
 
@@ -29,6 +32,33 @@ pub const HAMISHRC_EXAMPLE: &str = r#"" hamishrc: the Vim mode keys of Hamish. I
 " :Quit closes Hamish as :q does; :ForceQuit drops unsaved changes, as :q!.
 " nnoremap <leader>q :Quit
 "#;
+
+/// The text of the hamishrc file at `path`; empty when no file is there.
+///
+/// # Errors
+/// When the file is there and does not read.
+pub fn hamishrc_text(path: &Path) -> io::Result<String> {
+    match fs::read_to_string(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        read => read,
+    }
+}
+
+/// Writes [`HAMISHRC_EXAMPLE`] to `path`, and makes its directory, when no file is there. A
+/// file that is there stays as it is.
+///
+/// # Errors
+/// When the directory or the file cannot be made.
+pub fn create_hamishrc(path: &Path) -> io::Result<()> {
+    if let Some(directory) = path.parent() {
+        fs::create_dir_all(directory)?;
+    }
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut created) => created.write_all(HAMISHRC_EXAMPLE.as_bytes()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error),
+    }
+}
 
 /// The Vim mode states that have maps of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
