@@ -2,7 +2,6 @@
 //! its AI requests and Quick fill reveal, and plays its sounds and explosions.
 
 use std::time::Duration;
-use std::time::Instant;
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyDownEvent,
@@ -172,8 +171,8 @@ impl AlternativesPanel {
 
     /// The row where a delete explosion plays now. The next row has moved up into it.
     #[must_use]
-    pub fn exploding_row(&self) -> Option<usize> {
-        (!self.explosions.playing().is_empty()).then_some(self.explosion_row)
+    pub fn exploding_row(&self, cx: &App) -> Option<usize> {
+        (!self.explosions.playing(cx).is_empty()).then_some(self.explosion_row)
     }
 
     /// The Variants in order, the Original first. Quick fill results not shown yet
@@ -457,19 +456,19 @@ impl AlternativesPanel {
 
     /// The explosion over row `index` while it plays. It only paints, so it never
     /// blocks input.
-    fn explosion_at(&self, index: usize, theme: &Theme) -> Option<impl IntoElement> {
-        if self.exploding_row() != Some(index) {
+    fn explosion_at(&self, index: usize, theme: &Theme, cx: &App) -> Option<impl IntoElement> {
+        if self.exploding_row(cx) != Some(index) {
             return None;
         }
         let playing: Vec<_> = self
             .explosions
-            .frames(Instant::now())
+            .frames(cx.background_executor().now())
             .into_iter()
             .map(|(particles, _)| particles)
             .collect();
         let background = theme.panel_background;
-        let paint = move |bounds, (), window: &mut Window, _: &mut App| {
-            let now = Instant::now();
+        let paint = move |bounds, (), window: &mut Window, cx: &mut App| {
+            let now = cx.background_executor().now();
             for particles in &playing {
                 if let Some(progress) = particles.progress(now) {
                     particles.paint(&[bounds], px(23.), progress, background, window);
@@ -505,7 +504,7 @@ impl AlternativesPanel {
             };
             let text = editing.map_or(row.text, |text| format!("{text}\u{258f}"));
             row_box(theme, index == selected)
-                .children(self.explosion_at(index, theme))
+                .children(self.explosion_at(index, theme, cx))
                 .id(("alternatives-row", index))
                 .debug_selector(move || format!("alternatives-row-{index}"))
                 .cursor_pointer()
@@ -525,7 +524,7 @@ impl AlternativesPanel {
             theme.accent
         };
         let new_row = row_box(theme, selected == last)
-            .children(self.explosion_at(last, theme))
+            .children(self.explosion_at(last, theme, cx))
             .id(("alternatives-row", last))
             .debug_selector(move || format!("alternatives-row-{last}"))
             .on_click(cx.listener(move |panel, _, _, cx| panel.select(last, cx)))

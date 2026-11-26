@@ -255,8 +255,8 @@ impl Editor {
 
     /// The effects that play now, oldest first.
     #[must_use]
-    pub fn effects(&self) -> Vec<PlayingEffect> {
-        self.effects.playing()
+    pub fn effects(&self, cx: &App) -> Vec<PlayingEffect> {
+        self.effects.playing(cx)
     }
 
     /// Deletes Variant `index` of Slot `id` as one undo step, with an

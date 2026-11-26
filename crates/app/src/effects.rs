@@ -42,7 +42,7 @@ impl EffectPlayer {
         if !plays(cx) {
             return;
         }
-        let now = Instant::now();
+        let now = cx.background_executor().now();
         self.playing
             .retain(|particles| particles.progress(now).is_some());
         self.seed = self.seed.wrapping_add(1);
@@ -61,9 +61,9 @@ impl EffectPlayer {
             .collect()
     }
 
-    /// The Effects that play now, oldest first.
-    pub(crate) fn playing(&self) -> Vec<PlayingEffect> {
-        self.frames(Instant::now())
+    /// The Effects that play now on the clock of the executor, oldest first.
+    pub(crate) fn playing(&self, cx: &App) -> Vec<PlayingEffect> {
+        self.frames(cx.background_executor().now())
             .into_iter()
             .map(|(particles, _)| particles.playing)
             .collect()
@@ -165,8 +165,9 @@ pub(crate) fn plays(cx: &App) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
+    use gpui::TestAppContext;
     use hamish_core::{Effect, LoadedSettings, Settings};
 
     use super::{EffectPlayer, PlayingEffect};
@@ -178,8 +179,12 @@ mod tests {
         }
     }
 
-    fn progress_at(player: &EffectPlayer, after: Duration) -> Vec<(Effect, bool)> {
-        let now = Instant::now() + after;
+    fn progress_at(
+        player: &EffectPlayer,
+        cx: &TestAppContext,
+        after: Duration,
+    ) -> Vec<(Effect, bool)> {
+        let now = cx.executor().now() + after;
         player
             .frames(now)
             .into_iter()
@@ -197,18 +202,18 @@ mod tests {
             });
 
             assert_eq!(
-                player.playing(),
+                cx.update(|cx| player.playing(cx)),
                 vec![playing(Effect::Explosion), playing(Effect::UndoBurst)]
             );
             assert_eq!(
-                progress_at(&player, Duration::from_millis(400)),
+                progress_at(&player, cx, Duration::from_millis(400)),
                 vec![(Effect::Explosion, true), (Effect::UndoBurst, true)]
             );
             assert_eq!(
-                progress_at(&player, Duration::from_millis(600)),
+                progress_at(&player, cx, Duration::from_millis(600)),
                 vec![(Effect::Explosion, true)]
             );
-            assert_eq!(progress_at(&player, Duration::from_millis(700)), vec![]);
+            assert_eq!(progress_at(&player, cx, Duration::from_millis(700)), vec![]);
         });
     }
 
@@ -222,7 +227,7 @@ mod tests {
             });
 
             let seeds: Vec<u64> = player
-                .frames(Instant::now())
+                .frames(cx.executor().now())
                 .into_iter()
                 .map(|(particles, _)| particles.seed)
                 .collect();
@@ -250,7 +255,7 @@ mod tests {
                 player.play(Effect::Explosion, 0..4, cx);
             });
 
-            assert_eq!(player.playing(), vec![]);
+            assert_eq!(cx.update(|cx| player.playing(cx)), vec![]);
         });
     }
 }

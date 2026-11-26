@@ -61,7 +61,7 @@ fn variants(
 }
 
 fn effects(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec<PlayingEffect> {
-    cx.read(|cx| workspace.read(cx).editor().read(cx).effects())
+    cx.read(|cx| workspace.read(cx).editor().read(cx).effects(cx))
 }
 
 fn effect(effect: Effect, range: std::ops::Range<usize>) -> PlayingEffect {
