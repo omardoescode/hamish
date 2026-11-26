@@ -113,7 +113,7 @@ impl Particles {
         let radius = line_height * look.glow_size;
         for (color, blur) in [(flame_color(), 1.4), (core_color(), 0.7)] {
             let glow_bounds = Bounds::centered_at(area.center(), size(radius, radius * 0.6));
-            window.paint_shadows(
+            window.paint_drop_shadows(
                 glow_bounds,
                 (radius * 0.3).into(),
                 &[BoxShadow {
@@ -121,6 +121,7 @@ impl Particles {
                     offset: point(px(0.), px(0.)),
                     blur_radius: radius * blur,
                     spread_radius: px(0.),
+                    inset: false,
                 }],
             );
         }

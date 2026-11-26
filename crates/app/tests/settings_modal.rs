@@ -2,7 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use app::{Notice, Theme, Workspace};
-use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, point, px, rgb};
+use gpui::{
+    Bounds, Entity, Modifiers, Pixels, TestAppContext, TestDispatcher, VisualTestContext, point,
+    px, rgb,
+};
 use hamish_core::{Document, Settings, ThemeName};
 
 fn open(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) {
@@ -25,6 +28,15 @@ fn open_with_file(
         cx.add_window_view(|window, cx| Workspace::new(Document::new("Title\nBody."), window, cx));
     cx.run_until_parked();
     (workspace, cx)
+}
+
+/// A test app on the system text system, so the font list holds the system fonts.
+fn system_fonts_cx() -> TestAppContext {
+    TestAppContext::build_with_text_system(
+        TestDispatcher::new(0),
+        None,
+        gpui_platform::current_platform(true).text_system(),
+    )
 }
 
 fn settings_open(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> bool {
@@ -149,8 +161,9 @@ fn line_height_and_column_width_change_the_editor(cx: &mut TestAppContext) {
     assert_eq!(theme.column_width, px(605.));
 }
 
-#[gpui::test]
-fn a_font_from_the_ui_font_select_changes_the_ui_font(cx: &mut TestAppContext) {
+#[test]
+fn a_font_from_the_ui_font_select_changes_the_ui_font() {
+    let cx = &mut system_fonts_cx();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
     let (_, cx) = open_with_file(cx, path.clone());
@@ -169,8 +182,9 @@ fn a_font_from_the_ui_font_select_changes_the_ui_font(cx: &mut TestAppContext) {
     assert_eq!(Settings::load(&path).settings.ui_font, "IBM Plex Mono");
 }
 
-#[gpui::test]
-fn the_text_font_select_starts_at_default_and_changes_the_text_font(cx: &mut TestAppContext) {
+#[test]
+fn the_text_font_select_starts_at_default_and_changes_the_text_font() {
+    let cx = &mut system_fonts_cx();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("settings.json");
     let (_, cx) = open_with_file(cx, path.clone());
@@ -194,8 +208,9 @@ fn the_text_font_select_starts_at_default_and_changes_the_text_font(cx: &mut Tes
     assert_eq!(theme(cx).text_font, "IBM Plex Mono");
 }
 
-#[gpui::test]
-fn the_rows_of_a_font_select_have_one_height(cx: &mut TestAppContext) {
+#[test]
+fn the_rows_of_a_font_select_have_one_height() {
+    let cx = &mut system_fonts_cx();
     let (_, cx) = open(cx);
 
     cx.simulate_keystrokes("ctrl-,");

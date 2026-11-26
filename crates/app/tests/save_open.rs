@@ -251,7 +251,7 @@ fn ctrl_o_with_unsaved_changes_asks_first_and_cancel_keeps_the_document(cx: &mut
 }
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
-fn press_without_waiting(cx: &mut VisualTestContext, keystroke: &str) {
+fn press_without_waiting(cx: &mut VisualTestContext, keystroke: &'static str) {
     let keystroke = Keystroke::parse(keystroke).unwrap();
     cx.update(|window, cx| window.dispatch_keystroke(keystroke, cx));
 }

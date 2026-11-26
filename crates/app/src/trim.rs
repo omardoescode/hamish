@@ -196,7 +196,7 @@ impl Lab {
                 text_button(theme, border)
                     .id(("trim-level", index))
                     .debug_selector(move || format!("trim-level-{index}"))
-                    .flex_grow()
+                    .flex_grow(1.)
                     .flex()
                     .flex_col()
                     .items_center()

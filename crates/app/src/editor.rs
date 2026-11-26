@@ -627,7 +627,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         self.keep_trim_cut_at(event.position, cx);
         self.selecting = true;
         if event.click_count == 2 {
@@ -677,7 +677,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         let offset = caret::offset_at(self, event.position, cx);
         let in_selection =
             self.session.selection().start <= offset && offset <= self.session.selection().end;

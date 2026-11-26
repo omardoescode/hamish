@@ -175,7 +175,7 @@ fn shown_text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Stri
 
 /// Types `key` without waiting for the AI.
 #[expect(clippy::expect_used, reason = "test fixture")]
-fn press(cx: &mut VisualTestContext, key: &str) {
+fn press(cx: &mut VisualTestContext, key: &'static str) {
     let keystroke = Keystroke::parse(key).expect("a valid keystroke");
     cx.update(|window, cx| {
         window.dispatch_keystroke(keystroke, cx);

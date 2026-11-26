@@ -2,8 +2,8 @@
 //! icon of the Chrome bar opens it; Esc closes it.
 
 use gpui::{
-    Action, App, Context, Div, Focusable, IntoElement, KeybindingKeystroke, MouseButton,
-    MouseDownEvent, Window, div, prelude::*, px,
+    Action, App, Context, Div, Focusable, IntoElement, MouseButton, MouseDownEvent, Window, div,
+    prelude::*, px,
 };
 use hamish_core::{VIM_KEYS, key_label};
 
@@ -94,6 +94,7 @@ pub fn shortcut_groups(cx: &App) -> Vec<ShortcutGroup> {
         ),
         ("Lab", vec![("Close the Lab", bound(CloseLab))]),
     ];
+    let os = cx.platform_info().os;
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
     let keys_of = |keys: &Keys| match keys {
@@ -105,7 +106,7 @@ pub fn shortcut_groups(cx: &App) -> Vec<ShortcutGroup> {
                 let strokes: Vec<String> = binding
                     .keystrokes()
                     .iter()
-                    .map(KeybindingKeystroke::unparse)
+                    .map(|stroke| stroke.unparse(os))
                     .collect();
                 key_label(&strokes.join(" "))
             }),
@@ -150,7 +151,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.shortcuts_open = true;
-        window.focus(&self.shortcuts_focus);
+        window.focus(&self.shortcuts_focus, cx);
         cx.notify();
     }
 
@@ -162,7 +163,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.shortcuts_open = false;
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }
 

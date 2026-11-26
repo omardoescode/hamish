@@ -3,7 +3,7 @@ use std::ops::Range;
 use app::{AlternativesPanel, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, ScrollDelta,
-    ScrollWheelEvent, TestAppContext, VisualTestContext, point, px,
+    ScrollEvent, TestAppContext, VisualTestContext, point, px,
 };
 use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
 
@@ -515,10 +515,10 @@ fn the_wheel_scrolls_the_panel_rows(cx: &mut TestAppContext) {
         "the rows do not fit: {last:?}"
     );
     cx.simulate_mouse_move(before.center(), None, Modifiers::none());
-    cx.simulate_event(ScrollWheelEvent {
+    cx.simulate_event(ScrollEvent {
         position: before.center(),
         delta: ScrollDelta::Pixels(point(px(0.), px(-100.))),
-        ..ScrollWheelEvent::default()
+        ..ScrollEvent::default()
     });
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();

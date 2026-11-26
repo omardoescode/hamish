@@ -44,7 +44,7 @@ pub fn load_fonts_in_background(cx: &mut App) {
             if !cx.has_global::<FontList>() {
                 cx.set_global(FontList(names));
             }
-        })
+        });
     })
     .detach();
 }

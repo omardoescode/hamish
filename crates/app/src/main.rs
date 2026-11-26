@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use app::{Ai, DeviceSounds, Sounds, Workspace};
-use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
+use gpui::{App, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
 use hamish_core::{ClaudeBackend, Document, Settings, settings_path};
 
 #[expect(
@@ -17,7 +17,7 @@ fn main() {
         std::env::home_dir().as_deref(),
     );
     let loaded = path.as_deref().map(Settings::load);
-    Application::new().run(|cx: &mut App| {
+    gpui_platform::application().run(|cx: &mut App| {
         if let Err(error) = app::init(cx) {
             eprintln!("hamish: cannot load the bundled font: {error:#}");
             cx.quit();

@@ -55,7 +55,7 @@ pub(crate) fn save(cx: &mut App, failed: impl FnOnce(&SettingsError, &mut App) +
     let saving = cx.background_spawn(async move { settings.save(&path) });
     cx.spawn(async move |cx| {
         let result = saving.await;
-        cx.update(|cx| saved(&result, failed, cx))
+        cx.update(|cx| saved(&result, failed, cx));
     })
     .detach();
 }

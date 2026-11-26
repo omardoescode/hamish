@@ -9,7 +9,16 @@ license = "UNLICENSED"
 repository = "https://github.com/omardoescode/hamish"
 
 [workspace.dependencies]
-gpui = "=0.2.2"
+gpui = { git = "https://github.com/zed-industries/zed", rev = "a0e666ae930a85ab38947e2d49222b0ea99f1c2f" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "a0e666ae930a85ab38947e2d49222b0ea99f1c2f", features = ["wayland", "x11", "font-kit"] }
+
+[patch.crates-io]
+cpal = { git = "https://github.com/RustAudio/cpal", rev = "e1612d5d98152f8dc2a62e1b51ef7cbf4f7f26b7" }
+async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
+async-task = { git = "https://github.com/smol-rs/async-task", rev = "41fd3359c75e221bd8b187a8ee361aa309c1714c" }
+windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
+khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

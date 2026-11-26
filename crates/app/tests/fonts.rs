@@ -1,5 +1,5 @@
 use app::{ToggleOverflow, Workspace};
-use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
+use gpui::{Entity, Modifiers, TestAppContext, TestDispatcher, VisualTestContext};
 use hamish_core::{Document, LoadedSettings, Settings};
 
 /// Opens a window with `settings` and `text`, and shows the Chrome and Overflow.
@@ -25,6 +25,15 @@ fn open<'a>(
     cx.dispatch_action(ToggleOverflow);
     cx.run_until_parked();
     (workspace, cx)
+}
+
+/// A test app on the system text system, so the font list holds the system fonts.
+fn system_fonts_cx() -> TestAppContext {
+    TestAppContext::build_with_text_system(
+        TestDispatcher::new(0),
+        None,
+        gpui_platform::current_platform(true).text_system(),
+    )
 }
 
 /// The font family of the Chrome, the Document text, and the Overflow text, as last painted.
@@ -68,8 +77,9 @@ fn the_chrome_uses_the_ui_font_and_the_document_text_uses_the_text_font(cx: &mut
     );
 }
 
-#[gpui::test]
-fn the_default_text_font_follows_the_ui_font_when_it_changes(cx: &mut TestAppContext) {
+#[test]
+fn the_default_text_font_follows_the_ui_font_when_it_changes() {
+    let cx = &mut system_fonts_cx();
     let (workspace, cx) = open(cx, Settings::default(), "Title\nBody.");
     let plex = "IBM Plex Mono".to_owned();
     assert_eq!(

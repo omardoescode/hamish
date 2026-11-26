@@ -101,7 +101,7 @@ impl OverflowPanel {
 
     /// Esc gives the keyboard back to the Document; Overflow stays open.
     fn leave(&mut self, _: &LeaveOverflow, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
     }
 
     fn on_mouse_down(
@@ -110,7 +110,7 @@ impl OverflowPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         if event.click_count == 2 {
             caret::select_word(self, event.position, cx);
         } else {
@@ -288,14 +288,6 @@ impl OverflowText {
             underline: None,
             strikethrough: None,
         }]
-    }
-}
-
-impl IntoElement for OverflowText {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
