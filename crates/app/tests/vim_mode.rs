@@ -269,3 +269,86 @@ fn j_then_k_in_insert_mode_goes_to_normal_mode_without_the_j() {
         assert_eq!(selection(&workspace, cx), 1..1);
     });
 }
+
+fn clipboard(cx: &mut VisualTestContext) -> Option<String> {
+    cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()))
+}
+
+#[test]
+fn d_and_y_put_text_in_the_system_clipboard_and_p_puts_it_back() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two three", true);
+
+        cx.simulate_keystrokes("d w");
+        assert_eq!(text(&workspace, cx), "two three");
+        assert_eq!(clipboard(cx).as_deref(), Some("one "));
+
+        cx.simulate_keystrokes("$ p");
+        assert_eq!(text(&workspace, cx), "two threeone ");
+
+        cx.simulate_keystrokes("0 y i w");
+        assert_eq!(clipboard(cx).as_deref(), Some("two"));
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("X".to_owned()));
+        cx.simulate_keystrokes("shift-p");
+        assert_eq!(text(&workspace, cx), "Xtwo threeone ");
+    });
+}
+
+#[test]
+fn u_and_ctrl_r_undo_and_redo_one_vim_command_at_a_time() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two", true);
+
+        cx.simulate_keystrokes("c i w");
+        cx.simulate_input("six");
+        cx.simulate_keystrokes("escape w x");
+        assert_eq!(text(&workspace, cx), "six wo");
+
+        cx.simulate_keystrokes("u");
+        assert_eq!(text(&workspace, cx), "six two");
+        cx.simulate_keystrokes("u");
+        assert_eq!(text(&workspace, cx), "one two");
+        assert_eq!(selection(&workspace, cx), 0..0);
+
+        cx.simulate_keystrokes("ctrl-r");
+        assert_eq!(text(&workspace, cx), "six two");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+    });
+}
+
+#[test]
+fn visual_mode_selects_and_types_nothing_and_d_deletes_the_selection() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two\nthree", true);
+
+        cx.simulate_keystrokes("v e");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("VISUAL"));
+        assert_eq!(selection(&workspace, cx), 0..3);
+
+        cx.simulate_keystrokes("q delete");
+        cx.simulate_input("z");
+        assert_eq!(selection(&workspace, cx), 0..3);
+        assert_eq!(text(&workspace, cx), "one two\nthree");
+
+        cx.simulate_keystrokes("shift-v");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("VISUAL LINE"));
+        cx.simulate_keystrokes("d");
+        assert_eq!(text(&workspace, cx), "three");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+
+        cx.simulate_keystrokes("v escape");
+        assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+    });
+}
+
+#[test]
+fn dot_repeats_the_last_change_in_the_editor() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two three", true);
+
+        cx.simulate_keystrokes("c w");
+        cx.simulate_input("six");
+        cx.simulate_keystrokes("escape w .");
+        assert_eq!(text(&workspace, cx), "six six three");
+    });
+}

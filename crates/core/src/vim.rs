@@ -1,10 +1,21 @@
-//! Vim mode: the Normal and Insert modes of the Editor as a key state machine over plain
-//! text. Raw keys go in; commands for the caret and the text come out (ADR 0008).
+//! Vim mode: the Normal, Insert and Visual modes of the Editor as a key state machine over
+//! plain text. Raw keys go in; commands for the caret, the text and the register come out
+//! (ADR 0008).
 
-use unicode_segmentation::UnicodeSegmentation;
+mod motion;
+mod put;
+mod text_object;
+
+use std::ops::Range;
 
 use crate::caret::{line_start, next_boundary, previous_boundary};
-use crate::{Caret, CaretEdit, EditKind};
+use crate::{Caret, CaretEdit, Document, EditKind, Motion};
+use motion::{
+    Class, at_column, class, column_of, first_non_blank, left, line_number, lines_down, lines_up,
+    repeat, right, steps, word_end_after, word_start_after, word_start_before,
+};
+pub use put::Put;
+use text_object::text_object;
 
 /// The mode of the Editor while Vim mode is on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -14,6 +25,10 @@ pub enum VimMode {
     Normal,
     /// Keys type text, as with Vim mode off. Escape goes back to Normal.
     Insert,
+    /// Motions grow the selection from the char where it started; operators act on it.
+    Visual,
+    /// As Visual, but the selection is whole lines.
+    VisualLine,
 }
 
 impl VimMode {
@@ -23,6 +38,8 @@ impl VimMode {
         match self {
             Self::Normal => "NORMAL",
             Self::Insert => "INSERT",
+            Self::Visual => "VISUAL",
+            Self::VisualLine => "VISUAL LINE",
         }
     }
 }
@@ -32,6 +49,8 @@ impl VimMode {
 pub enum VimKey {
     /// A key that types this char with no Ctrl, Alt or platform key. Shift is in the char.
     Char(char),
+    /// Ctrl with the key of this char, and no Alt or platform key.
+    Ctrl(char),
     Escape,
     Enter,
     Backspace,
@@ -51,10 +70,22 @@ pub enum VimCommand {
     Select(Caret),
     /// Make this edit.
     Edit(CaretEdit),
+    /// Make this edit, and put `removed`, the text it removes, in the register (the
+    /// system clipboard). An empty `removed` leaves the register as it is.
+    Cut { edit: CaretEdit, removed: String },
+    /// Put `text` in the register and show `caret`.
+    Yank { text: String, caret: Caret },
+    /// Put the register text in the Document: the Editor reads the register and runs the
+    /// command of [`Put::command`].
+    Put(Put),
+    /// Undo this many Undo steps.
+    Undo(usize),
+    /// Redo this many Undo steps.
+    Redo(usize),
 }
 
 /// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
-pub const VIM_KEYS: [(&str, &str); 10] = [
+pub const VIM_KEYS: [(&str, &str); 20] = [
     ("Move left, down, up, right", "h j k l"),
     ("Next word start, word start before, word end", "w b e"),
     ("Line start, line end", "0 $"),
@@ -63,31 +94,142 @@ pub const VIM_KEYS: [(&str, &str); 10] = [
     ("A count repeats a motion", "3 w"),
     ("Insert mode before, after the caret", "i a"),
     ("Insert mode on a new line below, above", "o O"),
+    (
+        "Delete, change, yank over a motion or a text object",
+        "d c y",
+    ),
+    ("Delete, change, yank whole lines", "d d  c c  y y"),
+    (
+        "Delete the char, to the line end; change to the line end",
+        "x D C",
+    ),
+    ("Text objects: word, sentence, paragraph", "i w  a s  i p"),
+    ("Text objects: Active variant, Ghost range", "i v  i g"),
+    ("Put the clipboard after, before the caret", "p P"),
+    ("Repeat the last change", "."),
+    ("Undo, redo", "u  Ctrl+R"),
+    ("Visual mode, Visual line mode", "v V"),
     ("Back to Normal mode", "Esc"),
     ("Text edits in Insert mode", "Ctrl keys as usual"),
+    ("The register is the clipboard", "y p"),
 ];
+
+/// The text Vim mode reads: the Document text, with the spans of its Slots and Ghost ranges
+/// for the text objects `iv` and `ig`. Plain text has neither.
+#[derive(Debug, Clone, Default)]
+pub struct VimText<'a> {
+    text: &'a str,
+    slots: Vec<Range<usize>>,
+    ghosts: Vec<Range<usize>>,
+}
+
+impl<'a> From<&'a str> for VimText<'a> {
+    fn from(text: &'a str) -> Self {
+        Self {
+            text,
+            ..Self::default()
+        }
+    }
+}
+
+impl<'a> From<&'a Document> for VimText<'a> {
+    fn from(document: &'a Document) -> Self {
+        Self {
+            text: document.text(),
+            slots: document
+                .slots()
+                .into_iter()
+                .map(|slot| slot.range)
+                .collect(),
+            ghosts: document.ghost_ranges(),
+        }
+    }
+}
 
 /// The Vim key state of one Editor: its mode and the keys of a command not yet complete.
 #[derive(Debug, Clone, Default)]
 pub struct Vim {
     mode: VimMode,
+    /// The count typed last: before the operator, or after it.
     count: Option<usize>,
-    /// The first key of a two-key command, as the first `g` of `gg`.
+    /// The operator of a command not yet complete, with the count typed before it.
+    operator: Option<(Operator, Option<usize>)>,
+    /// The first key of a two-key motion or text object: `g`, `i` or `a`.
     prefix: Option<char>,
+    /// The keys of the command not yet complete.
+    typed: Vec<VimKey>,
     /// The column that `j` and `k` keep, in graphemes from the line start. `usize::MAX`
     /// after `$` keeps the line end.
     column: Option<usize>,
     /// The caret offset right after a `j` typed in Insert mode, while a `k` there
     /// can still make `jk` act as Escape.
     after_j: Option<usize>,
+    /// The char where the Visual selection started.
+    anchor: usize,
+    /// The char that Visual mode motions move.
+    head: usize,
+    /// The change that `.` repeats.
+    last: Option<LastChange>,
+    /// Where the text typed in Insert mode starts, while `.` records it.
+    insert_start: Option<usize>,
+    /// `.` runs the keys of the last change: they do not record a new one.
+    replaying: bool,
 }
 
-/// The kind of a grapheme for word moves.
+/// What an operator does with its span.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Class {
-    Blank,
-    Word,
-    Punctuation,
+enum Operator {
+    Delete,
+    Change,
+    Yank,
+}
+
+impl Operator {
+    fn of(key: char) -> Option<Self> {
+        match key {
+            'd' => Some(Self::Delete),
+            'c' => Some(Self::Change),
+            'y' => Some(Self::Yank),
+            _ => None,
+        }
+    }
+
+    const fn key(self) -> char {
+        match self {
+            Self::Delete => 'd',
+            Self::Change => 'c',
+            Self::Yank => 'y',
+        }
+    }
+}
+
+/// The text an operator acts on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Span {
+    /// The chars of a byte range.
+    Chars(Range<usize>),
+    /// Whole lines: from the line that holds the first offset to the line that holds the
+    /// second, in either order.
+    Lines(usize, usize),
+}
+
+/// The result of one Normal or Visual mode key.
+enum Step {
+    /// The command is not complete.
+    Pending,
+    /// The command is complete.
+    Done(VimCommand),
+    /// The command is complete, and it is a change that `.` repeats.
+    Change(VimCommand),
+}
+
+/// A change that `.` repeats: its count, its keys after the count, and the text typed
+/// in the Insert mode it started.
+#[derive(Debug, Clone, Default)]
+struct LastChange {
+    count: Option<usize>,
+    keys: Vec<VimKey>,
+    inserted: String,
 }
 
 impl Vim {
@@ -96,14 +238,11 @@ impl Vim {
         self.mode
     }
 
-    /// The mode label, then the keys of the command not yet complete (the count, then the
-    /// first key of a pair), as the Chrome bar shows them: "NORMAL", "NORMAL 3g".
+    /// The mode label, then the keys of the command not yet complete, as the Chrome bar
+    /// shows them: "NORMAL", "NORMAL 3g", "NORMAL d2i".
     #[must_use]
     pub fn status(&self) -> String {
-        let mut pending = self
-            .count
-            .map_or_else(String::new, |count| count.to_string());
-        pending.extend(self.prefix);
+        let pending: String = self.typed.iter().filter_map(|key| char_of(*key)).collect();
         if pending.is_empty() {
             return self.mode.label().to_owned();
         }
@@ -114,19 +253,30 @@ impl Vim {
     /// last char of a line goes onto that char; on an empty line it stays.
     #[must_use]
     pub fn settle(&self, text: &str, caret: Caret) -> Caret {
-        if self.mode == VimMode::Insert || !caret.selection().is_empty() {
+        if self.mode != VimMode::Normal || !caret.selection().is_empty() {
             return caret;
         }
         Caret::at(normal_offset(text, caret.clamped(text).offset()))
     }
 
     /// Reads `key` with `caret` in `text` and gives the command for it. In Normal mode
-    /// a caret on a line end acts from the last char of the line.
-    pub fn key(&mut self, key: VimKey, text: &str, caret: &Caret) -> VimCommand {
-        let offset = caret.clamped(text).offset();
+    /// a caret on a line end acts from the last char of the line. In Visual mode the keys
+    /// act from the char that Visual mode motions moved last.
+    pub fn key<'a>(
+        &mut self,
+        key: VimKey,
+        text: impl Into<VimText<'a>>,
+        caret: &Caret,
+    ) -> VimCommand {
+        let text = text.into();
+        let offset = caret.clamped(text.text).offset();
         match self.mode {
-            VimMode::Insert => self.insert_key(key, text, offset),
-            VimMode::Normal => self.normal_key(key, text, normal_offset(text, offset)),
+            VimMode::Insert => self.insert_key(key, text.text, offset),
+            VimMode::Normal => self.normal_key(key, &text, normal_offset(text.text, offset)),
+            VimMode::Visual | VimMode::VisualLine => {
+                let head = normal_offset(text.text, self.head.min(text.text.len()));
+                self.visual_key(key, &text, head)
+            }
         }
     }
 
@@ -135,7 +285,7 @@ impl Vim {
         let after_j = self.after_j.take();
         match key {
             VimKey::Escape => {
-                self.mode = VimMode::Normal;
+                self.end_insert(text, offset);
                 VimCommand::Select(Caret::at(step_back(text, offset)))
             }
             VimKey::Char('k')
@@ -144,8 +294,8 @@ impl Vim {
                         .get(..offset)
                         .is_some_and(|before| before.ends_with('j')) =>
             {
-                self.mode = VimMode::Normal;
                 let j = offset - 'j'.len_utf8();
+                self.end_insert(text, j);
                 let mut edit = CaretEdit::new(j..offset, "", EditKind::Deleting);
                 edit.caret = Caret::at(step_back(text, j));
                 VimCommand::Edit(edit)
@@ -154,81 +304,467 @@ impl Vim {
                 self.after_j = Some(offset + 'j'.len_utf8());
                 VimCommand::PassOn
             }
-            VimKey::Char(_) | VimKey::Enter | VimKey::Backspace | VimKey::Other => {
-                VimCommand::PassOn
+            VimKey::Char(_)
+            | VimKey::Ctrl(_)
+            | VimKey::Enter
+            | VimKey::Backspace
+            | VimKey::Other => VimCommand::PassOn,
+        }
+    }
+
+    /// Back to Normal mode; the text typed from where Insert mode started to `end` goes
+    /// into the change that `.` repeats.
+    fn end_insert(&mut self, text: &str, end: usize) {
+        self.mode = VimMode::Normal;
+        let Some(start) = self.insert_start.take() else {
+            return;
+        };
+        if let Some(last) = self.last.as_mut() {
+            text.get(start..end)
+                .unwrap_or_default()
+                .clone_into(&mut last.inserted);
+        }
+    }
+
+    fn normal_key(&mut self, key: VimKey, text: &VimText<'_>, offset: usize) -> VimCommand {
+        self.typed.push(key);
+        let step = self.normal_step(key, text, offset);
+        self.finish(step)
+    }
+
+    fn visual_key(&mut self, key: VimKey, text: &VimText<'_>, head: usize) -> VimCommand {
+        self.typed.push(key);
+        let step = match self.visual_step(key, text, head) {
+            Step::Change(command) => Step::Done(command),
+            step @ (Step::Pending | Step::Done(_)) => step,
+        };
+        self.finish(step)
+    }
+
+    /// Clears the keys of a complete command, and records a change for `.`.
+    fn finish(&mut self, step: Step) -> VimCommand {
+        let (command, change) = match step {
+            Step::Pending => return VimCommand::Nothing,
+            Step::Done(command) => (command, false),
+            Step::Change(command) => (command, true),
+        };
+        let typed = std::mem::take(&mut self.typed);
+        self.count = None;
+        self.operator = None;
+        self.prefix = None;
+        if change && !self.replaying {
+            self.record(typed, &command);
+        }
+        command
+    }
+
+    fn record(&mut self, typed: Vec<VimKey>, command: &VimCommand) {
+        let mut count: Option<usize> = None;
+        let mut keys = typed.into_iter().peekable();
+        while let Some(digit) = keys
+            .peek()
+            .and_then(|key| count_digit(*key, count.is_some()))
+        {
+            count = Some(count.unwrap_or(0).saturating_mul(10).saturating_add(digit));
+            keys.next();
+        }
+        self.last = Some(LastChange {
+            count,
+            keys: keys.collect(),
+            inserted: String::new(),
+        });
+        self.insert_start = match command {
+            _ if self.mode != VimMode::Insert => None,
+            VimCommand::Edit(edit) | VimCommand::Cut { edit, .. } => Some(edit.caret.offset()),
+            VimCommand::Select(caret) => Some(caret.offset()),
+            VimCommand::PassOn
+            | VimCommand::Nothing
+            | VimCommand::Yank { .. }
+            | VimCommand::Put(_)
+            | VimCommand::Undo(_)
+            | VimCommand::Redo(_) => None,
+        };
+    }
+
+    /// Adds `key` to the count when it is a count digit.
+    fn take_digit(&mut self, key: VimKey) -> bool {
+        let Some(digit) = count_digit(key, self.count.is_some()) else {
+            return false;
+        };
+        let count = self.count.unwrap_or(0);
+        self.count = Some(count.saturating_mul(10).saturating_add(digit));
+        true
+    }
+
+    /// The count of the command: the count before the operator times the count after it.
+    fn take_count(&mut self) -> Option<usize> {
+        let before = self.operator.and_then(|(_, count)| count);
+        match (before, self.count.take()) {
+            (Some(before), Some(after)) => Some(before.saturating_mul(after)),
+            (before, after) => before.or(after),
+        }
+    }
+
+    fn normal_step(&mut self, key: VimKey, text: &VimText<'_>, offset: usize) -> Step {
+        if let Some(prefix) = self.prefix.take() {
+            return self.after_prefix(prefix, key, text, offset);
+        }
+        if self.take_digit(key) {
+            return Step::Pending;
+        }
+        if key == VimKey::Escape {
+            return Step::Done(VimCommand::Nothing);
+        }
+        let object = self.operator.is_some() && matches!(key, VimKey::Char('i' | 'a'));
+        if object || key == VimKey::Char('g') {
+            self.prefix = char_of(key);
+            return Step::Pending;
+        }
+        match self.operator {
+            Some((operator, _)) => self.operator_key(operator, key, text.text, offset),
+            None => self.command(key, text, offset),
+        }
+    }
+
+    /// The motion or the doubled operator key after an operator.
+    fn operator_key(&mut self, operator: Operator, key: VimKey, text: &str, offset: usize) -> Step {
+        let count = self.take_count();
+        if key == VimKey::Char(operator.key()) {
+            let last = lines_down(text, offset, count.unwrap_or(1) - 1).max(offset);
+            return self.operate(operator, Span::Lines(offset, last), text);
+        }
+        match motion_span(operator, key, count, text, offset) {
+            Some(span) => self.operate(operator, span, text),
+            None => Step::Done(VimCommand::Nothing),
+        }
+    }
+
+    /// The key after `g` (a motion), or after `i` or `a` (a text object).
+    fn after_prefix(
+        &mut self,
+        prefix: char,
+        key: VimKey,
+        text: &VimText<'_>,
+        offset: usize,
+    ) -> Step {
+        let operator = self.operator.map(|(operator, _)| operator);
+        let count = self.take_count();
+        let span = if prefix == 'g' {
+            gg_target(key, count, text.text).map(|target| Span::Lines(offset, target))
+        } else {
+            char_of(key).and_then(|object| {
+                text_object(text, offset, prefix == 'a', object, count.unwrap_or(1))
+            })
+        };
+        match (operator, span) {
+            (Some(operator), Some(span)) => self.operate(operator, span, text.text),
+            (None, Some(Span::Lines(_, target))) => {
+                self.column = None;
+                Step::Done(select(target))
+            }
+            (None | Some(_), None) | (None, Some(Span::Chars(_))) => {
+                Step::Done(VimCommand::Nothing)
             }
         }
     }
 
-    fn normal_key(&mut self, key: VimKey, text: &str, offset: usize) -> VimCommand {
-        if let Some(prefix) = self.prefix.take() {
-            let count = self.count.take();
-            self.column = None;
-            return pair(prefix, key, count, text);
+    fn command(&mut self, key: VimKey, text: &VimText<'_>, offset: usize) -> Step {
+        let count = self.take_count();
+        if let Some(target) = self.motion(key, count, text.text, offset) {
+            return Step::Done(select(target));
         }
         match key {
-            VimKey::Char(digit @ '0'..='9') if digit != '0' || self.count.is_some() => {
-                let value = usize::try_from(digit.to_digit(10).unwrap_or(0)).unwrap_or(0);
-                let count = self.count.unwrap_or(0);
-                self.count = Some(count.saturating_mul(10).saturating_add(value));
-                VimCommand::Nothing
-            }
-            VimKey::Escape => {
-                self.count = None;
-                VimCommand::Nothing
-            }
-            VimKey::Char('g') => {
-                self.prefix = Some('g');
-                VimCommand::Nothing
-            }
-            VimKey::Char(_) | VimKey::Enter | VimKey::Backspace | VimKey::Other => {
-                let count = self.count.take();
-                self.command(key, count, text, offset)
-            }
+            VimKey::Char(letter) => self.letter(letter, count, text, offset),
+            VimKey::Ctrl('r') => Step::Done(VimCommand::Redo(count.unwrap_or(1))),
+            VimKey::Ctrl(_)
+            | VimKey::Escape
+            | VimKey::Enter
+            | VimKey::Backspace
+            | VimKey::Other => Step::Done(VimCommand::Nothing),
         }
     }
 
-    fn command(
+    /// The Normal mode command of the char `letter` that is not a motion.
+    fn letter(
+        &mut self,
+        letter: char,
+        count: Option<usize>,
+        text: &VimText<'_>,
+        offset: usize,
+    ) -> Step {
+        let times = count.unwrap_or(1);
+        let plain = text.text;
+        let to_line_end =
+            || Span::Chars(offset..line_end(plain, lines_down(plain, offset, times - 1)));
+        match letter {
+            'd' | 'c' | 'y' => {
+                self.operator = Operator::of(letter).map(|operator| (operator, count));
+                Step::Pending
+            }
+            'x' => self.operate(
+                Operator::Delete,
+                Span::Chars(offset..forward(plain, offset, times)),
+                plain,
+            ),
+            'D' => self.operate(Operator::Delete, to_line_end(), plain),
+            'C' => self.operate(Operator::Change, to_line_end(), plain),
+            'p' => Step::Change(VimCommand::Put(Put::after(offset, times))),
+            'P' => Step::Change(VimCommand::Put(Put::before(offset, times))),
+            'u' => Step::Done(VimCommand::Undo(times)),
+            '.' => self.repeat_change(count, text, offset),
+            'v' => self.start_visual(VimMode::Visual, plain, offset),
+            'V' => self.start_visual(VimMode::VisualLine, plain, offset),
+            'i' => Step::Change(self.insert_at(offset)),
+            'a' => Step::Change(self.insert_at(append_offset(plain, offset))),
+            'o' => Step::Change(self.open_line(plain, line_end(plain, offset), false)),
+            'O' => Step::Change(self.open_line(plain, line_start(plain, offset), true)),
+            _ => Step::Done(VimCommand::Nothing),
+        }
+    }
+
+    /// The caret target of a motion key; `None` when `key` is no motion.
+    fn motion(
         &mut self,
         key: VimKey,
         count: Option<usize>,
         text: &str,
         offset: usize,
-    ) -> VimCommand {
+    ) -> Option<usize> {
         let times = count.unwrap_or(1);
         if !matches!(key, VimKey::Char('j' | 'k')) {
             self.column = None;
         }
-        match key {
-            VimKey::Char('h') | VimKey::Backspace => select(left(text, offset, times)),
-            VimKey::Char('l') => select(right(text, offset, times)),
-            VimKey::Char('j') => {
-                select(self.vertical(text, offset, lines_down(text, offset, times)))
-            }
-            VimKey::Char('k') => select(self.vertical(text, offset, lines_up(text, offset, times))),
-            VimKey::Enter => select(first_non_blank(text, lines_down(text, offset, times))),
-            VimKey::Char('w') => select(repeat(text, offset, times, word_start_after)),
-            VimKey::Char('b') => select(repeat(text, offset, times, word_start_before)),
-            VimKey::Char('e') => select(repeat(text, offset, times, word_end_after)),
-            VimKey::Char('0') => select(line_start(text, offset)),
+        let target = match key {
+            VimKey::Char('h') | VimKey::Backspace => left(text, offset, times),
+            VimKey::Char('l') => right(text, offset, times),
+            VimKey::Char('j') => self.vertical(text, offset, lines_down(text, offset, times)),
+            VimKey::Char('k') => self.vertical(text, offset, lines_up(text, offset, times)),
+            VimKey::Enter => first_non_blank(text, lines_down(text, offset, times)),
+            VimKey::Char('w') => repeat(text, offset, times, word_start_after),
+            VimKey::Char('b') => repeat(text, offset, times, word_start_before),
+            VimKey::Char('e') => repeat(text, offset, times, word_end_after),
+            VimKey::Char('0') => line_start(text, offset),
             VimKey::Char('$') => {
                 self.column = Some(usize::MAX);
-                select(normal_offset(
-                    text,
-                    line_end(text, lines_down(text, offset, times - 1)),
-                ))
+                normal_offset(text, line_end(text, lines_down(text, offset, times - 1)))
             }
             VimKey::Char('G') => {
                 let line =
                     count.map_or_else(|| line_start(text, text.len()), |n| line_number(text, n));
-                select(first_non_blank(text, line))
+                first_non_blank(text, line)
             }
-            VimKey::Char('i') => self.insert_at(offset),
-            VimKey::Char('a') => self.insert_at(append_offset(text, offset)),
-            VimKey::Char('o') => self.open_line(text, line_end(text, offset), false),
-            VimKey::Char('O') => self.open_line(text, line_start(text, offset), true),
-            VimKey::Char(_) | VimKey::Escape | VimKey::Other => VimCommand::Nothing,
+            VimKey::Char(_) | VimKey::Ctrl(_) | VimKey::Escape | VimKey::Other => return None,
+        };
+        Some(target)
+    }
+
+    /// Runs `operator` over `span` of `text`. The edit is one Undo step; a change
+    /// goes on in Insert mode in the same Undo step.
+    fn operate(&mut self, operator: Operator, span: Span, text: &str) -> Step {
+        match span {
+            Span::Chars(range) => self.operate_chars(operator, range, text),
+            Span::Lines(one, other) => {
+                self.operate_lines(operator, one.min(other), one.max(other), text)
+            }
         }
+    }
+
+    fn operate_chars(&mut self, operator: Operator, range: Range<usize>, text: &str) -> Step {
+        let Some(removed) = text.get(range.clone()).map(str::to_owned) else {
+            return Step::Done(VimCommand::Nothing);
+        };
+        match operator {
+            Operator::Delete | Operator::Yank if removed.is_empty() => {
+                Step::Done(VimCommand::Nothing)
+            }
+            Operator::Delete => {
+                let mut edit = CaretEdit::new(range.clone(), "", EditKind::Other);
+                edit.caret = Caret::at(normal_offset(&replaced(text, &range, ""), range.start));
+                Step::Change(VimCommand::Cut { edit, removed })
+            }
+            Operator::Change => {
+                self.mode = VimMode::Insert;
+                let edit = CaretEdit::new(range, "", EditKind::Insert);
+                Step::Change(VimCommand::Cut { edit, removed })
+            }
+            Operator::Yank => Step::Done(VimCommand::Yank {
+                text: removed,
+                caret: Caret::at(range.start),
+            }),
+        }
+    }
+
+    /// `operator` over the lines from the one with `first` to the one with `last`. The
+    /// register gets the lines with a newline after each.
+    fn operate_lines(&mut self, operator: Operator, first: usize, last: usize, text: &str) -> Step {
+        let start = line_start(text, first);
+        let end = line_end(text, last);
+        let removed = format!("{}\n", text.get(start..end).unwrap_or_default());
+        match operator {
+            Operator::Delete => {
+                let range = with_newline(text, start..end);
+                let after = replaced(text, &range, "");
+                let line = line_start(&after, range.start.min(after.len()));
+                let mut edit = CaretEdit::new(range, "", EditKind::Other);
+                edit.caret = Caret::at(first_non_blank(&after, line));
+                Step::Change(VimCommand::Cut { edit, removed })
+            }
+            Operator::Change => {
+                self.mode = VimMode::Insert;
+                let edit = CaretEdit::new(start..end, "", EditKind::Insert);
+                Step::Change(VimCommand::Cut { edit, removed })
+            }
+            Operator::Yank => Step::Done(VimCommand::Yank {
+                text: removed,
+                caret: Caret::at(normal_offset(text, first)),
+            }),
+        }
+    }
+
+    /// `.`: runs the keys of the last change again, with `count` in place of its count,
+    /// and puts in the text typed after it as one edit.
+    fn repeat_change(&mut self, count: Option<usize>, text: &VimText<'_>, offset: usize) -> Step {
+        let Some(last) = self.last.clone() else {
+            return Step::Done(VimCommand::Nothing);
+        };
+        self.typed.clear();
+        self.replaying = true;
+        let digits = count
+            .or(last.count)
+            .map_or_else(String::new, |count| count.to_string());
+        let mut command = VimCommand::Nothing;
+        for key in digits
+            .chars()
+            .map(VimKey::Char)
+            .chain(last.keys.iter().copied())
+        {
+            command = self.normal_key(key, text, offset);
+        }
+        self.replaying = false;
+        if self.mode != VimMode::Insert {
+            return Step::Done(command);
+        }
+        self.mode = VimMode::Normal;
+        Step::Done(with_inserted(command, &last.inserted, text.text))
+    }
+
+    fn start_visual(&mut self, mode: VimMode, text: &str, offset: usize) -> Step {
+        self.mode = mode;
+        self.anchor = offset;
+        self.head = offset;
+        Step::Done(VimCommand::Select(self.visual_caret(text)))
+    }
+
+    /// `v` in Visual mode and `V` in Visual line mode go back to Normal mode; the other
+    /// key switches the mode and keeps the selection.
+    fn switch_visual(&mut self, mode: VimMode, text: &str, head: usize) -> Step {
+        if self.mode == mode {
+            self.mode = VimMode::Normal;
+            return Step::Done(select(head));
+        }
+        self.mode = mode;
+        Step::Done(VimCommand::Select(self.visual_caret(text)))
+    }
+
+    /// The selection of Visual mode: from the anchor char to the head char, both in. In
+    /// Visual line mode, the whole lines with no newline at the end.
+    fn visual_range(&self, text: &str) -> Range<usize> {
+        let (low, high) = (self.anchor.min(self.head), self.anchor.max(self.head));
+        if self.mode == VimMode::VisualLine {
+            return line_start(text, low)..line_end(text, high);
+        }
+        low..next_boundary(text, high).min(text.len())
+    }
+
+    fn visual_caret(&self, text: &str) -> Caret {
+        let range = self.visual_range(text);
+        if self.head < self.anchor {
+            return Caret::at(range.end).extended(text, Motion::To(range.start));
+        }
+        Caret::over(range)
+    }
+
+    fn visual_step(&mut self, key: VimKey, text: &VimText<'_>, head: usize) -> Step {
+        if let Some(prefix) = self.prefix.take() {
+            return self.visual_prefix(prefix, key, text, head);
+        }
+        if self.take_digit(key) {
+            return Step::Pending;
+        }
+        if matches!(key, VimKey::Char('g' | 'i' | 'a')) {
+            self.prefix = char_of(key);
+            return Step::Pending;
+        }
+        let plain = text.text;
+        let count = self.take_count();
+        if let Some(target) = self.motion(key, count, plain, head) {
+            self.head = target;
+            return Step::Done(VimCommand::Select(self.visual_caret(plain)));
+        }
+        let (low, high) = (self.anchor.min(head), self.anchor.max(head));
+        let lines = self.mode == VimMode::VisualLine;
+        let span = if lines {
+            Span::Lines(low, high)
+        } else {
+            Span::Chars(self.visual_range(plain))
+        };
+        let operator = match key {
+            VimKey::Char('v') => return self.switch_visual(VimMode::Visual, plain, head),
+            VimKey::Char('V') => return self.switch_visual(VimMode::VisualLine, plain, head),
+            VimKey::Char('p') => {
+                let put = Put::over(self.visual_range(plain), lines, count.unwrap_or(1));
+                self.mode = VimMode::Normal;
+                return Step::Done(VimCommand::Put(put));
+            }
+            VimKey::Escape => {
+                self.mode = VimMode::Normal;
+                return Step::Done(select(head));
+            }
+            VimKey::Char('d' | 'x') => Operator::Delete,
+            VimKey::Char('c') => Operator::Change,
+            VimKey::Char('y') => Operator::Yank,
+            VimKey::Char(_)
+            | VimKey::Ctrl(_)
+            | VimKey::Enter
+            | VimKey::Backspace
+            | VimKey::Other => {
+                return Step::Done(VimCommand::Nothing);
+            }
+        };
+        self.mode = VimMode::Normal;
+        self.operate(operator, span, plain)
+    }
+
+    /// The key after `g` moves the head; the key after `i` or `a` selects a text object.
+    fn visual_prefix(
+        &mut self,
+        prefix: char,
+        key: VimKey,
+        text: &VimText<'_>,
+        head: usize,
+    ) -> Step {
+        let count = self.take_count();
+        let span = if prefix == 'g' {
+            gg_target(key, count, text.text).map(|target| Span::Chars(target..target))
+        } else {
+            char_of(key).and_then(|object| {
+                text_object(text, head, prefix == 'a', object, count.unwrap_or(1))
+            })
+        };
+        match span {
+            None => return Step::Done(VimCommand::Nothing),
+            Some(Span::Chars(range)) if prefix == 'g' => self.head = range.start,
+            Some(Span::Chars(range)) => {
+                self.anchor = range.start;
+                self.head = previous_boundary(text.text, range.end).max(range.start);
+            }
+            Some(Span::Lines(first, last)) => {
+                self.mode = VimMode::VisualLine;
+                self.anchor = first;
+                self.head = last;
+            }
+        }
+        Step::Done(VimCommand::Select(self.visual_caret(text.text)))
     }
 
     /// The offset in the line at `start` at the column `j` and `k` keep.
@@ -246,7 +782,7 @@ impl Vim {
     fn open_line(&mut self, text: &str, at: usize, above: bool) -> VimCommand {
         self.mode = VimMode::Insert;
         let at = at.min(text.len());
-        let mut edit = CaretEdit::new(at..at, "\n", EditKind::Typing);
+        let mut edit = CaretEdit::new(at..at, "\n", EditKind::Insert);
         if above {
             edit.caret = Caret::at(at);
         }
@@ -254,13 +790,153 @@ impl Vim {
     }
 }
 
-/// The command of the two keys `prefix` and `key`, with `count`.
-fn pair(prefix: char, key: VimKey, count: Option<usize>, text: &str) -> VimCommand {
-    match (prefix, key) {
-        ('g', VimKey::Char('g')) => {
-            select(first_non_blank(text, line_number(text, count.unwrap_or(1))))
+fn char_of(key: VimKey) -> Option<char> {
+    if let VimKey::Char(typed) = key {
+        return Some(typed);
+    }
+    None
+}
+
+/// The value of `key` as a count digit. A `0` is a digit only after another digit.
+fn count_digit(key: VimKey, after_digit: bool) -> Option<usize> {
+    let VimKey::Char(digit @ '0'..='9') = key else {
+        return None;
+    };
+    if digit == '0' && !after_digit {
+        return None;
+    }
+    digit
+        .to_digit(10)
+        .and_then(|value| usize::try_from(value).ok())
+}
+
+/// The line of `gg`: line `count`, else the first. `None` when `key` is not `g`.
+fn gg_target(key: VimKey, count: Option<usize>, text: &str) -> Option<usize> {
+    (key == VimKey::Char('g')).then(|| first_non_blank(text, line_number(text, count.unwrap_or(1))))
+}
+
+/// The span of a motion after `operator`; `None` when `key` is no motion.
+fn motion_span(
+    operator: Operator,
+    key: VimKey,
+    count: Option<usize>,
+    text: &str,
+    offset: usize,
+) -> Option<Span> {
+    let times = count.unwrap_or(1);
+    let span = match key {
+        VimKey::Char('h') | VimKey::Backspace => Span::Chars(left(text, offset, times)..offset),
+        VimKey::Char('l') => Span::Chars(offset..forward(text, offset, times)),
+        VimKey::Char('w')
+            if operator == Operator::Change && class(text, offset) != Class::Blank =>
+        {
+            Span::Chars(offset..next_boundary(text, change_word_end(text, offset, times)))
         }
-        _ => VimCommand::Nothing,
+        VimKey::Char('w') => {
+            let end = steps(text, offset, times, word_start_after);
+            Span::Chars(offset..exclusive_end(text, offset, end))
+        }
+        VimKey::Char('b') => Span::Chars(steps(text, offset, times, word_start_before)..offset),
+        VimKey::Char('e') => {
+            Span::Chars(offset..next_boundary(text, steps(text, offset, times, word_end_after)))
+        }
+        VimKey::Char('0') => Span::Chars(line_start(text, offset)..offset),
+        VimKey::Char('$') => {
+            Span::Chars(offset..line_end(text, lines_down(text, offset, times - 1)))
+        }
+        VimKey::Char('j') | VimKey::Enter => Span::Lines(offset, lines_down(text, offset, times)),
+        VimKey::Char('k') => Span::Lines(lines_up(text, offset, times), offset),
+        VimKey::Char('G') => Span::Lines(
+            offset,
+            count.map_or_else(|| line_start(text, text.len()), |n| line_number(text, n)),
+        ),
+        VimKey::Char(_) | VimKey::Ctrl(_) | VimKey::Escape | VimKey::Other => return None,
+    };
+    Some(span)
+}
+
+/// `cw` on a word or run of punctuation: its last char, then `times - 1` word ends more.
+fn change_word_end(text: &str, offset: usize, times: usize) -> usize {
+    let run = class(text, offset);
+    let mut at = offset;
+    loop {
+        let next = next_boundary(text, at);
+        if next >= text.len() || class(text, next) != run {
+            break;
+        }
+        at = next;
+    }
+    steps(text, at, times - 1, word_end_after)
+}
+
+/// The end of an exclusive motion from `start` to `end`. An end at the start of a later
+/// line moves back to the end of the line before it.
+fn exclusive_end(text: &str, start: usize, end: usize) -> usize {
+    let at_line_start = end > start && line_start(text, end) == end;
+    if at_line_start && line_start(text, start) != end {
+        return end - 1;
+    }
+    end
+}
+
+/// `times` graphemes after `offset`, at most the line end.
+fn forward(text: &str, offset: usize, times: usize) -> usize {
+    let end = line_end(text, offset);
+    let mut at = offset;
+    for _ in 0..times {
+        if at >= end {
+            break;
+        }
+        at = next_boundary(text, at);
+    }
+    at.min(end)
+}
+
+/// The lines in `lines` with the newline after them; the last line takes the newline before it.
+fn with_newline(text: &str, lines: Range<usize>) -> Range<usize> {
+    if lines.end < text.len() {
+        return lines.start..lines.end + 1;
+    }
+    lines.start.saturating_sub(1)..lines.end
+}
+
+/// `text` with `range` replaced by `new`.
+fn replaced(text: &str, range: &Range<usize>, new: &str) -> String {
+    let before = text.get(..range.start).unwrap_or_default();
+    let after = text.get(range.end..).unwrap_or_default();
+    format!("{before}{new}{after}")
+}
+
+/// The edit of a change that started Insert mode, with `inserted` typed at its caret, back
+/// in Normal mode.
+fn with_inserted(command: VimCommand, inserted: &str, text: &str) -> VimCommand {
+    let (edit, removed) = match command {
+        VimCommand::Edit(edit) => (edit, None),
+        VimCommand::Cut { edit, removed } => (edit, Some(removed)),
+        VimCommand::Select(caret) => {
+            let at = caret.offset();
+            (CaretEdit::new(at..at, "", EditKind::Other), None)
+        }
+        other @ (VimCommand::PassOn
+        | VimCommand::Nothing
+        | VimCommand::Yank { .. }
+        | VimCommand::Put(_)
+        | VimCommand::Undo(_)
+        | VimCommand::Redo(_)) => return other,
+    };
+    let split = edit.caret.offset().saturating_sub(edit.range.start);
+    let before = edit.text.get(..split).unwrap_or(&edit.text);
+    let after = edit.text.get(split..).unwrap_or_default();
+    let new = format!("{before}{inserted}{after}");
+    let end = edit.range.start + before.len() + inserted.len();
+    let mut done = CaretEdit::new(edit.range.clone(), &new, EditKind::Other);
+    done.caret = Caret::at(step_back(&replaced(text, &edit.range, &new), end));
+    match removed {
+        Some(removed) => VimCommand::Cut {
+            edit: done,
+            removed,
+        },
+        None => VimCommand::Edit(done),
     }
 }
 
@@ -296,169 +972,4 @@ fn normal_offset(text: &str, offset: usize) -> usize {
 /// The offset after the char at `offset`, at most the line end.
 fn append_offset(text: &str, offset: usize) -> usize {
     next_boundary(text, offset).min(line_end(text, offset))
-}
-
-fn left(text: &str, offset: usize, times: usize) -> usize {
-    let start = line_start(text, offset);
-    let mut at = offset;
-    for _ in 0..times {
-        if at <= start {
-            break;
-        }
-        at = previous_boundary(text, at);
-    }
-    at
-}
-
-fn right(text: &str, offset: usize, times: usize) -> usize {
-    let end = line_end(text, offset);
-    let mut at = offset;
-    for _ in 0..times {
-        let next = next_boundary(text, at);
-        if next >= end {
-            break;
-        }
-        at = next;
-    }
-    at
-}
-
-/// The start of the line `times` lines below the one with `offset`, at most the last line.
-fn lines_down(text: &str, offset: usize, times: usize) -> usize {
-    let mut start = line_start(text, offset);
-    for _ in 0..times {
-        let end = line_end(text, start);
-        if end >= text.len() {
-            break;
-        }
-        start = end + 1;
-    }
-    start
-}
-
-/// The start of the line `times` lines above the one with `offset`, at least the first line.
-fn lines_up(text: &str, offset: usize, times: usize) -> usize {
-    let mut start = line_start(text, offset);
-    for _ in 0..times {
-        if start == 0 {
-            break;
-        }
-        start = line_start(text, start - 1);
-    }
-    start
-}
-
-/// The start of line `number` (1 is the first line), at most the last line.
-fn line_number(text: &str, number: usize) -> usize {
-    lines_down(text, 0, number.saturating_sub(1))
-}
-
-/// The first char of the line at `start` that is not a space or a tab.
-fn first_non_blank(text: &str, start: usize) -> usize {
-    let line = text.get(start..line_end(text, start)).unwrap_or_default();
-    let blanks = line.len() - line.trim_start_matches([' ', '\t']).len();
-    normal_offset(text, start + blanks)
-}
-
-/// How many graphemes come before `offset` on its line.
-fn column_of(text: &str, offset: usize) -> usize {
-    text.get(line_start(text, offset)..offset)
-        .map_or(0, |before| before.graphemes(true).count())
-}
-
-/// The grapheme at `column` of the line at `start`, at most its last char.
-fn at_column(text: &str, start: usize, column: usize) -> usize {
-    let end = line_end(text, start);
-    let mut at = start;
-    for _ in 0..column {
-        let next = next_boundary(text, at);
-        if next >= end {
-            break;
-        }
-        at = next;
-    }
-    at
-}
-
-fn class(text: &str, offset: usize) -> Class {
-    match text.get(offset..).and_then(|after| after.chars().next()) {
-        None => Class::Blank,
-        Some(ch) if ch.is_whitespace() => Class::Blank,
-        Some(ch) if ch.is_alphanumeric() || ch == '_' => Class::Word,
-        Some(_) => Class::Punctuation,
-    }
-}
-
-/// `offset` is the start of a line with no chars.
-fn is_empty_line(text: &str, offset: usize) -> bool {
-    let at_newline = text
-        .get(offset..)
-        .is_some_and(|after| after.starts_with('\n'));
-    at_newline && line_start(text, offset) == offset
-}
-
-/// `step` `times` from `offset`, then on the last char of the line when it ends on the
-/// line end. A step that does not move ends the repeat.
-fn repeat(text: &str, offset: usize, times: usize, step: fn(&str, usize) -> usize) -> usize {
-    let mut at = offset;
-    for _ in 0..times {
-        let next = step(text, at);
-        if next == at {
-            break;
-        }
-        at = next;
-    }
-    normal_offset(text, at)
-}
-
-/// `w`: the start of the next word or run of punctuation, or of the next empty line.
-fn word_start_after(text: &str, offset: usize) -> usize {
-    let start = class(text, offset);
-    let mut at = offset;
-    while start != Class::Blank && at < text.len() && class(text, at) == start {
-        at = next_boundary(text, at);
-    }
-    while at < text.len() && class(text, at) == Class::Blank {
-        if at != offset && is_empty_line(text, at) {
-            break;
-        }
-        at = next_boundary(text, at);
-    }
-    at
-}
-
-/// `e`: the last char of the word or run of punctuation that ends after `offset`.
-fn word_end_after(text: &str, offset: usize) -> usize {
-    let mut at = next_boundary(text, offset);
-    while at < text.len() && class(text, at) == Class::Blank {
-        at = next_boundary(text, at);
-    }
-    let run = class(text, at);
-    loop {
-        let next = next_boundary(text, at);
-        if next >= text.len() || class(text, next) != run {
-            return at;
-        }
-        at = next;
-    }
-}
-
-/// `b`: the start of the word or run of punctuation before `offset`, or of an empty line.
-fn word_start_before(text: &str, offset: usize) -> usize {
-    let mut at = previous_boundary(text, offset);
-    while at > 0 && class(text, at) == Class::Blank && !is_empty_line(text, at) {
-        at = previous_boundary(text, at);
-    }
-    let run = class(text, at);
-    if run == Class::Blank {
-        return at;
-    }
-    while at > 0 {
-        let before = previous_boundary(text, at);
-        if class(text, before) != run {
-            break;
-        }
-        at = before;
-    }
-    at
 }
