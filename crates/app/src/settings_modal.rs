@@ -71,13 +71,8 @@ impl SettingsModal {
     }
 
     fn change(cx: &mut Context<Self>, change: impl FnOnce(&mut Settings)) {
-        let store = cx.global_mut::<SettingsStore>();
-        change(&mut store.settings);
-        let theme = Theme::new(&store.settings);
-        cx.set_global(theme);
-        cx.refresh_windows();
         let modal = cx.weak_entity();
-        settings::save(cx, move |error, cx| {
+        settings::change(cx, change, move |error, cx| {
             let failed = SaveFailed(error.to_string());
             modal.update(cx, |_, cx| cx.emit(failed)).ok();
         });
@@ -418,6 +413,8 @@ impl SettingsModal {
             .child(Self::stepper(Setting::ColumnWidth, settings, theme, cx))
             .child(Self::toggle(Toggle::CycleSounds, settings, theme, cx))
             .child(Self::toggle(Toggle::VimMode, settings, theme, cx))
+            .child(Self::toggle(Toggle::Markers, settings, theme, cx))
+            .child(Self::toggle(Toggle::Markdown, settings, theme, cx))
     }
 
     /// A label and one button that shows "On" or "Off" and flips the setting.

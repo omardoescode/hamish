@@ -1,5 +1,5 @@
 use app::{OpenAlternatives, Theme, ToggleOverflow, Workspace};
-use gpui::{Bounds, Modifiers, Pixels, TestAppContext, VisualTestContext, px};
+use gpui::{Bounds, Modifiers, Pixels, TestAppContext, VisualTestContext, point, px};
 use hamish_core::{Document, LoadedSettings, Settings, ThemeName};
 
 /// Opens a window with `settings` as the Theme.
@@ -34,11 +34,11 @@ fn bounds(cx: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> 
         .expect("the window shows the element")
 }
 
-fn assert_above_bar(cx: &mut VisualTestContext, selector: &'static str) {
+fn assert_below_bar(cx: &mut VisualTestContext, selector: &'static str) {
     let element = bounds(cx, selector);
     let bar = bounds(cx, "chrome-bar");
     assert!(
-        element.bottom() <= bar.top(),
+        bar.bottom() <= element.top(),
         "{selector} {element:?} overlaps the Chrome bar {bar:?}"
     );
 }
@@ -66,7 +66,7 @@ fn the_chrome_bar_shows_at_start_and_a_click_on_the_counter_changes_nothing(
 }
 
 #[test]
-fn the_chrome_bar_background_is_opaque_in_every_theme() {
+fn the_elevated_background_is_opaque_in_every_theme() {
     for name in ThemeName::ALL {
         let theme = Theme::new(&Settings {
             theme: name,
@@ -85,17 +85,27 @@ fn the_chrome_bar_background_is_opaque_in_every_theme() {
 }
 
 #[gpui::test]
-fn the_chrome_bar_holds_all_chrome_buttons(cx: &mut TestAppContext) {
+fn the_chrome_bar_is_at_the_top_and_holds_the_counter_and_all_chrome_buttons(
+    cx: &mut TestAppContext,
+) {
     let cx = open(cx, Settings::default());
 
     let bar = bounds(cx, "chrome-bar");
-    assert_eq!(bar.left(), px(0.), "the bar spans the window");
+    assert_eq!(
+        bar.origin,
+        point(px(0.), px(0.)),
+        "the bar spans the window top"
+    );
     for selector in [
+        "counter",
         "new",
         "save",
         "settings-button",
         "overflow-button",
         "lab-button",
+        "markers-button",
+        "markdown-button",
+        "shortcuts-button",
     ] {
         let button = bounds(cx, selector);
         assert!(
@@ -106,28 +116,28 @@ fn the_chrome_bar_holds_all_chrome_buttons(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_overflow_hint_ends_above_the_chrome_bar(cx: &mut TestAppContext) {
+fn the_overflow_hint_starts_below_the_chrome_bar(cx: &mut TestAppContext) {
     let cx = open(cx, Settings::default());
     cx.dispatch_action(ToggleOverflow);
     cx.run_until_parked();
 
-    assert_above_bar(cx, "overflow-hint");
+    assert_below_bar(cx, "overflow-hint");
 }
 
 #[gpui::test]
-fn the_overflow_hint_ends_above_the_chrome_bar_at_a_large_ui_scale(cx: &mut TestAppContext) {
+fn the_overflow_hint_starts_below_the_chrome_bar_at_a_large_ui_scale(cx: &mut TestAppContext) {
     let cx = open(cx, scaled(2.));
     cx.dispatch_action(ToggleOverflow);
     cx.run_until_parked();
 
-    assert_above_bar(cx, "overflow-hint");
+    assert_below_bar(cx, "overflow-hint");
 }
 
 #[gpui::test]
-fn the_alternatives_hint_ends_above_the_chrome_bar(cx: &mut TestAppContext) {
+fn the_alternatives_hint_starts_below_the_chrome_bar(cx: &mut TestAppContext) {
     let cx = open(cx, scaled(2.));
     cx.dispatch_action(OpenAlternatives);
     cx.run_until_parked();
 
-    assert_above_bar(cx, "alternatives-hint");
+    assert_below_bar(cx, "alternatives-hint");
 }

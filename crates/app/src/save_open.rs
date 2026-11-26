@@ -262,7 +262,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The New, Save, and Open icons, bottom-left in the Chrome. Save is in the accent color
+    /// The New, Save, and Open icons, top left in the Chrome. Save is in the accent color
     /// while the Document has unsaved changes.
     pub(crate) fn save_open_icons(&self, theme: &Theme, cx: &Context<Self>) -> impl IntoElement {
         let unsaved = self.editor.read(cx).is_unsaved();
@@ -303,7 +303,7 @@ impl Workspace {
             )
     }
 
-    /// The notice above the Chrome; a click closes it.
+    /// The notice at the bottom left; a click closes it.
     pub(crate) fn notice_view(&self, theme: &Theme, cx: &Context<Self>) -> Option<AnyElement> {
         let lines = notice_lines(self.save_open.notice.as_ref()?);
         let close = cx.listener(|workspace: &mut Self, _: &gpui::ClickEvent, _, cx| {
@@ -314,7 +314,7 @@ impl Workspace {
             elevated_surface(theme)
                 .id("notice")
                 .absolute()
-                .bottom(crate::workspace::chrome_bar_height(cx) + px(16.))
+                .bottom(px(16.))
                 .left(px(24.))
                 .max_w(theme.column_width)
                 .p(px(10.))

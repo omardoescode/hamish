@@ -76,6 +76,21 @@ fn saved(
     }
 }
 
+/// Applies `change` to the settings in use at once, in each window, and saves them; `failed`
+/// gets a save error.
+pub(crate) fn change(
+    cx: &mut App,
+    change: impl FnOnce(&mut Settings),
+    failed: impl FnOnce(&SettingsError, &mut App) + 'static,
+) {
+    let store = cx.global_mut::<SettingsStore>();
+    change(&mut store.settings);
+    let theme = Theme::new(&store.settings);
+    cx.set_global(theme);
+    cx.refresh_windows();
+    save(cx, failed);
+}
+
 /// The on/off setting that `pick` reads. `false` when no settings are set.
 pub(crate) fn is_on(cx: &App, pick: impl FnOnce(&Settings) -> bool) -> bool {
     cx.try_global::<SettingsStore>()

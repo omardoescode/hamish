@@ -276,15 +276,21 @@ pub(crate) fn block_caret_quad(
     ))
 }
 
-/// Scrolls the least amount that keeps the caret out of the edge fade.
-pub(crate) fn scroll_to_caret(scroll_handle: &ScrollHandle, caret: Option<&PaintQuad>, cx: &App) {
+/// Scrolls the least amount that keeps the caret out of the edge fade and `top_inset` (the
+/// part of the view under the Chrome bar).
+pub(crate) fn scroll_to_caret(
+    scroll_handle: &ScrollHandle,
+    caret: Option<&PaintQuad>,
+    top_inset: Pixels,
+    cx: &App,
+) {
     let Some(caret) = caret else {
         return;
     };
     let margin = cx.global::<Theme>().edge_fade_height;
     let viewport = scroll_handle.bounds();
     let mut offset = scroll_handle.offset();
-    let above = viewport.top() + margin - caret.bounds.top();
+    let above = viewport.top() + top_inset + margin - caret.bounds.top();
     let below = caret.bounds.bottom() - (viewport.bottom() - margin);
     if above > px(0.) {
         offset.y += above;

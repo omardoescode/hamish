@@ -2,13 +2,18 @@
 //! actions between them.
 
 use gpui::{
-    App, Context, DragMoveEvent, Entity, Focusable, IntoElement, Pixels, Render, SharedString,
-    Subscription, Window, canvas, div, linear_color_stop, linear_gradient, prelude::*, px,
+    App, Context, DragMoveEvent, Entity, FocusHandle, Focusable, IntoElement, Pixels, Render,
+    SharedString, Subscription, Window, canvas, div, linear_color_stop, linear_gradient,
+    prelude::*, px,
 };
-use hamish_core::{Document, SlotId, document_title};
+use hamish_core::{Document, SlotId, Toggle, document_title};
 
-use crate::actions::{AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleOverflow};
+use crate::actions::{
+    AiAlternatives, CloseMenu, OpenAlternatives, Stash, ToggleMarkdown, ToggleMarkers,
+    ToggleOverflow,
+};
 use crate::alternatives_panel::PanelEvent;
+use crate::chrome;
 use crate::editor::EditorEvent;
 use crate::lab::{self, Lab};
 use crate::overflow_panel::{self, OverflowBlockDrag, OverflowPanel};
@@ -28,6 +33,9 @@ pub struct Workspace {
     overflow_open: bool,
     pub(crate) settings_modal: Entity<SettingsModal>,
     pub(crate) settings_open: bool,
+    pub(crate) shortcuts_open: bool,
+    /// The Shortcuts sheet has this focus while it is open.
+    pub(crate) shortcuts_focus: FocusHandle,
     /// The title last set on the window, so a frame sets it only when it changes.
     window_title: String,
     /// The font family of the Chrome bar as last painted.
@@ -41,7 +49,7 @@ pub struct Workspace {
 /// Height of the Chrome bar at UI scale 1.
 const CHROME_BAR_HEIGHT: Pixels = px(40.);
 
-/// Height of the Chrome bar at the window bottom, at the UI scale in use.
+/// Height of the Chrome bar at the window top, at the UI scale in use.
 pub(crate) fn chrome_bar_height(cx: &gpui::App) -> Pixels {
     CHROME_BAR_HEIGHT * settings::ui_scale(cx)
 }
@@ -76,6 +84,8 @@ impl Workspace {
             overflow_open: false,
             settings_modal,
             settings_open: false,
+            shortcuts_open: false,
+            shortcuts_focus: cx.focus_handle(),
             window_title: String::new(),
             chrome_font: SharedString::default(),
             _editor_changes: editor_changes,
@@ -210,6 +220,22 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The Variant dots and Markdown icons: flip `toggle` and save it. A failed save shows a
+    /// notice.
+    fn flip_setting(toggle: Toggle, cx: &mut Context<Self>) {
+        let workspace = cx.weak_entity();
+        settings::change(
+            cx,
+            |settings| settings.flip(toggle),
+            move |error, cx| {
+                let notice = Notice::SettingsNotSaved(error.to_string());
+                workspace
+                    .update(cx, |workspace, cx| workspace.show(notice, cx))
+                    .ok();
+            },
+        );
+    }
+
     /// After a Stash, Overflow shows where the text went. The Document keeps the keyboard.
     fn show_stash(&mut self, _: &Stash, _: &mut Window, cx: &mut Context<Self>) {
         self.overflow_open = true;
@@ -274,15 +300,19 @@ fn to_lab<A: 'static>(
 }
 
 impl Workspace {
-    /// The Chrome bar: New, Save, and Open left, LAB center, the Vim mode, Settings and
-    /// Overflow right.
+    /// The Chrome bar at the window top, with no fill: the Counter, New, Save, and Open
+    /// left; the Variant dots, Markdown, and LAB center; the Vim mode, Settings, Shortcuts,
+    /// and Overflow right.
     fn chrome_bar(&self, theme: &Theme, height: Pixels, cx: &Context<Self>) -> impl IntoElement {
+        let counter_label = self.editor.read(cx).counter_label();
+        let markers = settings::is_on(cx, |settings| settings.markers);
+        let markdown = settings::is_on(cx, |settings| settings.markdown);
         div()
             .id("chrome")
             .debug_selector(|| "chrome-bar".to_owned())
             .occlude()
             .absolute()
-            .bottom_0()
+            .top_0()
             .left_0()
             .right_0()
             .h(height)
@@ -290,12 +320,27 @@ impl Workspace {
             .flex()
             .items_center()
             .justify_between()
-            .bg(theme.elevated_background)
-            .border_t_1()
-            .border_color(theme.panel_border)
             .child(chrome_font_probe(cx))
-            .child(self.save_open_icons(theme, cx))
-            .child(lab::lab_button(&self.lab, theme, cx))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(24.))
+                    .child(counter_view(counter_label, theme))
+                    .child(self.save_open_icons(theme, cx)),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(16.))
+                    .child(chrome::markers_button(markers, theme))
+                    .child(chrome::markdown_button(markdown, theme))
+                    .child(lab::lab_button(&self.lab, theme, cx)),
+            )
             .child(
                 div()
                     .flex()
@@ -310,6 +355,7 @@ impl Workspace {
                             .child(status)
                     }))
                     .child(settings_modal::settings_button(theme))
+                    .child(chrome::shortcuts_button(theme))
                     .child(overflow_panel::overflow_button(self.overflow_open, theme)),
             )
     }
@@ -330,11 +376,11 @@ fn chrome_font_probe(cx: &Context<Workspace>) -> impl IntoElement {
     .absolute()
 }
 
-/// The Document title, small at the top center.
-fn title_view(label: String, theme: &Theme) -> impl IntoElement {
+/// The Document title, small and centered just under the Chrome bar.
+fn title_view(label: String, theme: &Theme, bar_height: Pixels) -> impl IntoElement {
     div()
         .absolute()
-        .top(px(22.))
+        .top(bar_height)
         .left_0()
         .right_0()
         .flex()
@@ -344,15 +390,11 @@ fn title_view(label: String, theme: &Theme) -> impl IntoElement {
         .child(label)
 }
 
-/// The Counter, top left.
+/// The Counter, at the left of the Chrome bar.
 fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
     div()
         .id("counter")
         .debug_selector(|| "counter".to_owned())
-        .occlude()
-        .absolute()
-        .top(px(22.))
-        .left(px(24.))
         .text_size(theme.font_size_hint)
         .text_color(theme.text_muted)
         .child(label)
@@ -361,7 +403,6 @@ fn counter_view(label: String, theme: &Theme) -> impl IntoElement {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.global::<Theme>().clone();
-        let counter_label = self.editor.read(cx).counter_label();
         let bar_height = chrome_bar_height(cx);
         let title_label = self.title_label(cx);
         if title_label != self.window_title {
@@ -385,8 +426,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::ai_alternatives))
             .on_action(cx.listener(Self::toggle_overflow))
             .on_action(cx.listener(Self::show_stash))
+            .on_action(cx.listener(|_, _: &ToggleMarkers, _, cx| {
+                Self::flip_setting(Toggle::Markers, cx);
+            }))
+            .on_action(cx.listener(|_, _: &ToggleMarkdown, _, cx| {
+                Self::flip_setting(Toggle::Markdown, cx);
+            }))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::close_settings))
+            .on_action(cx.listener(Self::open_shortcuts))
+            .on_action(cx.listener(Self::close_shortcuts))
             .on_action(cx.listener(Self::close_menu))
             .child(
                 div()
@@ -406,7 +455,7 @@ impl Render for Workspace {
                     .top_0()
                     .left_0()
                     .right_0()
-                    .h(theme.edge_fade_height)
+                    .h(bar_height + theme.edge_fade_height)
                     .bg(fade(180.)),
             )
             .child(
@@ -421,22 +470,24 @@ impl Render for Workspace {
             .child(
                 div()
                     .absolute()
-                    .top_0()
+                    .top(bar_height)
                     .left_0()
                     .right_0()
-                    .bottom(bar_height)
+                    .bottom_0()
                     .when(self.overflow_open, |panels| {
                         panels.child(self.overflow_panel.clone())
                     })
                     .children(self.alternatives_panel().cloned()),
             )
-            .child(title_view(title_label, &theme))
-            .child(counter_view(counter_label, &theme))
+            .child(title_view(title_label, &theme, bar_height))
             .child(self.chrome_bar(&theme, bar_height, cx))
             .child(self.lab.clone())
             .children(self.notice_view(&theme, cx))
             .when(self.settings_open, |workspace| {
                 workspace.child(self.settings_modal.clone())
+            })
+            .when(self.shortcuts_open, |workspace| {
+                workspace.child(self.shortcuts_sheet(&theme, cx))
             })
     }
 }

@@ -19,6 +19,7 @@ mod overflow_panel;
 mod save_open;
 mod settings;
 mod settings_modal;
+mod shortcuts_sheet;
 mod sounds;
 mod theme;
 mod trim;
@@ -27,8 +28,8 @@ mod workspace;
 use std::borrow::Cow;
 
 use actions::{
-    ClosePanel, CloseSelect, ConfirmVariant, DeleteBackward, DeleteQueryBackward, DeleteVariant,
-    MoveWordLeft, MoveWordRight, NextRow, PickRow, PreviousRow, SelectNextVariant,
+    ClosePanel, CloseSelect, CloseShortcuts, ConfirmVariant, DeleteBackward, DeleteQueryBackward,
+    DeleteVariant, MoveWordLeft, MoveWordRight, NextRow, PickRow, PreviousRow, SelectNextVariant,
     SelectPreviousVariant, SelectWordLeft, SelectWordRight,
 };
 use gpui::{App, KeyBinding};
@@ -52,6 +53,7 @@ pub use overflow_panel::OverflowPanel;
 pub use save_open::Notice;
 pub use settings::use_settings;
 pub use settings_modal::SettingsModal;
+pub use shortcuts_sheet::{ShortcutGroup, ShortcutRow, shortcut_groups};
 pub use sounds::{DeviceSounds, SoundSink, Sounds};
 pub use theme::Theme;
 pub use trim::{CloseTrim, MakeTrimCuts, RunTrim, TrimBar, WalkCut, WalkKeep, WalkTrim};
@@ -125,6 +127,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-n", NewDocument, None),
         KeyBinding::new("ctrl-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("SettingsModal")),
+        KeyBinding::new("escape", CloseShortcuts, Some("ShortcutsSheet")),
         KeyBinding::new("escape", CloseLab, Some("Lab")),
     ]);
     // In Normal mode these keys go to Vim mode, not to their text edits.

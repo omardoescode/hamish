@@ -53,6 +53,20 @@ pub enum VimCommand {
     Edit(CaretEdit),
 }
 
+/// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
+pub const VIM_KEYS: [(&str, &str); 10] = [
+    ("Move left, down, up, right", "h j k l"),
+    ("Next word start, word start before, word end", "w b e"),
+    ("Line start, line end", "0 $"),
+    ("First line, last line (a count: that line)", "g g  G"),
+    ("First non-blank of the next line", "Enter"),
+    ("A count repeats a motion", "3 w"),
+    ("Insert mode before, after the caret", "i a"),
+    ("Insert mode on a new line below, above", "o O"),
+    ("Back to Normal mode", "Esc"),
+    ("Text edits in Insert mode", "Ctrl keys as usual"),
+];
+
 /// The Vim key state of one Editor: its mode and the keys of a command not yet complete.
 #[derive(Debug, Clone, Default)]
 pub struct Vim {

@@ -1,6 +1,5 @@
-//! Settings: theme, UI scale, UI font, Text font and other editor font values, cycle sounds,
-//! reduced motion, focus zoom, and Vim mode, with their defaults, limits, labels, and the JSON file
-//! in the XDG config dir.
+//! Settings: theme, UI scale, fonts, font sizes, and the on/off settings, with their defaults,
+//! limits, labels, and the JSON file in the XDG config dir.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -82,6 +81,8 @@ pub enum Toggle {
     FocusZoom,
     CycleSounds,
     VimMode,
+    Markers,
+    Markdown,
 }
 
 impl Toggle {
@@ -93,6 +94,8 @@ impl Toggle {
             Self::FocusZoom => "Focus zoom",
             Self::CycleSounds => "Cycle sounds",
             Self::VimMode => "Vim mode",
+            Self::Markers => "Markers",
+            Self::Markdown => "Markdown styles",
         }
     }
 
@@ -104,6 +107,8 @@ impl Toggle {
             Self::FocusZoom => "focus-zoom",
             Self::CycleSounds => "cycle-sounds",
             Self::VimMode => "vim-mode",
+            Self::Markers => "markers",
+            Self::Markdown => "markdown",
         }
     }
 }
@@ -138,6 +143,10 @@ pub struct Settings {
     pub focus_zoom: bool,
     /// The Editor has a Normal mode and an Insert mode, with Vim keys. Off by default.
     pub vim_mode: bool,
+    /// Each Slot shows its Marker. On by default.
+    pub markers: bool,
+    /// The Editor draws the Markdown styles. Off: the text shows plain. On by default.
+    pub markdown: bool,
 }
 
 impl Default for Settings {
@@ -155,6 +164,8 @@ impl Default for Settings {
             cycle_sounds: true,
             focus_zoom: true,
             vim_mode: false,
+            markers: true,
+            markdown: true,
         }
     }
 }
@@ -330,6 +341,8 @@ impl Settings {
             Toggle::FocusZoom => &self.focus_zoom,
             Toggle::CycleSounds => &self.cycle_sounds,
             Toggle::VimMode => &self.vim_mode,
+            Toggle::Markers => &self.markers,
+            Toggle::Markdown => &self.markdown,
         }
     }
 
@@ -339,6 +352,8 @@ impl Settings {
             Toggle::FocusZoom => &mut self.focus_zoom,
             Toggle::CycleSounds => &mut self.cycle_sounds,
             Toggle::VimMode => &mut self.vim_mode,
+            Toggle::Markers => &mut self.markers,
+            Toggle::Markdown => &mut self.markdown,
         }
     }
 

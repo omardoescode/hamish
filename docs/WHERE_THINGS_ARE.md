@@ -14,7 +14,8 @@
 | `crates/core/src/document.rs` | `Document`: text, Slots, Ghost ranges, Overflow, core undo. Slot rules for the views: `level_for` (Level of a new Slot), `slot_over` (innermost Slot over a range), `add_active_variant` / `create_active_slot` (one core step), `delete_variant` (gives the kept range when the Slot ends, past Article agreement). |
 | `crates/core/src/edit_session.rs` | `EditSession`: the Document, the selection and the Undo steps as one module. Each change is one Undo step and the selection follows it; a change with no core step makes none. Undo and redo report the Slots to burst and fade in (`SlotChanges`). It keeps the Document `Caret` and makes its `CaretEdit`s. The Editor and all views change the Document only through it. |
 | `crates/core/src/caret.rs` | `Caret`: selection, caret end, input method composed text over a plain text. Grapheme, word and line moves (`Motion`), the word at an offset (`word_at`), edits at the caret (`CaretEdit`), clamp to a changed text, UTF-16 ranges (`utf16_range`, `byte_range`), `follow_change`. No pixels. |
-| `crates/core/src/vim.rs` | `Vim`: Vim mode key state machine (Normal and Insert mode, counts, motions, `i a o O`). Keys in, `VimCommand` out; no GPUI (ADR 0008). |
+| `crates/core/src/vim.rs` | `Vim`: Vim mode key state machine (Normal and Insert mode, counts, motions, `i a o O`). Keys in, `VimCommand` out; no GPUI (ADR 0008). `VIM_KEYS`: the Vim mode rows of the Shortcuts sheet. |
+| `crates/core/src/shortcut.rs` | `key_label`: a key binding as the writer reads it ("Ctrl+Shift+O"). |
 | `crates/core/src/edit_history.rs` | `EditHistory` (crate-private): groups core edits into Undo steps for `EditSession`; edits in the Document text and in Overflow never join. `EditKind`: Typing, Deleting, Other. |
 | `crates/core/src/focus_zoom.rs` | `FocusZoom`: which paragraph shows zoomed and its scale over time. |
 | `crates/core/src/sound.rs` | Cycle sounds and the Variant delete sound: which sound plays (`Switch::sound`) and its samples. |
@@ -36,6 +37,8 @@
 | `crates/app/src/editor/focus_zoom.rs` | Focus zoom paint: the zoomed paragraph's glyphs at 1.02x (GPUI 0.2.2 has no text transform), quads moved over it, pointer mapped back for hit tests. |
 | `crates/app/src/settings.rs` | Settings global: `use_settings`, `is_on` (how views read a setting), the start notice. |
 | `crates/app/src/fonts.rs` | Font list of the Settings selects (cached global) and the UI font and Text font faces, both loaded on the background executor at start (`load_fonts_in_background`). |
+| `crates/app/src/shortcuts_sheet.rs` | Shortcuts sheet: `shortcut_groups` (the key bindings in groups, from the keymap), the sheet view, open and close. |
+| `crates/app/src/chrome.rs` | Shared Chrome pieces (surfaces, rows, text button) and the Chrome bar icons: Variant dots, Markdown, Shortcuts (drawn with divs). |
 | `crates/app/src/settings_modal.rs` | Settings modal (Ctrl+,): sections, fields, selects (theme, font), save on the background executor. |
 | `crates/app/src/lab.rs` | `Lab` entity: LAB button, popover with Lab checks, Lab mark card. Holds the `Editor`; the Workspace places it and routes its actions. |
 | `crates/app/src/trim.rs` | Trim part of the `Lab`: trim row, trim bar, Make the cuts, Walk through. |

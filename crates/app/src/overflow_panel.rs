@@ -371,7 +371,7 @@ impl Element for OverflowText {
             .then(|| caret::caret_quad(&painted, shown.offset(), theme.accent))
             .flatten();
         if panel.autoscroll {
-            caret::scroll_to_caret(&panel.scroll_handle, caret.as_ref(), cx);
+            caret::scroll_to_caret(&panel.scroll_handle, caret.as_ref(), px(0.), cx);
             window.request_animation_frame();
         }
         let text_font = window.text_style().font_family;
