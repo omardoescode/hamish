@@ -1,7 +1,7 @@
 //! The Vim mode rows of the Shortcuts sheet.
 
 /// The keys of Vim mode as the Shortcuts sheet lists them: what each does, then its keys.
-pub const VIM_KEYS: [(&str, &str); 45] = [
+pub const VIM_KEYS: [(&str, &str); 46] = [
     ("Move left, down, up, right", "h j k l"),
     ("Next word start, word start before, word end", "w b e"),
     ("Line start, line end", "0 $"),
@@ -98,6 +98,7 @@ pub const VIM_KEYS: [(&str, &str); 45] = [
         "Command line: Vim mode off, on; Chrome bar off or on; Settings",
         ":set novim  :set vim  :chrome  :settings",
     ),
+    ("Command line: read the hamishrc again", ":source"),
     (
         "Command line: caret; start, end; delete the word, delete to the start",
         "Left Right  Home End  Ctrl+B Ctrl+E  Ctrl+W  Ctrl+U",

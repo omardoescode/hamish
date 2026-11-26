@@ -19,7 +19,8 @@ use hamish_core::{
 };
 
 use crate::actions::{
-    CloseSelect, CloseSettings, DeleteQueryBackward, NextRow, OpenSettings, PickRow, PreviousRow,
+    CloseSelect, CloseSettings, DeleteQueryBackward, EditHamishrc, NextRow, OpenSettings, PickRow,
+    PreviousRow, ReloadConfig,
 };
 use crate::caret::CARET_WIDTH;
 use crate::chrome::{
@@ -546,17 +547,23 @@ impl SettingsModal {
         field(
             toggle.label(),
             theme,
-            div().flex().child(
-                text_button(theme, outline)
-                    .id(SharedString::from(id.clone()))
-                    .debug_selector(move || id.clone())
-                    .px(px(8.))
-                    .text_color(if on { theme.accent } else { theme.text_muted })
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        Self::change(cx, |settings| settings.flip(toggle));
-                    }))
-                    .child(settings.shown_toggle(toggle)),
-            ),
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    text_button(theme, outline)
+                        .id(SharedString::from(id.clone()))
+                        .debug_selector(move || id.clone())
+                        .px(px(8.))
+                        .text_color(if on { theme.accent } else { theme.text_muted })
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                            Self::change(cx, |settings| settings.flip(toggle));
+                        }))
+                        .child(settings.shown_toggle(toggle)),
+                )
+                .when(toggle == Toggle::VimMode, |row| {
+                    row.children(hamishrc_buttons(theme))
+                }),
         )
     }
 
@@ -597,6 +604,26 @@ impl SettingsModal {
                 .child(button(Direction::Forward)),
         )
     }
+}
+
+/// "Edit hamishrc" opens the hamishrc in the system editor; "Reload config" reads it again.
+fn hamishrc_buttons(theme: &Theme) -> [Stateful<Div>; 2] {
+    let button = |id: &'static str, label: &'static str, action: fn() -> Box<dyn gpui::Action>| {
+        text_button(theme, theme.panel_border)
+            .id(id)
+            .debug_selector(move || id.to_owned())
+            .px(px(8.))
+            .on_click(move |_, window, cx| window.dispatch_action(action(), cx))
+            .child(label)
+    };
+    [
+        button("settings-edit-hamishrc", "Edit hamishrc", || {
+            Box::new(EditHamishrc)
+        }),
+        button("settings-reload-config", "Reload config", || {
+            Box::new(ReloadConfig)
+        }),
+    ]
 }
 
 /// One row of an open select: row `index` of its names.

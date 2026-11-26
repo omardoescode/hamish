@@ -37,7 +37,9 @@ impl Vim {
             return Step::Done(self.escape(text));
         }
         let operator = self.operator.is_some();
-        if let Some(prefix) = Prefix::of(key).filter(|prefix| prefix.in_normal(operator)) {
+        if let Some(prefix) =
+            Prefix::of(key, self.leader).filter(|prefix| prefix.in_normal(operator))
+        {
             self.prefix = Some(prefix);
             return Step::Pending;
         }

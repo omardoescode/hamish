@@ -146,8 +146,15 @@ The Vim mode state where motions grow a selection of chars (`v`) or of whole lin
 _Avoid_: Select mode
 
 **Command line**:
-The one line at the window bottom that `:` in Normal mode opens. The writer types a command there (`:w`, `:e`, `:q`, `:set vim`, `:chrome`, `:settings`); Enter runs it, and an error shows as a Notice.
+The one line at the window bottom that `:` in Normal mode opens. The writer types a command there (`:w`, `:e`, `:q`, `:set vim`, `:chrome`, `:settings`, `:source`); Enter runs it, and an error shows as a Notice.
 _Avoid_: Ex mode, command palette
+
+**hamishrc**:
+The key config file of Vim mode, `hamishrc` in the XDG config dir next to the Settings file. A Vimscript subset: Key maps, `let mapleader`, and `"` comments. It applies only with Vim mode on. It reads again on window focus, `:source` and "Reload config"; a bad line shows as a Notice with its line number, and the other lines still load.
+_Avoid_: vimrc
+
+**Key map**:
+One line of the hamishrc (`nmap`, `nnoremap`, `imap`, `inoremap`, `vmap`, `vnoremap`): keys of one Vim mode state and what they give instead, other keys or a Hamish action (`:Stash`). It wins over the built-in key. A recursive map stops after 1000 maps in a row.
 
 **Register**:
 Where Vim mode yanks and deletes text to, and puts text from. It is the system clipboard; there are no named registers.

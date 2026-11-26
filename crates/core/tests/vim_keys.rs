@@ -28,7 +28,7 @@ enum Place {
 /// setup keys move the caret or start a mode first; the row does not list them.
 type Row = (Place, &'static [(&'static str, &'static str)]);
 
-const ROWS: [Row; 45] = [
+const ROWS: [Row; 46] = [
     (Place::Normal, &[("", "h"), ("", "j"), ("", "k"), ("", "l")]),
     (Place::Normal, &[("", "w"), ("", "b"), ("", "e")]),
     (Place::Normal, &[("", "0"), ("", "$")]),
@@ -103,6 +103,7 @@ const ROWS: [Row; 45] = [
             ("", ":settings"),
         ],
     ),
+    (Place::CommandLine, &[("", ":source")]),
     (
         Place::CommandLine,
         &[

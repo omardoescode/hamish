@@ -1,21 +1,21 @@
-//! The hamish binary: loads the settings, sets the sound device and the AI backend, and
+//! The hamish binary: loads the settings, sets the hamishrc path, the sound device and the AI backend, and
 //! opens one window on an empty Document.
 
 use std::sync::Arc;
 
 use app::{Ai, DeviceSounds, Sounds, Workspace};
 use gpui::{App, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
-use hamish_core::{ClaudeBackend, Document, Settings, settings_path};
+use hamish_core::{ClaudeBackend, Document, Settings, hamishrc_path, settings_path};
 
 #[expect(
     clippy::print_stderr,
     reason = "startup errors have no window to show them in"
 )]
 fn main() {
-    let path = settings_path(
-        std::env::var_os("XDG_CONFIG_HOME").as_deref(),
-        std::env::home_dir().as_deref(),
-    );
+    let xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+    let home = std::env::home_dir();
+    let path = settings_path(xdg_config_home.as_deref(), home.as_deref());
+    let rc_path = hamishrc_path(xdg_config_home.as_deref(), home.as_deref());
     let loaded = path.as_deref().map(Settings::load);
     gpui_platform::application().run(|cx: &mut App| {
         if let Err(error) = app::init(cx) {
@@ -26,6 +26,7 @@ fn main() {
         if let Some(loaded) = loaded {
             app::use_settings(path, loaded, cx);
         }
+        app::use_hamishrc(rc_path, cx);
         app::load_fonts_in_background(cx);
         cx.set_global(Ai(Arc::new(ClaudeBackend::default())));
         cx.set_global(Sounds(Arc::new(DeviceSounds::start())));

@@ -2,21 +2,25 @@
 //! here (ADR 0008). The register is the system clipboard.
 
 use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
-use hamish_core::{Caret, Document, Vim, VimAction, VimCommand, VimKey, VimMode, one_char};
+use hamish_core::{
+    Caret, Document, Fed, Motion, Vim, VimAction, VimCommand, VimKey, VimMode, one_char,
+};
 
 use super::Editor;
 use crate::actions::{
-    FocusEditor, FocusOverflow, OpenAlternatives, OpenCommandLine, UseOverflowBlock,
+    FocusEditor, FocusOverflow, OpenAlternatives, OpenCommandLine, RecursiveMap, UseOverflowBlock,
 };
 use crate::caret::{self, CaretView};
-use crate::settings;
 use crate::{
     AcceptLabMark, CloseTrim, DismissLabMark, KeepTrimCut, MakeTrimCuts, RunTrim, ToggleLab,
 };
+use crate::{hamishrc, settings};
 
 /// A view with a `Vim` of its own: the Editor, or Overflow.
-pub(crate) trait VimView: Sized + 'static {
+pub(crate) trait VimView: CaretView {
     fn vim(&self) -> &Vim;
+
+    fn vim_mut(&mut self) -> &mut Vim;
 
     /// Gives `key` to the `Vim` of the view, with the text and the caret of the view.
     fn vim_command(&mut self, key: VimKey, cx: &mut Context<Self>) -> VimCommand;
@@ -31,17 +35,68 @@ pub(crate) trait VimView: Sized + 'static {
     );
 }
 
-/// A key that no key binding took goes to Vim mode. A key Vim mode uses goes no further,
-/// so in Normal mode no key reaches the text input.
+/// A key that no key binding took goes through the hamishrc maps to Vim mode. A key Vim mode
+/// uses goes no further, so in Normal mode no key reaches the text input. A key that a map
+/// takes or holds goes no further either: the view types the keys of the map itself.
 pub(crate) fn vim_key_down<V: VimView>(
     view: &mut V,
     event: &KeyDownEvent,
     window: &mut Window,
     cx: &mut Context<V>,
 ) {
-    if vim_on(cx) && run_vim(view, vim_key(&event.keystroke), window, cx) {
-        cx.stop_propagation();
+    if !vim_on(cx) {
+        return;
     }
+    let key = vim_key(&event.keystroke);
+    let rc = hamishrc::current(cx);
+    let fresh = view.vim().feed_is_empty();
+    view.vim_mut().press(key);
+    let mut next = view.vim_mut().next_key(&rc);
+    let unmapped = fresh && next == Some(Fed::Key(key)) && view.vim().feed_is_empty();
+    if unmapped && !run_vim(view, key, window, cx) {
+        return;
+    }
+    cx.stop_propagation();
+    if unmapped {
+        return;
+    }
+    while let Some(fed) = next {
+        run_fed(view, fed, window, cx);
+        next = view.vim_mut().next_key(&rc);
+    }
+}
+
+/// Runs one thing the key feed gives: a key for Vim mode, a named action, or the Notice of a
+/// recursive map.
+fn run_fed<V: VimView>(view: &mut V, fed: Fed, window: &mut Window, cx: &mut Context<V>) {
+    match fed {
+        Fed::Key(key) => run_mapped_key(view, key, window, cx),
+        Fed::Action(name) => hamishrc::named_action(&name)
+            .into_iter()
+            .for_each(|action| window.dispatch_action(action, cx)),
+        Fed::TooDeep => window.dispatch_action(Box::new(RecursiveMap), cx),
+    }
+}
+
+/// A key of a map: a key that Vim mode passes on goes in as the text input would type it.
+fn run_mapped_key<V: VimView>(view: &mut V, key: VimKey, window: &mut Window, cx: &mut Context<V>) {
+    if run_vim(view, key, window, cx) || !view.takes_text(cx) {
+        return;
+    }
+    let mut utf8 = [0; 4];
+    let typed = match key {
+        VimKey::Char(typed) => typed.encode_utf8(&mut utf8),
+        VimKey::Enter => "\n",
+        VimKey::Backspace => {
+            let edit = view.read_text(cx, |text, caret| caret.delete(text, Motion::Left));
+            view.edit(&edit, cx);
+            return;
+        }
+        VimKey::Ctrl(_) | VimKey::Escape | VimKey::Other => return,
+    };
+    let edit = view.read_text(cx, |text, caret| caret.input(text, None, typed));
+    view.edit(&edit, cx);
+    cx.notify();
 }
 
 /// Gives `key` to Vim mode and runs its command. `false` when Vim mode passes the key on.
@@ -64,6 +119,10 @@ pub(crate) fn run_vim<V: VimView>(
 impl VimView for Editor {
     fn vim(&self) -> &Vim {
         &self.vim
+    }
+
+    fn vim_mut(&mut self) -> &mut Vim {
+        &mut self.vim
     }
 
     fn vim_command(&mut self, key: VimKey, _: &mut Context<Self>) -> VimCommand {

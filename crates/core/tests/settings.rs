@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use hamish_core::{Direction, Setting, Settings, ThemeName, Toggle, contrast_ratio, settings_path};
+use hamish_core::{
+    Direction, Setting, Settings, ThemeName, Toggle, contrast_ratio, hamishrc_path, settings_path,
+};
 
 #[test]
 fn the_settings_file_is_in_xdg_config_home() {
@@ -26,6 +28,19 @@ fn a_relative_or_empty_xdg_config_home_is_ignored() {
     assert_eq!(settings_path(Some("cfg".as_ref()), home), expected);
     assert_eq!(settings_path(Some("".as_ref()), home), expected);
     assert_eq!(settings_path(None, None), None);
+}
+
+#[test]
+fn the_hamishrc_is_next_to_the_settings_file() {
+    assert_eq!(
+        hamishrc_path(Some("/cfg".as_ref()), Some(Path::new("/home/w"))),
+        Some(PathBuf::from("/cfg/hamish/hamishrc"))
+    );
+    assert_eq!(
+        hamishrc_path(None, Some(Path::new("/home/w"))),
+        Some(PathBuf::from("/home/w/.config/hamish/hamishrc"))
+    );
+    assert_eq!(hamishrc_path(None, None), None);
 }
 
 #[test]

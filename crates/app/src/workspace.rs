@@ -68,6 +68,7 @@ pub struct Workspace {
     _editor_changes: Subscription,
     _settings_saves: Subscription,
     _editor_events: Subscription,
+    _window_activation: Subscription,
     lab_changes: Subscription,
 }
 
@@ -101,6 +102,12 @@ impl Workspace {
             cx.subscribe(&settings_modal, |workspace, _, failed: &SaveFailed, cx| {
                 workspace.show(Notice::SettingsNotSaved(failed.0.clone()), cx);
             });
+        let window_activation = cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                Self::reload_hamishrc(false, cx);
+            }
+        });
+        Self::reload_hamishrc(false, cx);
         Self {
             editor,
             overflow_panel,
@@ -119,6 +126,7 @@ impl Workspace {
             _editor_changes: editor_changes,
             _settings_saves: settings_saves,
             _editor_events: editor_events,
+            _window_activation: window_activation,
             lab_changes,
         }
     }
@@ -270,6 +278,16 @@ impl Workspace {
         self.editor.update(cx, |editor, cx| {
             editor.use_overflow_block(caret, cx);
         });
+    }
+
+    /// `root` with the actions that flip a setting.
+    fn toggle_actions(root: gpui::Div, cx: &Context<Self>) -> gpui::Div {
+        root.on_action(cx.listener(|_, _: &ToggleMarkers, _, cx| {
+            Self::change_setting(|settings| settings.flip(Toggle::Markers), cx);
+        }))
+        .on_action(cx.listener(|_, _: &ToggleMarkdown, _, cx| {
+            Self::change_setting(|settings| settings.flip(Toggle::MarkdownStyles), cx);
+        }))
     }
 
     /// Makes `change` to the settings and saves them. A failed save shows a notice.
@@ -494,18 +512,14 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_editor))
             .on_action(cx.listener(Self::focus_overflow))
             .on_action(cx.listener(Self::use_overflow_block))
-            .on_action(cx.listener(|_, _: &ToggleMarkers, _, cx| {
-                Self::change_setting(|settings| settings.flip(Toggle::Markers), cx);
-            }))
-            .on_action(cx.listener(|_, _: &ToggleMarkdown, _, cx| {
-                Self::change_setting(|settings| settings.flip(Toggle::MarkdownStyles), cx);
-            }))
+            .map(|workspace| Self::toggle_actions(workspace, cx))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::close_settings))
             .on_action(cx.listener(Self::open_shortcuts))
             .on_action(cx.listener(Self::close_shortcuts))
             .on_action(cx.listener(Self::close_menu))
             .on_action(cx.listener(Self::open_command_line))
+            .map(|workspace| Self::hamishrc_actions(workspace, cx))
             .child(
                 div()
                     .size_full()
