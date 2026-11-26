@@ -4,7 +4,8 @@
 use std::ops::Range;
 
 use super::motion::lines_down;
-use super::{Operator, Span, Step, Vim, VimCommand, VimKey, VimText};
+use super::operator::{Operator, Span};
+use super::{Step, Vim, VimCommand, VimKey, VimText};
 use super::{char_of, select};
 use crate::Caret;
 use crate::{Cycle, TrimLevel};

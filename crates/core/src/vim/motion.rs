@@ -2,7 +2,8 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{Operator, Span, VimKey, forward, line_end, normal_offset};
+use super::VimKey;
+use super::operator::{Operator, Span};
 use crate::caret::{line_start, next_boundary, previous_boundary};
 
 /// The kind of a grapheme for word moves.
@@ -258,4 +259,38 @@ fn exclusive_end(text: &str, start: usize, end: usize) -> usize {
         return end - 1;
     }
     end
+}
+
+/// `times` graphemes after `offset`, at most the line end.
+pub(super) fn forward(text: &str, offset: usize, times: usize) -> usize {
+    let end = line_end(text, offset);
+    let mut at = offset;
+    for _ in 0..times {
+        if at >= end {
+            break;
+        }
+        at = next_boundary(text, at);
+    }
+    at.min(end)
+}
+
+/// The newline at the end of the line that holds `offset`, else the text end.
+pub(super) fn line_end(text: &str, offset: usize) -> usize {
+    text.get(offset..)
+        .and_then(|after| after.find('\n'))
+        .map_or(text.len(), |newline| offset + newline)
+}
+
+/// `offset` on the last char of its line when it is on the line end. An empty line keeps it.
+pub(super) fn normal_offset(text: &str, offset: usize) -> usize {
+    let start = line_start(text, offset);
+    if offset < line_end(text, offset) || offset == start {
+        return offset;
+    }
+    previous_boundary(text, offset).max(start)
+}
+
+/// The offset after the char at `offset`, at most the line end.
+pub(super) fn append_offset(text: &str, offset: usize) -> usize {
+    next_boundary(text, offset).min(line_end(text, offset))
 }
