@@ -1,8 +1,10 @@
 mod system_text;
 
+use std::cell::Cell;
 use std::fs;
+use std::rc::Rc;
 
-use app::{Notice, Workspace};
+use app::{Notice, Quit, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use hamish_core::{Document, LineError, LoadedSettings, Settings};
 use tempfile::TempDir;
@@ -68,6 +70,21 @@ fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
     })
 }
 
+/// Counts each Quit dispatch. The test app cannot close, so Quit stops here.
+fn count_quits(cx: &mut VisualTestContext) -> Rc<Cell<usize>> {
+    let quits = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&quits);
+    cx.update(|_, cx| {
+        cx.on_action(move |_: &Quit, _| counted.set(counted.get() + 1));
+    });
+    quits
+}
+
+/// Saves the Document to `path` through `:w`.
+fn save_to(cx: &mut VisualTestContext, path: &std::path::Path) {
+    run_line(cx, &format!("w {}", path.display()));
+}
+
 fn notice(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Notice> {
     cx.read(|cx| workspace.read(cx).notice().cloned())
 }
@@ -117,22 +134,22 @@ fn w_with_a_path_saves_there_on_the_background_executor() {
 }
 
 #[test]
-fn wq_with_a_path_saves_there() {
+fn q_with_no_unsaved_changes_closes_hamish() {
     system_text::run(1, |cx| {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("done.md");
-        let (_workspace, cx) = open(cx, "Done.");
+        let (_workspace, cx) = open(cx, "one");
+        let quits = count_quits(cx);
 
-        run_line(cx, &format!("wq {}", path.display()));
+        run_line(cx, "q");
 
-        assert!(fs::read_to_string(&path).unwrap().starts_with("Done.\n"));
+        assert_eq!(quits.get(), 1);
     });
 }
 
 #[test]
-fn q_with_unsaved_changes_refuses_with_a_notice() {
+fn q_with_unsaved_changes_refuses_with_a_notice_and_does_not_close() {
     system_text::run(1, |cx| {
         let (workspace, cx) = open(cx, "one");
+        let quits = count_quits(cx);
         cx.simulate_keystrokes("x");
 
         run_line(cx, "q");
@@ -141,6 +158,105 @@ fn q_with_unsaved_changes_refuses_with_a_notice() {
             notice(&workspace, cx),
             Some(Notice::CommandFailed(LineError::Unsaved))
         );
+        assert_eq!(quits.get(), 0);
+    });
+}
+
+#[test]
+fn q_bang_closes_with_unsaved_changes() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx) = open(cx, "one");
+        let quits = count_quits(cx);
+        cx.simulate_keystrokes("x");
+
+        run_line(cx, "q!");
+
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn wq_with_a_path_saves_there_then_closes() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("done.md");
+        let (_workspace, cx) = open(cx, "Done.");
+        let quits = count_quits(cx);
+
+        run_line(cx, &format!("wq {}", path.display()));
+
+        assert!(fs::read_to_string(&path).unwrap().starts_with("Done.\n"));
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn wq_saves_to_the_document_path_then_closes() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("draft.md");
+        let (_workspace, cx) = open(cx, "one");
+        save_to(cx, &path);
+        let quits = count_quits(cx);
+        cx.simulate_keystrokes("x");
+
+        run_line(cx, "wq");
+
+        assert!(fs::read_to_string(&path).unwrap().starts_with("ne\n"));
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn wq_when_the_save_fails_shows_a_notice_and_does_not_close() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("missing").join("draft.md");
+        let (workspace, cx) = open(cx, "one");
+        let quits = count_quits(cx);
+
+        run_line(cx, &format!("wq {}", path.display()));
+
+        assert!(matches!(
+            notice(&workspace, cx),
+            Some(Notice::SaveFailed(_))
+        ));
+        assert!(!path.exists());
+        assert_eq!(quits.get(), 0);
+    });
+}
+
+#[test]
+fn x_with_unsaved_changes_saves_then_closes() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("draft.md");
+        let (_workspace, cx) = open(cx, "one");
+        save_to(cx, &path);
+        let quits = count_quits(cx);
+        cx.simulate_keystrokes("x");
+
+        run_line(cx, "x");
+
+        assert!(fs::read_to_string(&path).unwrap().starts_with("ne\n"));
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn x_with_no_unsaved_changes_does_not_save_and_closes() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("draft.md");
+        let (_workspace, cx) = open(cx, "one");
+        save_to(cx, &path);
+        fs::write(&path, "Changed on disk.").unwrap();
+        let quits = count_quits(cx);
+
+        run_line(cx, "x");
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "Changed on disk.");
+        assert_eq!(quits.get(), 1);
     });
 }
 
