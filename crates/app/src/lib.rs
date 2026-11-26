@@ -9,6 +9,7 @@ mod ai;
 mod alternatives_panel;
 mod caret;
 mod chrome;
+mod command_line;
 mod context_menu;
 mod editor;
 mod effects;

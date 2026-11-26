@@ -9,7 +9,7 @@ use super::motion::{
 };
 use super::operator::{Operator, Span};
 use super::text_object::text_object;
-use super::{Put, Step, Vim, VimCommand, VimKey, VimMode, VimText, char_of, select};
+use super::{Put, Step, Vim, VimAction, VimCommand, VimKey, VimMode, VimText, char_of, select};
 use crate::caret::line_start;
 use crate::{Caret, CaretEdit, EditKind};
 
@@ -142,6 +142,7 @@ impl Vim {
             'p' => Step::Change(VimCommand::Put(Put::after(offset, times))),
             'P' => Step::Change(VimCommand::Put(Put::before(offset, times))),
             'u' => Step::Done(VimCommand::Undo(times)),
+            ':' => Step::Done(VimCommand::Run(VimAction::OpenCommandLine)),
             '.' => self.repeat_change(count, text, offset),
             'v' => self.start_visual(VimMode::Visual, plain, offset),
             'V' => self.start_visual(VimMode::VisualLine, plain, offset),

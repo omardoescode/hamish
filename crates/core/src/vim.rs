@@ -2,6 +2,7 @@
 //! plain text. Raw keys go in; commands for the caret, the text and the register come out
 //! (ADR 0008).
 
+mod command_line;
 mod hamish;
 mod keys;
 mod motion;
@@ -17,6 +18,9 @@ use std::ops::Range;
 
 use crate::caret::{line_start, previous_boundary};
 use crate::{Caret, CaretEdit, Cycle, Document, EditKind, TrimProposal};
+pub use command_line::{
+    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, resolve_path,
+};
 pub use hamish::VimAction;
 pub use keys::VIM_KEYS;
 use motion::normal_offset;

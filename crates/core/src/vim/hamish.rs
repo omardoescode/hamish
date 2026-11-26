@@ -39,6 +39,8 @@ pub enum VimAction {
     FocusEditor,
     /// Give the keyboard to Overflow, when it is open.
     FocusOverflow,
+    /// Open the Command line and give it the keyboard.
+    OpenCommandLine,
 }
 
 impl Vim {

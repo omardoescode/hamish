@@ -58,6 +58,7 @@ pub use theme::{Palette, ThemeName, contrast_ratio};
 pub use title::document_title;
 pub use trim::{TrimCut, TrimError, TrimLevel, TrimProposal, TrimRequest};
 pub use vim::{
-    PanelCommand, PanelKeys, Put, VIM_KEYS, Vim, VimAction, VimCommand, VimKey, VimMode, VimPanel,
-    VimText,
+    CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, PanelCommand,
+    PanelKeys, Put, VIM_KEYS, Vim, VimAction, VimCommand, VimKey, VimMode, VimPanel, VimText,
+    resolve_path,
 };
