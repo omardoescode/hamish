@@ -261,6 +261,21 @@ fn x_with_no_unsaved_changes_does_not_save_and_closes() {
 }
 
 #[test]
+fn x_with_a_path_and_no_unsaved_changes_does_not_save_and_closes() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("other.md");
+        let (_workspace, cx) = open(cx, "one");
+        let quits = count_quits(cx);
+
+        run_line(cx, &format!("x {}", path.display()));
+
+        assert!(!path.exists());
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
 fn an_unknown_command_shows_a_notice() {
     system_text::run(1, |cx| {
         let (workspace, cx) = open(cx, "one");

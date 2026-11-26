@@ -112,13 +112,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let unsaved = self.editor.read(cx).is_unsaved();
-        let refused = result.and_then(|command| {
-            command
-                .refusal(unsaved, self.document_path().is_some())
-                .map_or(Ok(command), Err)
-        });
-        match refused {
-            Ok(command) => self.run_line_command(command, unsaved, window, cx),
+        let has_path = self.document_path().is_some();
+        match result.and_then(|command| command.check(unsaved, has_path)) {
+            Ok(command) => self.run_line_command(command, window, cx),
             Err(error) => self.show(Notice::CommandFailed(error), cx),
         }
     }
@@ -126,18 +122,12 @@ impl Workspace {
     fn run_line_command(
         &mut self,
         command: LineCommand,
-        unsaved: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match command {
             LineCommand::Write(None) => self.save(&Save, window, cx),
             LineCommand::Write(Some(typed)) => self.save_to(self.typed_path(&typed), cx),
-            LineCommand::Quit { .. }
-            | LineCommand::WriteQuit {
-                path: None,
-                only_unsaved: true,
-            } if !unsaved => window.dispatch_action(Box::new(Quit), cx),
             LineCommand::Quit { .. } => window.dispatch_action(Box::new(Quit), cx),
             LineCommand::WriteQuit { path, .. } => self.write_quit(path, cx),
             LineCommand::Edit { path, .. } => self.edit(path, cx),

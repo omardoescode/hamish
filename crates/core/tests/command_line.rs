@@ -49,6 +49,17 @@ fn colon_after_an_operator_cancels_the_operator() {
 }
 
 #[test]
+fn colon_in_visual_mode_does_nothing() {
+    let mut vim = Vim::default();
+    vim.key(VimKey::Char('v'), "one two", &Caret::at(0));
+
+    let command = vim.key(VimKey::Char(':'), "one two", &Caret::at(0));
+
+    assert_eq!(command, VimCommand::Nothing);
+    assert_eq!(vim.status(), "VISUAL");
+}
+
+#[test]
 fn write_commands_parse_with_and_without_a_path() {
     assert_eq!(submit("w"), run(LineCommand::Write(None)));
     assert_eq!(submit("write"), run(LineCommand::Write(None)));
@@ -171,7 +182,7 @@ fn backspace_deletes_a_char_and_closes_an_empty_line() {
 }
 
 #[test]
-fn up_and_down_walk_the_history_and_down_past_the_end_gives_back_the_typed_text() {
+fn up_and_down_walk_the_recent_commands_and_down_past_the_end_gives_back_the_typed_text() {
     let mut line = CommandLine::default();
     for typed in ["w", "set vim", "chrome"] {
         type_line(&mut line, typed);
@@ -194,7 +205,7 @@ fn up_and_down_walk_the_history_and_down_past_the_end_gives_back_the_typed_text(
 }
 
 #[test]
-fn the_same_line_twice_in_a_row_is_one_history_entry() {
+fn the_same_line_twice_in_a_row_is_one_recent_command() {
     let mut line = CommandLine::default();
     for typed in ["w", "w", "chrome"] {
         type_line(&mut line, typed);
@@ -294,15 +305,16 @@ fn entries_for_a_line_the_writer_changed_since_tab_do_nothing() {
 #[test]
 fn a_command_refuses_to_drop_unsaved_changes_without_force() {
     let quit = LineCommand::Quit { force: false };
+    let force_quit = LineCommand::Quit { force: true };
     let edit = LineCommand::Edit {
         path: Some("b.md".to_owned()),
         force: false,
     };
 
-    assert_eq!(quit.refusal(true, true), Some(LineError::Unsaved));
-    assert_eq!(quit.refusal(false, true), None);
-    assert_eq!(LineCommand::Quit { force: true }.refusal(true, true), None);
-    assert_eq!(edit.refusal(true, true), Some(LineError::Unsaved));
+    assert_eq!(quit.clone().check(true, true), Err(LineError::Unsaved));
+    assert_eq!(quit.clone().check(false, true), Ok(quit));
+    assert_eq!(force_quit.clone().check(true, true), Ok(force_quit));
+    assert_eq!(edit.check(true, true), Err(LineError::Unsaved));
     assert_eq!(
         LineError::Unsaved.to_string(),
         "Unsaved changes: add ! to drop them"
@@ -324,14 +336,26 @@ fn a_command_with_no_path_refuses_when_the_document_has_none() {
         only_unsaved: true,
     };
 
-    assert_eq!(reload.refusal(false, false), Some(LineError::NoFileName));
+    assert_eq!(reload.check(false, false), Err(LineError::NoFileName));
+    assert_eq!(write_quit.check(false, false), Err(LineError::NoFileName));
+    assert_eq!(exit.check(true, false), Err(LineError::NoFileName));
     assert_eq!(
-        write_quit.refusal(false, false),
-        Some(LineError::NoFileName)
+        LineCommand::Write(None).check(true, false),
+        Ok(LineCommand::Write(None))
     );
-    assert_eq!(exit.refusal(true, false), Some(LineError::NoFileName));
-    assert_eq!(exit.refusal(false, false), None);
-    assert_eq!(LineCommand::Write(None).refusal(true, false), None);
+}
+
+#[test]
+fn x_with_no_unsaved_changes_is_a_quit_with_no_save_also_with_a_path() {
+    let exit = |path: Option<&str>| LineCommand::WriteQuit {
+        path: path.map(str::to_owned),
+        only_unsaved: true,
+    };
+    let quit = LineCommand::Quit { force: false };
+
+    assert_eq!(exit(Some("b.md")).check(false, true), Ok(quit.clone()));
+    assert_eq!(exit(None).check(false, false), Ok(quit));
+    assert_eq!(exit(Some("b.md")).check(true, true), Ok(exit(Some("b.md"))));
 }
 
 #[test]

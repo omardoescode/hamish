@@ -105,7 +105,7 @@ pub const VIM_KEYS: [(&str, &str); 46] = [
         "Left Right  Home End  Ctrl+B Ctrl+E  Ctrl+W  Ctrl+U",
     ),
     (
-        "Command line: complete, history, close",
+        "Command line: complete, recent commands, close",
         "Tab  Up Down  Esc",
     ),
     (
