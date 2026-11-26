@@ -9,7 +9,7 @@ use crate::actions::{
     AiAlternatives, CloseMenu, DeleteActiveVariant, OpenAlternatives, Redo, Stash, ToggleGhost,
     Undo,
 };
-use crate::caret::{self, CaretView, Column, caret_actions, caret_input_handler};
+use crate::caret::{self, CaretBlink, CaretView, Column, caret_actions, caret_input_handler};
 use crate::context_menu::{ContextMenu, ContextMenuItem};
 use crate::effects::{self, EffectPlayer, PlayingEffect};
 use crate::settings;
@@ -75,6 +75,7 @@ pub struct Editor {
     marker_dots: Vec<element::MarkerDot>,
     hover_tint: Vec<Bounds<Pixels>>,
     caret_bounds: Option<Bounds<Pixels>>,
+    blink: CaretBlink,
     underlines: Vec<PenStroke>,
     context_menu: Option<ContextMenu>,
     spotlight: Option<Spotlight>,
@@ -127,6 +128,7 @@ impl Editor {
             scroll_handle: ScrollHandle::new(),
             painted: None,
             caret_bounds: None,
+            blink: CaretBlink::new(cx),
             selecting: false,
             autoscroll: false,
             hovered: None,
@@ -470,6 +472,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> Result<T, E> {
         let (done, switched) = self.session.change(change)?;
+        self.blink.restart(cx);
         self.fade_in(switched, Duration::ZERO, cx);
         cx.notify();
         Ok(done)
@@ -523,6 +526,7 @@ impl Editor {
             cx.emit(EditorEvent::VariantRestored(id));
         }
         self.fade_in(changes.switched, after_burst, cx);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -545,6 +549,7 @@ impl Editor {
             sounds::play(Sound::Explosion, cx);
         }
         self.fade_in(changes.switched, Duration::ZERO, cx);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -616,6 +621,7 @@ impl Editor {
         if inserted.is_err() {
             return false;
         }
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
         true
@@ -798,6 +804,7 @@ impl Editor {
         if stashed.is_err() {
             return;
         }
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.propagate();
     }
@@ -819,6 +826,7 @@ impl CaretView for Editor {
             caret
         };
         self.session.select(caret);
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }
@@ -832,6 +840,7 @@ impl CaretView for Editor {
             return;
         }
         self.context_menu = None;
+        self.blink.restart(cx);
         self.autoscroll = true;
         cx.notify();
     }

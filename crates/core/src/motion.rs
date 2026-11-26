@@ -59,3 +59,12 @@ pub fn caret_shown(elapsed: Duration, reduced_motion: bool) -> bool {
     let round = Effect::CaretBlink.duration().as_millis();
     reduced_motion || elapsed.as_millis() % round < round / 2
 }
+
+/// How long after `elapsed` a blinking caret next turns on or off: at each half of an
+/// [`Effect::CaretBlink`] round, counted from the start of its blink.
+#[must_use]
+pub fn next_caret_toggle(elapsed: Duration) -> Duration {
+    let half = Effect::CaretBlink.duration() / 2;
+    let into_half = elapsed.as_nanos() % half.as_nanos();
+    half.saturating_sub(Duration::from_nanos(u64::try_from(into_half).unwrap_or(0)))
+}
