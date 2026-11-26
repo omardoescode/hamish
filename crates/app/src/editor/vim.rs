@@ -2,11 +2,11 @@
 //! here (ADR 0008). The register is the system clipboard.
 
 use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
-use hamish_core::{Caret, Document, VimAction, VimCommand, VimKey};
+use hamish_core::{Caret, Document, VimAction, VimCommand, VimKey, VimMode};
 
 use super::Editor;
 use crate::actions::{FocusEditor, FocusOverflow, OpenAlternatives, UseOverflowBlock};
-use crate::caret::CaretView;
+use crate::caret::{self, CaretView};
 use crate::settings;
 use crate::{
     AcceptLabMark, CloseTrim, DismissLabMark, KeepTrimCut, MakeTrimCuts, RunTrim, ToggleLab,
@@ -33,6 +33,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        let was = self.vim.mode();
         let command = self
             .vim
             .key(key, self.session.document(), self.session.caret());
@@ -40,7 +41,39 @@ impl Editor {
             return false;
         }
         self.run_vim_command(command, window, cx);
+        self.follow_vim_mode(was, self.vim.mode());
         cx.notify();
+        true
+    }
+
+    /// One Insert mode session, from the key that starts it to Escape, is one Undo step.
+    pub(crate) fn follow_vim_mode(&mut self, was: VimMode, now: VimMode) {
+        match (was == VimMode::Insert, now == VimMode::Insert) {
+            (false, true) => self.session.start_insert(),
+            (true, false) => self.session.end_insert(),
+            (true, true) | (false, false) => {}
+        }
+    }
+
+    /// A press at `position` in Visual mode moves the end of the Visual selection there;
+    /// `false` outside Visual mode.
+    pub(super) fn press_visual(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        extend: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !vim_on(cx) {
+            return false;
+        }
+        let offset = caret::offset_at(self, position, cx);
+        let Some(caret) = self
+            .vim
+            .click(self.session.document().text(), offset, extend)
+        else {
+            return false;
+        };
+        CaretView::select(self, caret, cx);
         true
     }
 

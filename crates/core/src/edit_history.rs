@@ -43,6 +43,8 @@ pub struct EditHistory {
     redo: Vec<EditGroup>,
     open: bool,
     next_id: u64,
+    /// A Vim Insert mode session is on: its typing and deleting start an Insert group.
+    insert: bool,
 }
 
 impl EditHistory {
@@ -72,7 +74,11 @@ impl EditHistory {
         self.next_id += 1;
         self.undo.push(EditGroup {
             id: self.next_id,
-            kind,
+            kind: if self.insert && typed {
+                EditKind::Insert
+            } else {
+                kind
+            },
             text,
             steps: 1,
             before,
@@ -96,6 +102,19 @@ impl EditHistory {
     #[must_use]
     pub fn top(&self) -> Option<u64> {
         self.undo.last().map(|group| group.id)
+    }
+
+    /// From now, typing and deleting join one undo step, as in one Vim Insert mode session.
+    pub fn start_insert(&mut self) {
+        self.insert = true;
+    }
+
+    /// Ends the Vim Insert mode session and its group. With no session on, nothing changes.
+    pub fn end_insert(&mut self) {
+        if self.insert {
+            self.insert = false;
+            self.close();
+        }
     }
 
     /// Ends the current group: the next edit starts a new undo step.

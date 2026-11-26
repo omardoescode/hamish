@@ -28,10 +28,10 @@ pub(super) fn text_object(
     match object {
         'w' if around => around_word(plain, offset, times).map(Span::Chars),
         'w' => inner_word(plain, offset, times).map(Span::Chars),
-        's' => Some(Span::Chars(sentence(plain, offset, around))),
+        's' => Some(sentence(plain, offset, around, times)),
         'p' => Some(paragraph(plain, offset, around, times)),
-        'v' if !around => innermost(&text.slots, offset).map(Span::Chars),
-        'g' if !around => innermost(&text.ghosts, offset).map(Span::Chars),
+        'v' => innermost(&text.slots, offset).map(|range| around_if(plain, range, around)),
+        'g' => innermost(&text.ghosts, offset).map(|range| around_if(plain, range, around)),
         _ => None,
     }
 }
@@ -129,12 +129,39 @@ fn blank_before(text: &str, start: usize) -> usize {
     start
 }
 
-/// `is`: the sentence at `offset`. `as`: with the blanks after it, else the blanks before it.
-fn sentence(text: &str, offset: usize, around: bool) -> Range<usize> {
-    let inner = sentence_around(text, &(offset..offset));
-    if !around {
-        return inner;
+/// `is`: the sentence at `offset`, then `times - 1` pieces more; the white space between two
+/// sentences is a piece too. `as`: `times` sentences with the blanks after them, else the
+/// blanks before them.
+fn sentence(text: &str, offset: usize, around: bool, times: usize) -> Span {
+    let mut inner = sentence_around(text, &(offset..offset));
+    let pieces = if around { times * 2 - 1 } else { times };
+    for _ in 1..pieces {
+        inner.end = sentence_piece_end(text, inner.end);
     }
+    around_if(text, inner, around)
+}
+
+/// The end of the white space at `start`; with none, the end of the sentence at `start`.
+fn sentence_piece_end(text: &str, start: usize) -> usize {
+    let white = text
+        .get(start..)
+        .map_or(0, |after| after.len() - after.trim_start().len());
+    if white > 0 || start >= text.len() {
+        return start + white;
+    }
+    sentence_around(text, &(start..next_boundary(text, start))).end
+}
+
+/// `inner` as a span; with `around`, with the blanks after it, else the blanks before it.
+fn around_if(text: &str, inner: Range<usize>, around: bool) -> Span {
+    if !around {
+        return Span::Chars(inner);
+    }
+    Span::Chars(with_blank_around(text, inner))
+}
+
+/// `inner` with the blanks after it on its line, else with the blanks right before it.
+fn with_blank_around(text: &str, inner: Range<usize>) -> Range<usize> {
     let after = text
         .get(inner.end..line_end(text, inner.end))
         .unwrap_or_default();
