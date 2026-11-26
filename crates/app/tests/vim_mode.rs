@@ -238,3 +238,14 @@ fn in_normal_mode_a_click_past_the_line_end_puts_the_caret_on_the_last_char(
     click_past_the_end_of_the_first_line(&workspace, cx);
     assert_eq!(selection(&workspace, cx), 2..2);
 }
+
+#[gpui::test]
+fn j_then_k_in_insert_mode_goes_to_normal_mode_without_the_j(cx: &mut TestAppContext) {
+    let (workspace, cx) = open(cx, "ab", true);
+
+    cx.simulate_keystrokes("a x j k");
+
+    assert_eq!(text(&workspace, cx), "axb");
+    assert_eq!(status(&workspace, cx).as_deref(), Some("NORMAL"));
+    assert_eq!(selection(&workspace, cx), 1..1);
+}

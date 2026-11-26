@@ -63,6 +63,9 @@ pub struct Vim {
     /// The column that `j` and `k` keep, in graphemes from the line start. `usize::MAX`
     /// after `$` keeps the line end.
     column: Option<usize>,
+    /// The caret offset right after a `j` typed in Insert mode, while a `k` there
+    /// can still make `jk` act as Escape.
+    after_j: Option<usize>,
 }
 
 /// The kind of a grapheme for word moves.
@@ -113,17 +116,34 @@ impl Vim {
         }
     }
 
+    /// `jk` typed in a row acts as Escape and removes the `j`.
     fn insert_key(&mut self, key: VimKey, text: &str, offset: usize) -> VimCommand {
-        if key != VimKey::Escape {
-            return VimCommand::PassOn;
+        let after_j = self.after_j.take();
+        match key {
+            VimKey::Escape => {
+                self.mode = VimMode::Normal;
+                VimCommand::Select(Caret::at(step_back(text, offset)))
+            }
+            VimKey::Char('k')
+                if after_j == Some(offset)
+                    && text
+                        .get(..offset)
+                        .is_some_and(|before| before.ends_with('j')) =>
+            {
+                self.mode = VimMode::Normal;
+                let j = offset - 'j'.len_utf8();
+                let mut edit = CaretEdit::new(j..offset, "", EditKind::Deleting);
+                edit.caret = Caret::at(step_back(text, j));
+                VimCommand::Edit(edit)
+            }
+            VimKey::Char('j') => {
+                self.after_j = Some(offset + 'j'.len_utf8());
+                VimCommand::PassOn
+            }
+            VimKey::Char(_) | VimKey::Enter | VimKey::Backspace | VimKey::Other => {
+                VimCommand::PassOn
+            }
         }
-        self.mode = VimMode::Normal;
-        let back = if offset > line_start(text, offset) {
-            previous_boundary(text, offset)
-        } else {
-            offset
-        };
-        VimCommand::Select(Caret::at(back))
     }
 
     fn normal_key(&mut self, key: VimKey, text: &str, offset: usize) -> VimCommand {
@@ -227,6 +247,15 @@ fn pair(prefix: char, key: VimKey, count: Option<usize>, text: &str) -> VimComma
             select(first_non_blank(text, line_number(text, count.unwrap_or(1))))
         }
         _ => VimCommand::Nothing,
+    }
+}
+
+/// The caret after Escape at `offset`: one grapheme back, but not past the line start.
+fn step_back(text: &str, offset: usize) -> usize {
+    if offset > line_start(text, offset) {
+        previous_boundary(text, offset)
+    } else {
+        offset
     }
 }
 
