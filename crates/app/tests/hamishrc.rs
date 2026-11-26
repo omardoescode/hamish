@@ -175,12 +175,12 @@ fn source_on_the_command_line_reads_the_changed_hamishrc() {
 }
 
 #[test]
-fn reload_config_reads_the_changed_hamishrc() {
+fn reload_hamishrc_reads_the_changed_hamishrc() {
     system_text::run(1, |cx| {
         let (workspace, cx, dir) = open(cx, "one\ntwo", "", true);
         rewrite(&dir, "nnoremap X dd\n");
 
-        cx.dispatch_action(app::ReloadConfig);
+        cx.dispatch_action(app::ReloadHamishrc);
         cx.run_until_parked();
         keys(cx, "shift-x");
 
@@ -206,13 +206,13 @@ fn a_recursive_map_stops_with_a_notice() {
 }
 
 #[test]
-fn the_reload_config_button_of_settings_reads_the_changed_hamishrc() {
+fn the_reload_hamishrc_button_of_settings_reads_the_changed_hamishrc() {
     system_text::run(1, |cx| {
         let (workspace, cx, dir) = open(cx, "one\ntwo", "", true);
         rewrite(&dir, "nnoremap X dd\n");
 
         keys(cx, "ctrl-,");
-        for id in ["settings-section-editor", "settings-reload-config"] {
+        for id in ["settings-section-editor", "settings-reload-hamishrc"] {
             let bounds = cx.debug_bounds(id).unwrap();
             cx.simulate_click(bounds.center(), Modifiers::none());
             cx.run_until_parked();

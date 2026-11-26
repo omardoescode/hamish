@@ -1,5 +1,5 @@
 //! The hamishrc global: the key maps in use and where the file is. The file reads on the
-//! background executor at start, on window focus, on `:source` and on "Reload config".
+//! background executor at start, on window focus, on `:source` and on "Reload hamishrc".
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
@@ -12,8 +12,8 @@ use hamish_core::{HAMISHRC_EXAMPLE, Hamishrc, Toggle, TrimLevel};
 use crate::actions::{
     AiAlternatives, Copy, Cut, DeleteActiveVariant, EditHamishrc, FocusEditor, FocusOverflow,
     NewDocument, Open, OpenAlternatives, OpenCommandLine, OpenSettings, OpenShortcuts, Paste, Quit,
-    RecursiveMap, Redo, ReloadConfig, Save, SaveAs, SelectAll, Stash, ToggleGhost, ToggleMarkdown,
-    ToggleMarkers, ToggleOverflow, Undo, UseOverflowBlock,
+    RecursiveMap, Redo, ReloadHamishrc, Save, SaveAs, SelectAll, Stash, ToggleGhost,
+    ToggleMarkdown, ToggleMarkers, ToggleOverflow, Undo, UseOverflowBlock,
 };
 use crate::save_open::Notice;
 use crate::{
@@ -58,7 +58,7 @@ const NAMED_ACTIONS: [(&str, MakeAction); 38] = [
     ("OpenCommandLine", || Box::new(OpenCommandLine)),
     ("ToggleMarkers", || Box::new(ToggleMarkers)),
     ("ToggleMarkdown", || Box::new(ToggleMarkdown)),
-    ("ReloadConfig", || Box::new(ReloadConfig)),
+    ("ReloadHamishrc", || Box::new(ReloadHamishrc)),
     ("EditHamishrc", || Box::new(EditHamishrc)),
     ("Undo", || Box::new(Undo)),
     ("Redo", || Box::new(Redo)),
@@ -93,7 +93,7 @@ pub(crate) struct HamishrcStore {
 impl Global for HamishrcStore {}
 
 /// Reads the hamishrc from `path` from now on: at each Workspace start, on window focus, on
-/// `:source` and on "Reload config".
+/// `:source` and on "Reload hamishrc".
 pub fn use_hamishrc(path: Option<PathBuf>, cx: &mut App) {
     cx.set_global(HamishrcStore {
         path,
@@ -134,7 +134,7 @@ fn create_if_missing(path: &Path) -> io::Result<()> {
 impl Workspace {
     /// `root` with the hamishrc actions of the Workspace.
     pub(crate) fn hamishrc_actions(root: gpui::Div, cx: &Context<Self>) -> gpui::Div {
-        root.on_action(cx.listener(|_, _: &ReloadConfig, _, cx| {
+        root.on_action(cx.listener(|_, _: &ReloadHamishrc, _, cx| {
             Self::reload_hamishrc(true, cx);
         }))
         .on_action(cx.listener(Self::edit_hamishrc))
@@ -142,7 +142,7 @@ impl Workspace {
     }
 
     /// Reads the hamishrc again on the background executor. Its errors show as a Notice
-    /// when `asked` (`:source`, "Reload config"), or when the text changed and Vim mode is on.
+    /// when `asked` (`:source`, "Reload hamishrc"), or when the text changed and Vim mode is on.
     pub(crate) fn reload_hamishrc(asked: bool, cx: &mut Context<Self>) {
         let Some(path) = path(cx) else {
             return;
