@@ -149,6 +149,7 @@ impl Workspace {
                 cx.notify();
             }
             LineCommand::OpenSettings => self.open_settings(&OpenSettings, window, cx),
+            LineCommand::ReadHamishrc => Self::reload_hamishrc(true, cx),
         }
     }
 

@@ -77,7 +77,7 @@ impl Vim {
         if self.take_digit(key) {
             return Step::Pending;
         }
-        if let Some(prefix) = Prefix::of(key).filter(|prefix| prefix.in_visual()) {
+        if let Some(prefix) = Prefix::of(key, self.leader).filter(|prefix| prefix.in_visual()) {
             self.prefix = Some(prefix);
             return Step::Pending;
         }

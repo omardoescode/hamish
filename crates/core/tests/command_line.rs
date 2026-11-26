@@ -116,6 +116,16 @@ fn set_changes_only_the_vim_mode_setting() {
 }
 
 #[test]
+fn source_reads_the_hamishrc_again_and_takes_no_path() {
+    assert_eq!(submit("source"), run(LineCommand::ReadHamishrc));
+    assert_eq!(submit("so"), run(LineCommand::ReadHamishrc));
+    assert_eq!(
+        submit("source ~/.vimrc"),
+        LineStep::Run(Err(LineError::ExtraText("~/.vimrc".to_owned())))
+    );
+}
+
+#[test]
 fn chrome_and_settings_parse() {
     assert_eq!(submit("chrome"), run(LineCommand::ToggleChrome));
     assert_eq!(submit("settings"), run(LineCommand::OpenSettings));
@@ -123,15 +133,15 @@ fn chrome_and_settings_parse() {
 
 #[test]
 fn an_unknown_command_or_extra_text_is_an_error_with_a_message() {
-    let unknown = submit("source ~/.hamishrc");
+    let unknown = submit("make all");
     assert_eq!(
         unknown,
-        LineStep::Run(Err(LineError::Unknown("source".to_owned())))
+        LineStep::Run(Err(LineError::Unknown("make".to_owned())))
     );
     let LineStep::Run(Err(error)) = unknown else {
         unreachable!()
     };
-    assert_eq!(error.to_string(), "Not a command: source");
+    assert_eq!(error.to_string(), "Not a command: make");
     assert_eq!(
         submit("q now"),
         LineStep::Run(Err(LineError::ExtraText("now".to_owned())))

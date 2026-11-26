@@ -1,5 +1,5 @@
 //! Settings: theme, UI scale, fonts, font sizes, and the on/off settings, with their defaults,
-//! limits, labels, and the JSON file in the XDG config dir.
+//! limits, labels, and the JSON file in the XDG config dir, where the hamishrc is too.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -216,12 +216,23 @@ impl std::error::Error for SettingsError {
 /// absolute path (XDG Base Directory Specification). `None` without either.
 #[must_use]
 pub fn settings_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
+    config_dir(xdg_config_home, home).map(|config| config.join("settings.json"))
+}
+
+/// `$XDG_CONFIG_HOME/hamish/hamishrc`, in the directory of [`settings_path`]. `None` without
+/// `XDG_CONFIG_HOME` or `home`.
+#[must_use]
+pub fn hamishrc_path(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
+    config_dir(xdg_config_home, home).map(|config| config.join("hamishrc"))
+}
+
+fn config_dir(xdg_config_home: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
     let config = xdg_config_home
         .map(Path::new)
         .filter(|path| path.is_absolute())
         .map(Path::to_owned)
         .or_else(|| home.map(|home| home.join(".config")))?;
-    Some(config.join("hamish").join("settings.json"))
+    Some(config.join("hamish"))
 }
 
 impl Settings {

@@ -265,13 +265,11 @@ fn an_unknown_command_shows_a_notice() {
     system_text::run(1, |cx| {
         let (workspace, cx) = open(cx, "one");
 
-        run_line(cx, "source rc");
+        run_line(cx, "make all");
 
         assert_eq!(
             notice(&workspace, cx),
-            Some(Notice::CommandFailed(LineError::Unknown(
-                "source".to_owned()
-            )))
+            Some(Notice::CommandFailed(LineError::Unknown("make".to_owned())))
         );
     });
 }

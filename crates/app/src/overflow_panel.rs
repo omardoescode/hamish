@@ -567,6 +567,10 @@ impl VimView for OverflowPanel {
         &self.vim
     }
 
+    fn vim_mut(&mut self) -> &mut Vim {
+        &mut self.vim
+    }
+
     fn vim_command(&mut self, key: VimKey, cx: &mut Context<Self>) -> VimCommand {
         let text = self.text(cx);
         self.vim.key(key, text.as_str(), &self.caret)

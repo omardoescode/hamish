@@ -25,6 +25,9 @@ pub enum Notice {
     SettingsNotSaved(String),
     /// A command of the Command line did not run.
     CommandFailed(LineError),
+    /// The hamishrc did not read, a line of it did not load, or a map went wrong: one line
+    /// each.
+    Hamishrc(Vec<String>),
 }
 
 /// Where the Document is saved, and the open notice.
@@ -355,6 +358,7 @@ fn notice_lines(notice: &Notice) -> Vec<SharedString> {
         }
         Notice::SettingsNotSaved(error) => vec![format!("Settings not saved: {error}").into()],
         Notice::CommandFailed(error) => vec![error.to_string().into()],
+        Notice::Hamishrc(lines) => lines.iter().cloned().map(SharedString::from).collect(),
         Notice::Dropped(dropped) => {
             std::iter::once("The .md file changed outside Hamish. Not found again:".into())
                 .chain(dropped.iter().map(|item| dropped_line(item).into()))

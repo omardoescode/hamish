@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use crate::caret::{next_boundary, previous_boundary};
 
 /// The command names that Tab completes, in order.
-const NAMES: [&str; 8] = [
-    "chrome", "edit", "quit", "set", "settings", "write", "wq", "x",
+const NAMES: [&str; 9] = [
+    "chrome", "edit", "quit", "set", "settings", "source", "write", "wq", "x",
 ];
 
 /// The settings that `:set` changes.
@@ -92,6 +92,8 @@ pub enum LineCommand {
     ToggleChrome,
     /// `:settings`: open Settings.
     OpenSettings,
+    /// `:source`: read the hamishrc again.
+    ReadHamishrc,
 }
 
 /// Why a command of the Command line does not run. Its text is the Notice text.
@@ -148,7 +150,8 @@ impl LineCommand {
             | Self::Edit { .. }
             | Self::SetVimMode(_)
             | Self::ToggleChrome
-            | Self::OpenSettings => None,
+            | Self::OpenSettings
+            | Self::ReadHamishrc => None,
         }
     }
 }
@@ -465,6 +468,7 @@ fn parse(line: &str) -> Result<LineCommand, LineError> {
         "set" | "se" => set_setting(argument),
         "chrome" => no_argument(LineCommand::ToggleChrome),
         "settings" => no_argument(LineCommand::OpenSettings),
+        "so" | "source" => no_argument(LineCommand::ReadHamishrc),
         _ => Err(LineError::Unknown(
             line.split_whitespace()
                 .next()
