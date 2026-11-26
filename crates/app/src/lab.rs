@@ -181,14 +181,14 @@ impl Lab {
             return;
         }
         self.open = true;
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         cx.notify();
     }
 
     /// Esc in the popover: closes it and gives focus back to the editor.
     fn close(&mut self, _: &CloseLab, window: &mut Window, cx: &mut Context<Self>) {
         self.open = false;
-        window.focus(&self.editor.read(cx).focus_handle(cx));
+        window.focus(&self.editor.read(cx).focus_handle(cx), cx);
         cx.notify();
     }
 

@@ -57,7 +57,7 @@ pub(crate) fn chrome_bar_height(cx: &gpui::App) -> Pixels {
 impl Workspace {
     pub fn new(document: Document, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let editor = cx.new(|cx| Editor::new(document, cx));
-        window.focus(&editor.focus_handle(cx));
+        window.focus(&editor.focus_handle(cx), cx);
         let editor_changes = cx.observe(&editor, |_, _, cx| cx.notify());
         let editor_events = cx.subscribe_in(
             &editor,
@@ -152,7 +152,7 @@ impl Workspace {
                 PanelEvent::Close => workspace.close_alternatives(window, cx),
             },
         );
-        window.focus(&panel.focus_handle(cx));
+        window.focus(&panel.focus_handle(cx), cx);
         self.alternatives = Some((panel, events));
         cx.notify();
     }
@@ -177,7 +177,7 @@ impl Workspace {
             return;
         };
         panel.update(cx, |panel, cx| panel.show_slot(slot, cx));
-        window.focus(&panel.focus_handle(cx));
+        window.focus(&panel.focus_handle(cx), cx);
     }
 
     fn close_alternatives(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -186,7 +186,7 @@ impl Workspace {
             editor.set_spotlight(None, cx);
             editor.set_preview(None, cx);
         });
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -216,7 +216,7 @@ impl Workspace {
         } else {
             self.editor.focus_handle(cx)
         };
-        window.focus(&focus);
+        window.focus(&focus, cx);
         cx.notify();
     }
 
@@ -273,7 +273,7 @@ impl Workspace {
         self.overflow_panel = cx.new(|cx| OverflowPanel::new(editor.clone(), cx));
         self.lab = cx.new(|cx| Lab::new(editor, cx));
         self.lab_changes = cx.observe(&self.lab, |_, _, cx| cx.notify());
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }
 

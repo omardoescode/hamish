@@ -300,122 +300,140 @@ mod tests {
         while cancelled(cancels).is_empty() && cx.executor().tick() {}
     }
 
-    #[gpui::test]
-    fn a_run_is_running_until_its_answer_is_applied(cx: &mut TestAppContext) {
-        let (view, _) = open(cx, Some(Ok(client())));
+    #[test]
+    fn a_run_is_running_until_its_answer_is_applied() {
+        crate::system_text::run(1, |cx| {
+            let (view, _) = open(cx, Some(Ok(client())));
 
-        start(&view, 1, cx);
-        assert_eq!(status(&view, cx), AiStatus::Running);
-        assert_eq!(applied(&view, cx), vec![]);
+            start(&view, 1, cx);
+            assert_eq!(status(&view, cx), AiStatus::Running);
+            assert_eq!(applied(&view, cx), vec![]);
 
-        cx.run_until_parked();
-        assert_eq!(status(&view, cx), AiStatus::Done);
-        assert_eq!(applied(&view, cx), vec![(1, vec!["client".to_owned()])]);
+            cx.run_until_parked();
+            assert_eq!(status(&view, cx), AiStatus::Done);
+            assert_eq!(applied(&view, cx), vec![(1, vec!["client".to_owned()])]);
+        });
     }
 
-    #[gpui::test]
-    fn with_no_ai_backend_a_run_fails_at_once(cx: &mut TestAppContext) {
-        let (view, _) = open(cx, None);
+    #[test]
+    fn with_no_ai_backend_a_run_fails_at_once() {
+        crate::system_text::run(1, |cx| {
+            let (view, _) = open(cx, None);
 
-        start(&view, 1, cx);
+            start(&view, 1, cx);
 
-        assert_eq!(status(&view, cx), AiStatus::Failed(AiFailure::NoBackend));
+            assert_eq!(status(&view, cx), AiStatus::Failed(AiFailure::NoBackend));
+        });
     }
 
-    #[gpui::test]
-    fn an_ai_error_fails_the_run_and_applies_nothing(cx: &mut TestAppContext) {
-        let declined = AiError::Declined("no".to_owned());
-        let (view, _) = open(cx, Some(Err(declined.clone())));
+    #[test]
+    fn an_ai_error_fails_the_run_and_applies_nothing() {
+        crate::system_text::run(1, |cx| {
+            let declined = AiError::Declined("no".to_owned());
+            let (view, _) = open(cx, Some(Err(declined.clone())));
 
-        start(&view, 1, cx);
-        cx.run_until_parked();
+            start(&view, 1, cx);
+            cx.run_until_parked();
 
-        assert_eq!(status(&view, cx), AiStatus::Failed(AiFailure::Ai(declined)));
-        assert_eq!(applied(&view, cx), vec![]);
+            assert_eq!(status(&view, cx), AiStatus::Failed(AiFailure::Ai(declined)));
+            assert_eq!(applied(&view, cx), vec![]);
+        });
     }
 
-    #[gpui::test]
-    fn a_refused_request_or_answer_fails_the_run(cx: &mut TestAppContext) {
-        let (view, cancels) = open(cx, Some(Ok(client())));
+    #[test]
+    fn a_refused_request_or_answer_fails_the_run() {
+        crate::system_text::run(1, |cx| {
+            let (view, cancels) = open(cx, Some(Ok(client())));
 
-        start_with(&view, 1, Err("nothing to ask"), cx);
-        assert_eq!(
-            status(&view, cx),
-            AiStatus::Failed(AiFailure::Refused("nothing to ask"))
-        );
-        assert_eq!(cancelled(&cancels), Vec::<bool>::new());
+            start_with(&view, 1, Err("nothing to ask"), cx);
+            assert_eq!(
+                status(&view, cx),
+                AiStatus::Failed(AiFailure::Refused("nothing to ask"))
+            );
+            assert_eq!(cancelled(&cancels), Vec::<bool>::new());
 
-        view.update(cx, |view, _| view.refuse = Some("stale"));
-        start(&view, 1, cx);
-        cx.run_until_parked();
-        assert_eq!(
-            status(&view, cx),
-            AiStatus::Failed(AiFailure::Refused("stale"))
-        );
+            view.update(cx, |view, _| view.refuse = Some("stale"));
+            start(&view, 1, cx);
+            cx.run_until_parked();
+            assert_eq!(
+                status(&view, cx),
+                AiStatus::Failed(AiFailure::Refused("stale"))
+            );
+        });
     }
 
-    #[gpui::test]
-    fn the_same_key_does_not_start_again_while_it_runs(cx: &mut TestAppContext) {
-        let (view, cancels) = open(cx, Some(Ok(client())));
+    #[test]
+    fn the_same_key_does_not_start_again_while_it_runs() {
+        crate::system_text::run(1, |cx| {
+            let (view, cancels) = open(cx, Some(Ok(client())));
 
-        start(&view, 1, cx);
-        start(&view, 1, cx);
-        cx.run_until_parked();
+            start(&view, 1, cx);
+            start(&view, 1, cx);
+            cx.run_until_parked();
 
-        assert_eq!(cancelled(&cancels), vec![false]);
-        assert_eq!(applied(&view, cx), vec![(1, vec!["client".to_owned()])]);
+            assert_eq!(cancelled(&cancels), vec![false]);
+            assert_eq!(applied(&view, cx), vec![(1, vec!["client".to_owned()])]);
+        });
     }
 
-    #[gpui::test]
-    fn a_new_key_cancels_the_run_and_drops_its_answer(cx: &mut TestAppContext) {
-        let (view, cancels) = open(cx, Some(Ok(client())));
+    #[test]
+    fn a_new_key_cancels_the_run_and_drops_its_answer() {
+        crate::system_text::run(1, |cx| {
+            let (view, cancels) = open(cx, Some(Ok(client())));
 
-        start(&view, 1, cx);
-        until_called(&cancels, cx);
-        start(&view, 2, cx);
-        cx.run_until_parked();
+            start(&view, 1, cx);
+            until_called(&cancels, cx);
+            start(&view, 2, cx);
+            cx.run_until_parked();
 
-        assert_eq!(cancelled(&cancels), vec![true, false]);
-        assert_eq!(applied(&view, cx), vec![(2, vec!["client".to_owned()])]);
-        assert_eq!(
-            view.read_with(cx, |view, _| view.run.key().copied()),
-            Some(2)
-        );
+            assert_eq!(cancelled(&cancels), vec![true, false]);
+            assert_eq!(applied(&view, cx), vec![(2, vec!["client".to_owned()])]);
+            assert_eq!(
+                view.read_with(cx, |view, _| view.run.key().copied()),
+                Some(2)
+            );
+        });
     }
 
-    #[gpui::test]
-    fn cancel_stops_the_call_and_drops_its_answer(cx: &mut TestAppContext) {
-        let (view, cancels) = open(cx, Some(Ok(client())));
+    #[test]
+    fn cancel_stops_the_call_and_drops_its_answer() {
+        crate::system_text::run(1, |cx| {
+            let (view, cancels) = open(cx, Some(Ok(client())));
 
-        start(&view, 1, cx);
-        until_called(&cancels, cx);
-        view.update(cx, |view, cx| view.run.cancel(cx));
-        cx.run_until_parked();
+            start(&view, 1, cx);
+            until_called(&cancels, cx);
+            view.update(cx, |view, cx| view.run.cancel(cx));
+            cx.run_until_parked();
 
-        assert_eq!(cancelled(&cancels), vec![true]);
-        assert_eq!(status(&view, cx), AiStatus::Idle);
-        assert_eq!(applied(&view, cx), vec![]);
+            assert_eq!(cancelled(&cancels), vec![true]);
+            assert_eq!(status(&view, cx), AiStatus::Idle);
+            assert_eq!(applied(&view, cx), vec![]);
+        });
     }
 
-    #[gpui::test]
-    fn a_dropped_run_cancels_its_call(cx: &mut TestAppContext) {
-        let (view, cancels) = open(cx, Some(Ok(client())));
+    #[test]
+    fn a_dropped_run_cancels_its_call() {
+        crate::system_text::run(1, |cx| {
+            let (view, cancels) = open(cx, Some(Ok(client())));
 
-        start(&view, 1, cx);
-        until_called(&cancels, cx);
-        cx.update(|_| drop(view));
-        cx.run_until_parked();
+            start(&view, 1, cx);
+            until_called(&cancels, cx);
+            cx.update(|_| drop(view));
+            cx.run_until_parked();
 
-        assert_eq!(cancelled(&cancels), vec![true]);
+            assert_eq!(cancelled(&cancels), vec![true]);
+        });
     }
 
-    #[gpui::test]
-    fn a_call_the_ai_cancelled_ends_with_no_failure(cx: &mut TestAppContext) {
-        let (view, _) = open(cx, Some(Err(AiError::Cancelled)));
+    #[test]
+    fn a_call_the_ai_cancelled_ends_with_no_failure() {
+        crate::system_text::run(1, |cx| {
+            let (view, _) = open(cx, Some(Err(AiError::Cancelled)));
 
-        start(&view, 1, cx);
-        cx.run_until_parked();
+            start(&view, 1, cx);
+            cx.run_until_parked();
 
-        assert_eq!(status(&view, cx), AiStatus::Idle);
+            assert_eq!(status(&view, cx), AiStatus::Idle);
+        });
     }
 }

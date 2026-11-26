@@ -1,3 +1,5 @@
+mod system_text;
+
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -102,46 +104,50 @@ fn status(workspace: &Entity<Workspace>, cx: &mut VisualTestContext, check: LabC
         .map_or(LabStatus::Idle, |row| row.status)
 }
 
-#[gpui::test]
-fn undo_and_redo_work_while_the_lab_popover_has_focus(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    cx.simulate_input("A ");
-    click(cx, "lab-button");
+#[test]
+fn undo_and_redo_work_while_the_lab_popover_has_focus() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        cx.simulate_input("A ");
+        click(cx, "lab-button");
 
-    cx.simulate_keystrokes("ctrl-z");
-    assert_eq!(text(&workspace, cx), TEXT);
-    assert!(lab_open(&workspace, cx));
+        cx.simulate_keystrokes("ctrl-z");
+        assert_eq!(text(&workspace, cx), TEXT);
+        assert!(lab_open(&workspace, cx));
 
-    cx.simulate_keystrokes("ctrl-shift-z");
-    assert_eq!(text(&workspace, cx), format!("A {TEXT}"));
+        cx.simulate_keystrokes("ctrl-shift-z");
+        assert_eq!(text(&workspace, cx), format!("A {TEXT}"));
+    });
 }
 
-#[gpui::test]
-fn the_lab_button_opens_and_closes_the_popover_and_escape_closes_it(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    assert!(!lab_open(&workspace, cx));
+#[test]
+fn the_lab_button_opens_and_closes_the_popover_and_escape_closes_it() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        assert!(!lab_open(&workspace, cx));
 
-    click(cx, "lab-button");
-    assert!(lab_open(&workspace, cx));
-    let labels: Vec<&str> = rows(&workspace, cx).iter().map(|row| row.label).collect();
-    assert_eq!(
-        labels,
-        vec![
-            "Fix punctuation and typos",
-            "Mark the weakest sentences",
-            "Mark sentences that run long",
-            "Mark convoluted sentences",
-            "Mark words that don't fit the tone",
-            "Mark hedges and filler",
-        ]
-    );
+        click(cx, "lab-button");
+        assert!(lab_open(&workspace, cx));
+        let labels: Vec<&str> = rows(&workspace, cx).iter().map(|row| row.label).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "Fix punctuation and typos",
+                "Mark the weakest sentences",
+                "Mark sentences that run long",
+                "Mark convoluted sentences",
+                "Mark words that don't fit the tone",
+                "Mark hedges and filler",
+            ]
+        );
 
-    click(cx, "lab-button");
-    assert!(!lab_open(&workspace, cx));
+        click(cx, "lab-button");
+        assert!(!lab_open(&workspace, cx));
 
-    click(cx, "lab-button");
-    cx.simulate_keystrokes("escape");
-    assert!(!lab_open(&workspace, cx));
+        click(cx, "lab-button");
+        cx.simulate_keystrokes("escape");
+        assert!(!lab_open(&workspace, cx));
+    });
 }
 
 fn text(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String {
@@ -170,31 +176,33 @@ fn mark_ranges(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Vec
     })
 }
 
-#[gpui::test]
-fn a_check_shows_progress_then_marks_the_text_and_keeps_it(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    click(cx, "lab-button");
+#[test]
+fn a_check_shows_progress_then_marks_the_text_and_keeps_it() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        click(cx, "lab-button");
 
-    cx.update(|window, cx| {
-        window.dispatch_action(Box::new(RunLabCheck(LabCheck::HedgesFiller)), cx);
+        cx.update(|window, cx| {
+            window.dispatch_action(Box::new(RunLabCheck(LabCheck::HedgesFiller)), cx);
+        });
+        assert_eq!(
+            status(&workspace, cx, LabCheck::HedgesFiller),
+            LabStatus::Running
+        );
+        assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
+
+        cx.run_until_parked();
+        assert_eq!(
+            status(&workspace, cx, LabCheck::HedgesFiller),
+            LabStatus::Marked(1)
+        );
+        assert_eq!(mark_ranges(&workspace, cx), vec![26..30]);
+        assert_eq!(text(&workspace, cx), TEXT);
+        assert_eq!(
+            status(&workspace, cx, LabCheck::PunctuationTypos),
+            LabStatus::Idle
+        );
     });
-    assert_eq!(
-        status(&workspace, cx, LabCheck::HedgesFiller),
-        LabStatus::Running
-    );
-    assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
-
-    cx.run_until_parked();
-    assert_eq!(
-        status(&workspace, cx, LabCheck::HedgesFiller),
-        LabStatus::Marked(1)
-    );
-    assert_eq!(mark_ranges(&workspace, cx), vec![26..30]);
-    assert_eq!(text(&workspace, cx), TEXT);
-    assert_eq!(
-        status(&workspace, cx, LabCheck::PunctuationTypos),
-        LabStatus::Idle
-    );
 }
 
 #[expect(clippy::expect_used, reason = "test fixture")]
@@ -241,50 +249,52 @@ fn card(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Option<Ran
     })
 }
 
-#[gpui::test]
-fn accept_on_the_mark_card_puts_the_fix_in_place_and_undo_brings_the_mark_back(
-    cx: &mut TestAppContext,
-) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    run_checks(cx, &["lab-check-0"]);
-    assert_eq!(
-        status(&workspace, cx, LabCheck::PunctuationTypos),
-        LabStatus::Marked(1)
-    );
+#[test]
+fn accept_on_the_mark_card_puts_the_fix_in_place_and_undo_brings_the_mark_back() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        run_checks(cx, &["lab-check-0"]);
+        assert_eq!(
+            status(&workspace, cx, LabCheck::PunctuationTypos),
+            LabStatus::Marked(1)
+        );
 
-    click_text(&workspace, cx, 13);
-    assert_eq!(card(&workspace, cx), Some(12..15));
-    click(cx, "lab-mark-accept");
+        click_text(&workspace, cx, 13);
+        assert_eq!(card(&workspace, cx), Some(12..15));
+        click(cx, "lab-mark-accept");
 
-    assert_eq!(
-        text(&workspace, cx),
-        "Title\nI saw the cat. It was very good."
-    );
-    assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
-    assert_eq!(card(&workspace, cx), None);
+        assert_eq!(
+            text(&workspace, cx),
+            "Title\nI saw the cat. It was very good."
+        );
+        assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
+        assert_eq!(card(&workspace, cx), None);
 
-    cx.simulate_keystrokes("ctrl-z");
-    assert_eq!(text(&workspace, cx), TEXT);
-    assert_eq!(mark_ranges(&workspace, cx), vec![12..15]);
+        cx.simulate_keystrokes("ctrl-z");
+        assert_eq!(text(&workspace, cx), TEXT);
+        assert_eq!(mark_ranges(&workspace, cx), vec![12..15]);
+    });
 }
 
-#[gpui::test]
-fn dismiss_on_the_mark_card_removes_the_mark_and_keeps_the_text(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    run_checks(cx, &["lab-check-0", "lab-check-5"]);
-    assert_eq!(mark_ranges(&workspace, cx), vec![12..15, 26..30]);
+#[test]
+fn dismiss_on_the_mark_card_removes_the_mark_and_keeps_the_text() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        run_checks(cx, &["lab-check-0", "lab-check-5"]);
+        assert_eq!(mark_ranges(&workspace, cx), vec![12..15, 26..30]);
 
-    click_text(&workspace, cx, 27);
-    assert_eq!(card(&workspace, cx), Some(26..30));
-    assert_eq!(cx.debug_bounds("lab-mark-accept"), None);
-    click(cx, "lab-mark-dismiss");
+        click_text(&workspace, cx, 27);
+        assert_eq!(card(&workspace, cx), Some(26..30));
+        assert_eq!(cx.debug_bounds("lab-mark-accept"), None);
+        click(cx, "lab-mark-dismiss");
 
-    assert_eq!(text(&workspace, cx), TEXT);
-    assert_eq!(mark_ranges(&workspace, cx), vec![12..15]);
-    assert_eq!(
-        status(&workspace, cx, LabCheck::HedgesFiller),
-        LabStatus::Marked(0)
-    );
+        assert_eq!(text(&workspace, cx), TEXT);
+        assert_eq!(mark_ranges(&workspace, cx), vec![12..15]);
+        assert_eq!(
+            status(&workspace, cx, LabCheck::HedgesFiller),
+            LabStatus::Marked(0)
+        );
+    });
 }
 
 /// The clicked mark at the caret is the selected one, and its card sits just under it.
@@ -316,65 +326,73 @@ fn assert_the_card_sits_under_the_selected_mark(
     );
 }
 
-#[gpui::test]
-fn a_clicked_mark_is_selected_and_its_card_shows_under_it(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    run_checks(cx, &["lab-check-0", "lab-check-5"]);
-    let editor = cx.read(|cx| workspace.read(cx).editor().clone());
-    assert!(cx.read(|cx| editor.read(cx).selected_lab_mark().is_none()));
+#[test]
+fn a_clicked_mark_is_selected_and_its_card_shows_under_it() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        run_checks(cx, &["lab-check-0", "lab-check-5"]);
+        let editor = cx.read(|cx| workspace.read(cx).editor().clone());
+        assert!(cx.read(|cx| editor.read(cx).selected_lab_mark().is_none()));
 
-    click_text(&workspace, cx, 27);
+        click_text(&workspace, cx, 27);
 
-    assert_the_card_sits_under_the_selected_mark(&workspace, cx, 26..30);
+        assert_the_card_sits_under_the_selected_mark(&workspace, cx, 26..30);
+    });
 }
 
-#[gpui::test]
-fn a_clicked_mark_shows_its_card_while_the_lab_popover_is_open(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    run_checks(cx, &["lab-check-0"]);
-    click(cx, "lab-button");
+#[test]
+fn a_clicked_mark_shows_its_card_while_the_lab_popover_is_open() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        run_checks(cx, &["lab-check-0"]);
+        click(cx, "lab-button");
 
-    click_text(&workspace, cx, 13);
+        click_text(&workspace, cx, 13);
 
-    assert!(lab_open(&workspace, cx));
-    assert!(cx.debug_bounds("lab-popover").is_some());
-    assert_the_card_sits_under_the_selected_mark(&workspace, cx, 12..15);
-    click(cx, "lab-mark-accept");
-    assert_eq!(
-        text(&workspace, cx),
-        "Title\nI saw the cat. It was very good."
-    );
+        assert!(lab_open(&workspace, cx));
+        assert!(cx.debug_bounds("lab-popover").is_some());
+        assert_the_card_sits_under_the_selected_mark(&workspace, cx, 12..15);
+        click(cx, "lab-mark-accept");
+        assert_eq!(
+            text(&workspace, cx),
+            "Title\nI saw the cat. It was very good."
+        );
+    });
 }
 
-#[gpui::test]
-fn an_ai_failure_shows_in_the_row_and_changes_nothing(cx: &mut TestAppContext) {
-    let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
-    let (workspace, cx) = open(cx, Some(failing));
-    click(cx, "lab-button");
+#[test]
+fn an_ai_failure_shows_in_the_row_and_changes_nothing() {
+    system_text::run(1, |cx| {
+        let failing = FakeAdapter(Err(AiError::Declined("no".to_owned())));
+        let (workspace, cx) = open(cx, Some(failing));
+        click(cx, "lab-button");
 
-    click(cx, "lab-check-3");
+        click(cx, "lab-check-3");
 
-    assert_eq!(
-        status(&workspace, cx, LabCheck::ConvolutedSentences),
-        LabStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
-    );
-    assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
-    assert_eq!(text(&workspace, cx), TEXT);
+        assert_eq!(
+            status(&workspace, cx, LabCheck::ConvolutedSentences),
+            LabStatus::Failed(AiFailure::Ai(AiError::Declined("no".to_owned())))
+        );
+        assert_eq!(mark_ranges(&workspace, cx), Vec::<Range<usize>>::new());
+        assert_eq!(text(&workspace, cx), TEXT);
+    });
 }
 
-#[gpui::test]
-fn a_click_on_the_header_shows_what_each_check_does(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Some(typo_and_hedge()));
-    click(cx, "lab-button");
-    assert!(rows(&workspace, cx).iter().all(|row| row.guide.is_none()));
+#[test]
+fn a_click_on_the_header_shows_what_each_check_does() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Some(typo_and_hedge()));
+        click(cx, "lab-button");
+        assert!(rows(&workspace, cx).iter().all(|row| row.guide.is_none()));
 
-    click(cx, "lab-guide");
+        click(cx, "lab-guide");
 
-    assert_eq!(
-        rows(&workspace, cx).first().and_then(|row| row.guide),
-        Some("Proposes small fixes; you accept or dismiss each.")
-    );
-    assert!(rows(&workspace, cx).iter().all(|row| row.guide.is_some()));
+        assert_eq!(
+            rows(&workspace, cx).first().and_then(|row| row.guide),
+            Some("Proposes small fixes; you accept or dismiss each.")
+        );
+        assert!(rows(&workspace, cx).iter().all(|row| row.guide.is_some()));
+    });
 }
 
 const TRIM_LEVEL_BUTTONS: [&str; 5] = [
@@ -385,31 +403,33 @@ const TRIM_LEVEL_BUTTONS: [&str; 5] = [
     "trim-level-4",
 ];
 
-#[gpui::test]
-fn the_trim_level_buttons_fit_the_popover_and_do_not_overlap(cx: &mut TestAppContext) {
-    let (_, cx) = open(cx, None);
-    click(cx, "lab-button");
+#[test]
+fn the_trim_level_buttons_fit_the_popover_and_do_not_overlap() {
+    system_text::run(1, |cx| {
+        let (_, cx) = open(cx, None);
+        click(cx, "lab-button");
 
-    let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
-    let buttons: Vec<_> = TRIM_LEVEL_BUTTONS
-        .into_iter()
-        .map(|selector| {
-            cx.debug_bounds(selector)
-                .expect("the popover shows the button")
-        })
-        .collect();
-    for (index, button) in buttons.iter().enumerate() {
-        assert!(
-            popover.left() <= button.left() && button.right() <= popover.right(),
-            "trim-level-{index} {button:?} is outside the popover {popover:?}"
-        );
-        for (other_index, other) in buttons.iter().enumerate().skip(index + 1) {
+        let popover = cx.debug_bounds("lab-popover").expect("the popover is open");
+        let buttons: Vec<_> = TRIM_LEVEL_BUTTONS
+            .into_iter()
+            .map(|selector| {
+                cx.debug_bounds(selector)
+                    .expect("the popover shows the button")
+            })
+            .collect();
+        for (index, button) in buttons.iter().enumerate() {
             assert!(
-                !button.intersects(other),
-                "trim-level-{index} {button:?} overlaps trim-level-{other_index} {other:?}"
+                popover.left() <= button.left() && button.right() <= popover.right(),
+                "trim-level-{index} {button:?} is outside the popover {popover:?}"
             );
+            for (other_index, other) in buttons.iter().enumerate().skip(index + 1) {
+                assert!(
+                    !button.intersects(other),
+                    "trim-level-{index} {button:?} overlaps trim-level-{other_index} {other:?}"
+                );
+            }
         }
-    }
+    });
 }
 
 fn open_scaled(
@@ -488,12 +508,16 @@ fn assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(
     assert_eq!(cx.debug_bounds("ai-bar"), None);
 }
 
-#[gpui::test]
-fn a_running_check_shows_the_ai_bar_clear_of_the_rows(cx: &mut TestAppContext) {
-    assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 1.);
+#[test]
+fn a_running_check_shows_the_ai_bar_clear_of_the_rows() {
+    system_text::run(1, |cx| {
+        assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 1.);
+    });
 }
 
-#[gpui::test]
-fn a_running_check_shows_the_ai_bar_clear_of_the_rows_at_a_large_ui_scale(cx: &mut TestAppContext) {
-    assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 2.);
+#[test]
+fn a_running_check_shows_the_ai_bar_clear_of_the_rows_at_a_large_ui_scale() {
+    system_text::run(1, |cx| {
+        assert_a_running_check_shows_the_ai_bar_clear_of_the_rows(cx, 2.);
+    });
 }

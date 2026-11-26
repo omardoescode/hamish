@@ -208,7 +208,7 @@ impl Workspace {
                     multiple: false,
                     prompt: Some("Open".into()),
                 })
-            })?;
+            });
             let chosen = chosen
                 .await
                 .map(|chosen| chosen.map(|paths| paths.and_then(|paths| paths.into_iter().next())));

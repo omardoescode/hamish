@@ -6,8 +6,8 @@ use std::time::Instant;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style,
-    TextRun, Window, fill, point, px, relative, size,
+    InspectorElementId, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style, TextRun,
+    Window, fill, point, px, relative, size,
 };
 use hamish_core::{Level, Slot, SlotId, VimMode};
 
@@ -89,14 +89,6 @@ impl EditorElement {
             window.request_animation_frame();
         }
         effects
-    }
-}
-
-impl IntoElement for EditorElement {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 

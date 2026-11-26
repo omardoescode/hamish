@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, ClickEvent, Context, Corner, Div, EventEmitter, FocusHandle, Focusable,
+    Anchor, AnyElement, App, ClickEvent, Context, Div, EventEmitter, FocusHandle, Focusable,
     IntoElement, KeyDownEvent, Modifiers, MouseButton, MouseDownEvent, Pixels, Render,
     ScrollStrategy, SharedString, Stateful, UniformListScrollHandle, Window, anchored, deferred,
     div, prelude::*, px, rgb, uniform_list,
@@ -97,14 +97,14 @@ impl SettingsModal {
         self.open_select = Some(select);
         self.search = SelectSearch::default();
         self.scroll = UniformListScrollHandle::new();
-        window.focus(&self.search_focus);
+        window.focus(&self.search_focus, cx);
         cx.notify();
     }
 
     /// Closes the open select and gives the keyboard back to the modal.
     pub(crate) fn close_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.open_select.take().is_some() {
-            window.focus(&self.focus_handle);
+            window.focus(&self.focus_handle, cx);
             cx.notify();
         }
     }
@@ -243,7 +243,7 @@ impl SettingsModal {
         let list = open.then(|| {
             deferred(
                 anchored()
-                    .anchor(Corner::TopLeft)
+                    .anchor(Anchor::TopLeft)
                     .snap_to_window_with_margin(px(8.))
                     .child(
                         popover_surface(theme)
@@ -340,7 +340,7 @@ impl SettingsModal {
             }),
         )
         .debug_selector(|| "settings-select-rows".to_owned())
-        .track_scroll(self.scroll.clone())
+        .track_scroll(&self.scroll)
         .w_full()
         .h(rows_height.min(list_max_height(theme)))
         .into_any_element()
@@ -678,7 +678,7 @@ impl Workspace {
         self.settings_open = true;
         self.settings_modal
             .update(cx, |modal, cx| modal.close_select(window, cx));
-        window.focus(&self.settings_modal.focus_handle(cx));
+        window.focus(&self.settings_modal.focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -690,7 +690,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.settings_open = false;
-        window.focus(&self.editor.focus_handle(cx));
+        window.focus(&self.editor.focus_handle(cx), cx);
         cx.notify();
     }
 }

@@ -25,6 +25,10 @@ mod theme;
 mod trim;
 mod workspace;
 
+#[cfg(test)]
+#[path = "../tests/system_text/mod.rs"]
+mod system_text;
+
 use std::borrow::Cow;
 
 use actions::{

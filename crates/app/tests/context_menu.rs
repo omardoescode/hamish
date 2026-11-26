@@ -1,3 +1,5 @@
+mod system_text;
+
 use app::{ContextMenuItem, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, MouseButton, Point, TestAppContext,
@@ -69,21 +71,23 @@ fn customer_document() -> Document {
     Document::new("Title\nThe customer waits.")
 }
 
-#[gpui::test]
-fn right_click_on_a_word_names_the_word_in_the_menu(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
+#[test]
+fn right_click_on_a_word_names_the_word_in_the_menu() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
 
-    right_click(&workspace, cx, 13);
+        right_click(&workspace, cx, 13);
 
-    assert_eq!(
-        menu(&workspace, cx),
-        Some(items([
-            ("Alternatives for \"customer\"", "Ctrl+Shift+A"),
-            ("AI alternatives for \"customer\"", "Ctrl+Shift+G"),
-            ("Ghost it", "Ctrl+/"),
-            ("Stash this in Overflow", "Ctrl+Shift+X"),
-        ]))
-    );
+        assert_eq!(
+            menu(&workspace, cx),
+            Some(items([
+                ("Alternatives for \"customer\"", "Ctrl+Shift+A"),
+                ("AI alternatives for \"customer\"", "Ctrl+Shift+G"),
+                ("Ghost it", "Ctrl+/"),
+                ("Stash this in Overflow", "Ctrl+Shift+X"),
+            ]))
+        );
+    });
 }
 
 fn ghosts(
@@ -104,137 +108,157 @@ fn counter(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> String 
     cx.read(|cx| workspace.read(cx).editor().read(cx).counter_label())
 }
 
-#[gpui::test]
-fn right_click_on_a_selection_acts_on_the_selection(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
+#[test]
+fn right_click_on_a_selection_acts_on_the_selection() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
 
-    cx.simulate_keystrokes("down shift-end");
-    right_click(&workspace, cx, 13);
+        cx.simulate_keystrokes("down shift-end");
+        right_click(&workspace, cx, 13);
 
-    assert_eq!(
-        menu(&workspace, cx),
-        Some(items([
-            ("Alternatives for selection", "Ctrl+Shift+A"),
-            ("AI alternatives for selection", "Ctrl+Shift+G"),
-            ("Ghost it", "Ctrl+/"),
-            ("Stash this in Overflow", "Ctrl+Shift+X"),
-        ]))
-    );
-}
-
-#[gpui::test]
-fn right_click_on_a_space_shows_no_menu(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Document::new("Title\nThe  customer"));
-
-    right_click(&workspace, cx, 10);
-
-    assert_eq!(menu(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn ctrl_slash_ghosts_the_selection_and_undo_brings_it_back(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-
-    cx.simulate_keystrokes("down shift-end ctrl-/");
-    assert_eq!(ghosts(&workspace, cx), vec![6..25]);
-    assert_eq!(counter(&workspace, cx), "0 words 0 chars selected");
-
-    cx.simulate_keystrokes("ctrl-z");
-    assert_eq!(ghosts(&workspace, cx), Vec::<std::ops::Range<usize>>::new());
-}
-
-#[gpui::test]
-fn ctrl_slash_with_no_selection_ghosts_the_word_at_the_caret(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-
-    cx.simulate_keystrokes("down right right right right right ctrl-/");
-
-    assert_eq!(ghosts(&workspace, cx), vec![10..18]);
-}
-
-#[gpui::test]
-fn ctrl_slash_inside_a_ghost_range_revives_it(cx: &mut TestAppContext) {
-    let mut document = customer_document();
-    assert!(document.ghost(6..25).is_ok(), "valid range");
-    let (workspace, cx) = open(cx, document);
-
-    cx.simulate_keystrokes("down right right right right right ctrl-/");
-
-    assert_eq!(ghosts(&workspace, cx), Vec::<std::ops::Range<usize>>::new());
-}
-
-#[gpui::test]
-fn right_click_inside_a_ghost_range_offers_revive_it(cx: &mut TestAppContext) {
-    let mut document = customer_document();
-    assert!(document.ghost(10..18).is_ok(), "valid range");
-    let (workspace, cx) = open(cx, document);
-
-    right_click(&workspace, cx, 13);
-
-    let labels = menu(&workspace, cx)
-        .map(|rows| rows.into_iter().map(|(label, _)| label).collect::<Vec<_>>());
-    assert_eq!(
-        labels,
-        Some(vec![
-            "Alternatives for \"customer\"".to_owned(),
-            "AI alternatives for \"customer\"".to_owned(),
-            "Revive it".to_owned(),
-            "Stash this in Overflow".to_owned(),
-        ])
-    );
-}
-
-#[gpui::test]
-fn a_click_on_ghost_it_ghosts_the_word_and_closes_the_menu(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-
-    right_click(&workspace, cx, 13);
-    let row = cx
-        .debug_bounds("context-menu-row-2")
-        .expect("the menu shows the Ghost it row");
-    cx.simulate_click(row.center(), Modifiers::none());
-
-    assert_eq!(ghosts(&workspace, cx), vec![10..18]);
-    assert_eq!(menu(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn escape_closes_the_menu(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-
-    right_click(&workspace, cx, 13);
-    cx.simulate_keystrokes("escape");
-
-    assert_eq!(menu(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn a_click_outside_the_menu_closes_it(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-
-    right_click(&workspace, cx, 13);
-    let elsewhere = point_at(&workspace, cx, 2);
-    cx.simulate_click(elsewhere, Modifiers::none());
-
-    assert_eq!(menu(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn a_menu_action_not_built_yet_closes_the_menu_and_keeps_the_text(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, customer_document());
-
-    right_click(&workspace, cx, 13);
-    cx.simulate_keystrokes("ctrl-shift-g");
-
-    assert_eq!(menu(&workspace, cx), None);
-    let text = cx.read(|cx| {
-        workspace
-            .read(cx)
-            .editor()
-            .read(cx)
-            .document()
-            .text()
-            .to_owned()
+        assert_eq!(
+            menu(&workspace, cx),
+            Some(items([
+                ("Alternatives for selection", "Ctrl+Shift+A"),
+                ("AI alternatives for selection", "Ctrl+Shift+G"),
+                ("Ghost it", "Ctrl+/"),
+                ("Stash this in Overflow", "Ctrl+Shift+X"),
+            ]))
+        );
     });
-    assert_eq!(text, "Title\nThe customer waits.");
+}
+
+#[test]
+fn right_click_on_a_space_shows_no_menu() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Document::new("Title\nThe  customer"));
+
+        right_click(&workspace, cx, 10);
+
+        assert_eq!(menu(&workspace, cx), None);
+    });
+}
+
+#[test]
+fn ctrl_slash_ghosts_the_selection_and_undo_brings_it_back() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
+
+        cx.simulate_keystrokes("down shift-end ctrl-/");
+        assert_eq!(ghosts(&workspace, cx), vec![6..25]);
+        assert_eq!(counter(&workspace, cx), "0 words 0 chars selected");
+
+        cx.simulate_keystrokes("ctrl-z");
+        assert_eq!(ghosts(&workspace, cx), Vec::<std::ops::Range<usize>>::new());
+    });
+}
+
+#[test]
+fn ctrl_slash_with_no_selection_ghosts_the_word_at_the_caret() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
+
+        cx.simulate_keystrokes("down right right right right right ctrl-/");
+
+        assert_eq!(ghosts(&workspace, cx), vec![10..18]);
+    });
+}
+
+#[test]
+fn ctrl_slash_inside_a_ghost_range_revives_it() {
+    system_text::run(1, |cx| {
+        let mut document = customer_document();
+        assert!(document.ghost(6..25).is_ok(), "valid range");
+        let (workspace, cx) = open(cx, document);
+
+        cx.simulate_keystrokes("down right right right right right ctrl-/");
+
+        assert_eq!(ghosts(&workspace, cx), Vec::<std::ops::Range<usize>>::new());
+    });
+}
+
+#[test]
+fn right_click_inside_a_ghost_range_offers_revive_it() {
+    system_text::run(1, |cx| {
+        let mut document = customer_document();
+        assert!(document.ghost(10..18).is_ok(), "valid range");
+        let (workspace, cx) = open(cx, document);
+
+        right_click(&workspace, cx, 13);
+
+        let labels = menu(&workspace, cx)
+            .map(|rows| rows.into_iter().map(|(label, _)| label).collect::<Vec<_>>());
+        assert_eq!(
+            labels,
+            Some(vec![
+                "Alternatives for \"customer\"".to_owned(),
+                "AI alternatives for \"customer\"".to_owned(),
+                "Revive it".to_owned(),
+                "Stash this in Overflow".to_owned(),
+            ])
+        );
+    });
+}
+
+#[test]
+fn a_click_on_ghost_it_ghosts_the_word_and_closes_the_menu() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
+
+        right_click(&workspace, cx, 13);
+        let row = cx
+            .debug_bounds("context-menu-row-2")
+            .expect("the menu shows the Ghost it row");
+        cx.simulate_click(row.center(), Modifiers::none());
+
+        assert_eq!(ghosts(&workspace, cx), vec![10..18]);
+        assert_eq!(menu(&workspace, cx), None);
+    });
+}
+
+#[test]
+fn escape_closes_the_menu() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
+
+        right_click(&workspace, cx, 13);
+        cx.simulate_keystrokes("escape");
+
+        assert_eq!(menu(&workspace, cx), None);
+    });
+}
+
+#[test]
+fn a_click_outside_the_menu_closes_it() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
+
+        right_click(&workspace, cx, 13);
+        let elsewhere = point_at(&workspace, cx, 2);
+        cx.simulate_click(elsewhere, Modifiers::none());
+
+        assert_eq!(menu(&workspace, cx), None);
+    });
+}
+
+#[test]
+fn a_menu_action_not_built_yet_closes_the_menu_and_keeps_the_text() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, customer_document());
+
+        right_click(&workspace, cx, 13);
+        cx.simulate_keystrokes("ctrl-shift-g");
+
+        assert_eq!(menu(&workspace, cx), None);
+        let text = cx.read(|cx| {
+            workspace
+                .read(cx)
+                .editor()
+                .read(cx)
+                .document()
+                .text()
+                .to_owned()
+        });
+        assert_eq!(text, "Title\nThe customer waits.");
+    });
 }

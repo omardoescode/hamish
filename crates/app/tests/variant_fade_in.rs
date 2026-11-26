@@ -1,3 +1,5 @@
+mod system_text;
+
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,123 +91,137 @@ fn wait(cx: &mut VisualTestContext, millis: u64) {
     cx.run_until_parked();
 }
 
-#[gpui::test]
-fn a_variant_switch_fades_the_new_text_in_over_150_ms(cx: &mut TestAppContext) {
-    let (workspace, slot, cx) = open(cx, Settings::default());
+#[test]
+fn a_variant_switch_fades_the_new_text_in_over_150_ms() {
+    system_text::run(1, |cx| {
+        let (workspace, slot, cx) = open(cx, Settings::default());
 
-    hover_slot(&workspace, cx);
-    cx.simulate_keystrokes("down");
+        hover_slot(&workspace, cx);
+        cx.simulate_keystrokes("down");
 
-    let (fading, opacity) = fading_in(&workspace, cx).unwrap();
-    assert_eq!(fading, slot);
-    assert!((opacity - 0.2).abs() < 1e-3, "{opacity}");
+        let (fading, opacity) = fading_in(&workspace, cx).unwrap();
+        assert_eq!(fading, slot);
+        assert!((opacity - 0.2).abs() < 1e-3, "{opacity}");
 
-    wait(cx, 75);
-    let (_, opacity) = fading_in(&workspace, cx).unwrap();
-    assert!((opacity - 0.6).abs() < 1e-3, "{opacity}");
+        wait(cx, 75);
+        let (_, opacity) = fading_in(&workspace, cx).unwrap();
+        assert!((opacity - 0.6).abs() < 1e-3, "{opacity}");
 
-    wait(cx, 75);
-    assert_eq!(fading_in(&workspace, cx), None);
-}
-
-#[gpui::test]
-fn undo_of_a_variant_switch_fades_the_old_text_in(cx: &mut TestAppContext) {
-    let (workspace, slot, cx) = open(cx, Settings::default());
-
-    hover_slot(&workspace, cx);
-    cx.simulate_keystrokes("down");
-    wait(cx, 200);
-    cx.simulate_keystrokes("ctrl-z");
-
-    assert_eq!(
-        fading_in(&workspace, cx).map(|(fading, _)| fading),
-        Some(slot)
-    );
-}
-
-#[gpui::test]
-fn typing_during_a_fade_goes_into_the_document(cx: &mut TestAppContext) {
-    let (workspace, _, cx) = open(cx, Settings::default());
-
-    hover_slot(&workspace, cx);
-    cx.simulate_keystrokes("down");
-    cx.simulate_input("A ");
-
-    let text = cx.read(|cx| {
-        workspace
-            .read(cx)
-            .editor()
-            .read(cx)
-            .document()
-            .text()
-            .to_owned()
+        wait(cx, 75);
+        assert_eq!(fading_in(&workspace, cx), None);
     });
-    assert_eq!(text, "A Title\nIt is a struggle here.");
-    assert!(fading_in(&workspace, cx).is_some());
 }
 
-#[gpui::test]
-fn with_reduced_motion_a_variant_switch_shows_at_once(cx: &mut TestAppContext) {
-    let settings = Settings {
-        reduced_motion: true,
-        ..Settings::default()
-    };
-    let (workspace, _, cx) = open(cx, settings);
+#[test]
+fn undo_of_a_variant_switch_fades_the_old_text_in() {
+    system_text::run(1, |cx| {
+        let (workspace, slot, cx) = open(cx, Settings::default());
 
-    hover_slot(&workspace, cx);
-    cx.simulate_keystrokes("down");
+        hover_slot(&workspace, cx);
+        cx.simulate_keystrokes("down");
+        wait(cx, 200);
+        cx.simulate_keystrokes("ctrl-z");
 
-    assert_eq!(fading_in(&workspace, cx), None);
-}
-#[gpui::test]
-fn undo_of_a_variant_delete_fades_the_text_in_after_the_burst(cx: &mut TestAppContext) {
-    let (workspace, slot, cx) = open(cx, Settings::default());
-
-    cx.simulate_keystrokes("down right right right right right right right right right");
-    cx.simulate_keystrokes("ctrl-shift-backspace");
-    wait(cx, 1000);
-    cx.simulate_keystrokes("ctrl-z");
-
-    let (fading, opacity) = fading_in(&workspace, cx).unwrap();
-    assert_eq!(fading, slot);
-    assert!((opacity - 0.2).abs() < 1e-3, "{opacity}");
-
-    wait(cx, 450);
-    let (_, opacity) = fading_in(&workspace, cx).unwrap();
-    assert!(
-        (opacity - 0.2).abs() < 1e-3,
-        "under the 450 ms burst: {opacity}"
-    );
-
-    wait(cx, 75);
-    let (_, opacity) = fading_in(&workspace, cx).unwrap();
-    assert!((opacity - 0.6).abs() < 1e-3, "{opacity}");
-}
-
-#[gpui::test]
-fn ai_variants_added_to_a_slot_start_no_fade(cx: &mut TestAppContext) {
-    let (workspace, _, cx) = open(cx, Settings::default());
-
-    cx.simulate_keystrokes("down right right right right right right right right right");
-    cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
-    cx.run_until_parked();
-
-    let count = cx.read(|cx| {
-        let document = workspace.read(cx).editor().read(cx).document();
-        document.slots().first().map(|slot| slot.variants.len())
+        assert_eq!(
+            fading_in(&workspace, cx).map(|(fading, _)| fading),
+            Some(slot)
+        );
     });
-    assert_eq!(count, Some(5));
-    assert_eq!(fading_in(&workspace, cx), None);
 }
 
-#[gpui::test]
-fn a_quick_fill_on_a_slot_starts_no_fade(cx: &mut TestAppContext) {
-    let (workspace, _, cx) = open(cx, Settings::default());
+#[test]
+fn typing_during_a_fade_goes_into_the_document() {
+    system_text::run(1, |cx| {
+        let (workspace, _, cx) = open(cx, Settings::default());
 
-    cx.simulate_keystrokes("down right right right right right right right right right");
-    cx.simulate_keystrokes("ctrl-shift-a");
-    cx.simulate_input("??");
-    cx.run_until_parked();
+        hover_slot(&workspace, cx);
+        cx.simulate_keystrokes("down");
+        cx.simulate_input("A ");
 
-    assert_eq!(fading_in(&workspace, cx), None);
+        let text = cx.read(|cx| {
+            workspace
+                .read(cx)
+                .editor()
+                .read(cx)
+                .document()
+                .text()
+                .to_owned()
+        });
+        assert_eq!(text, "A Title\nIt is a struggle here.");
+        assert!(fading_in(&workspace, cx).is_some());
+    });
+}
+
+#[test]
+fn with_reduced_motion_a_variant_switch_shows_at_once() {
+    system_text::run(1, |cx| {
+        let settings = Settings {
+            reduced_motion: true,
+            ..Settings::default()
+        };
+        let (workspace, _, cx) = open(cx, settings);
+
+        hover_slot(&workspace, cx);
+        cx.simulate_keystrokes("down");
+
+        assert_eq!(fading_in(&workspace, cx), None);
+    });
+}
+#[test]
+fn undo_of_a_variant_delete_fades_the_text_in_after_the_burst() {
+    system_text::run(1, |cx| {
+        let (workspace, slot, cx) = open(cx, Settings::default());
+
+        cx.simulate_keystrokes("down right right right right right right right right right");
+        cx.simulate_keystrokes("ctrl-shift-backspace");
+        wait(cx, 1000);
+        cx.simulate_keystrokes("ctrl-z");
+
+        let (fading, opacity) = fading_in(&workspace, cx).unwrap();
+        assert_eq!(fading, slot);
+        assert!((opacity - 0.2).abs() < 1e-3, "{opacity}");
+
+        wait(cx, 450);
+        let (_, opacity) = fading_in(&workspace, cx).unwrap();
+        assert!(
+            (opacity - 0.2).abs() < 1e-3,
+            "under the 450 ms burst: {opacity}"
+        );
+
+        wait(cx, 75);
+        let (_, opacity) = fading_in(&workspace, cx).unwrap();
+        assert!((opacity - 0.6).abs() < 1e-3, "{opacity}");
+    });
+}
+
+#[test]
+fn ai_variants_added_to_a_slot_start_no_fade() {
+    system_text::run(1, |cx| {
+        let (workspace, _, cx) = open(cx, Settings::default());
+
+        cx.simulate_keystrokes("down right right right right right right right right right");
+        cx.update(|window, cx| window.dispatch_action(Box::new(AiAlternatives), cx));
+        cx.run_until_parked();
+
+        let count = cx.read(|cx| {
+            let document = workspace.read(cx).editor().read(cx).document();
+            document.slots().first().map(|slot| slot.variants.len())
+        });
+        assert_eq!(count, Some(5));
+        assert_eq!(fading_in(&workspace, cx), None);
+    });
+}
+
+#[test]
+fn a_quick_fill_on_a_slot_starts_no_fade() {
+    system_text::run(1, |cx| {
+        let (workspace, _, cx) = open(cx, Settings::default());
+
+        cx.simulate_keystrokes("down right right right right right right right right right");
+        cx.simulate_keystrokes("ctrl-shift-a");
+        cx.simulate_input("??");
+        cx.run_until_parked();
+
+        assert_eq!(fading_in(&workspace, cx), None);
+    });
 }

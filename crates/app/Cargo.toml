@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 cpal = "0.18.2"
 gpui.workspace = true
+gpui_platform.workspace = true
 hamish-core = { path = "../core", version = "0.1.0" }
 
 [dev-dependencies]

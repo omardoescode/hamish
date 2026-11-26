@@ -113,7 +113,7 @@ impl Particles {
         let radius = line_height * look.glow_size;
         for (color, blur) in [(flame_color(), 1.4), (core_color(), 0.7)] {
             let glow_bounds = Bounds::centered_at(area.center(), size(radius, radius * 0.6));
-            window.paint_shadows(
+            window.paint_drop_shadows(
                 glow_bounds,
                 (radius * 0.3).into(),
                 &[BoxShadow {
@@ -121,6 +121,7 @@ impl Particles {
                     offset: point(px(0.), px(0.)),
                     blur_radius: radius * blur,
                     spread_radius: px(0.),
+                    inset: false,
                 }],
             );
         }
@@ -166,7 +167,6 @@ pub(crate) fn plays(cx: &App) -> bool {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use gpui::TestAppContext;
     use hamish_core::{Effect, LoadedSettings, Settings};
 
     use super::{EffectPlayer, PlayingEffect};
@@ -187,64 +187,70 @@ mod tests {
             .collect()
     }
 
-    #[gpui::test]
-    fn an_explosion_plays_650_ms_and_an_undo_burst_450_ms(cx: &mut TestAppContext) {
-        let mut player = EffectPlayer::default();
-        cx.update(|cx| {
-            player.play(Effect::Explosion, 0..4, cx);
-            player.play(Effect::UndoBurst, 0..4, cx);
-        });
+    #[test]
+    fn an_explosion_plays_650_ms_and_an_undo_burst_450_ms() {
+        crate::system_text::run(1, |cx| {
+            let mut player = EffectPlayer::default();
+            cx.update(|cx| {
+                player.play(Effect::Explosion, 0..4, cx);
+                player.play(Effect::UndoBurst, 0..4, cx);
+            });
 
-        assert_eq!(
-            player.playing(),
-            vec![playing(Effect::Explosion), playing(Effect::UndoBurst)]
-        );
-        assert_eq!(
-            progress_at(&player, Duration::from_millis(400)),
-            vec![(Effect::Explosion, true), (Effect::UndoBurst, true)]
-        );
-        assert_eq!(
-            progress_at(&player, Duration::from_millis(600)),
-            vec![(Effect::Explosion, true)]
-        );
-        assert_eq!(progress_at(&player, Duration::from_millis(700)), vec![]);
-    }
-
-    #[gpui::test]
-    fn two_effects_get_different_particles(cx: &mut TestAppContext) {
-        let mut player = EffectPlayer::default();
-        cx.update(|cx| {
-            player.play(Effect::Explosion, 0..4, cx);
-            player.play(Effect::Explosion, 0..4, cx);
-        });
-
-        let seeds: Vec<u64> = player
-            .frames(Instant::now())
-            .into_iter()
-            .map(|(particles, _)| particles.seed)
-            .collect();
-        assert_eq!(seeds, vec![1, 2]);
-    }
-
-    #[gpui::test]
-    fn with_reduced_motion_nothing_plays(cx: &mut TestAppContext) {
-        let mut player = EffectPlayer::default();
-        cx.update(|cx| {
-            let settings = Settings {
-                reduced_motion: true,
-                ..Settings::default()
-            };
-            crate::settings::use_settings(
-                None,
-                LoadedSettings {
-                    settings,
-                    problem: None,
-                },
-                cx,
+            assert_eq!(
+                player.playing(),
+                vec![playing(Effect::Explosion), playing(Effect::UndoBurst)]
             );
-            player.play(Effect::Explosion, 0..4, cx);
+            assert_eq!(
+                progress_at(&player, Duration::from_millis(400)),
+                vec![(Effect::Explosion, true), (Effect::UndoBurst, true)]
+            );
+            assert_eq!(
+                progress_at(&player, Duration::from_millis(600)),
+                vec![(Effect::Explosion, true)]
+            );
+            assert_eq!(progress_at(&player, Duration::from_millis(700)), vec![]);
         });
+    }
 
-        assert_eq!(player.playing(), vec![]);
+    #[test]
+    fn two_effects_get_different_particles() {
+        crate::system_text::run(1, |cx| {
+            let mut player = EffectPlayer::default();
+            cx.update(|cx| {
+                player.play(Effect::Explosion, 0..4, cx);
+                player.play(Effect::Explosion, 0..4, cx);
+            });
+
+            let seeds: Vec<u64> = player
+                .frames(Instant::now())
+                .into_iter()
+                .map(|(particles, _)| particles.seed)
+                .collect();
+            assert_eq!(seeds, vec![1, 2]);
+        });
+    }
+
+    #[test]
+    fn with_reduced_motion_nothing_plays() {
+        crate::system_text::run(1, |cx| {
+            let mut player = EffectPlayer::default();
+            cx.update(|cx| {
+                let settings = Settings {
+                    reduced_motion: true,
+                    ..Settings::default()
+                };
+                crate::settings::use_settings(
+                    None,
+                    LoadedSettings {
+                        settings,
+                        problem: None,
+                    },
+                    cx,
+                );
+                player.play(Effect::Explosion, 0..4, cx);
+            });
+
+            assert_eq!(player.playing(), vec![]);
+        });
     }
 }

@@ -1,3 +1,5 @@
+mod system_text;
+
 use std::ops::Range;
 use std::time::Duration;
 
@@ -68,123 +70,137 @@ fn caret(workspace: &Entity<Workspace>, cx: &mut VisualTestContext) -> Range<usi
     cx.read(|cx| workspace.read(cx).editor().read(cx).selection())
 }
 
-#[gpui::test]
-fn the_paragraph_with_the_caret_zooms_to_1_02_over_150_ms(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Settings::default());
+#[test]
+fn the_paragraph_with_the_caret_zooms_to_1_02_over_150_ms() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Settings::default());
 
-    cx.simulate_keystrokes("down");
-    wait(cx, 75);
-    let half = zoomed(&workspace, cx);
-    wait(cx, 75);
-    let full = zoomed(&workspace, cx);
+        cx.simulate_keystrokes("down");
+        wait(cx, 75);
+        let half = zoomed(&workspace, cx);
+        wait(cx, 75);
+        let full = zoomed(&workspace, cx);
 
-    assert!(
-        half.iter()
-            .any(|(range, scale)| *range == (6..60) && near(*scale, 1.01))
-    );
-    assert_eq!(full.len(), 1);
-    assert_eq!(full[0].0, 6..60);
-    assert!(near(full[0].1, 1.02));
+        assert!(
+            half.iter()
+                .any(|(range, scale)| *range == (6..60) && near(*scale, 1.01))
+        );
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].0, 6..60);
+        assert!(near(full[0].1, 1.02));
+    });
 }
 
-#[gpui::test]
-fn the_zoom_moves_with_the_caret(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes("down");
-    wait(cx, 200);
+#[test]
+fn the_zoom_moves_with_the_caret() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes("down");
+        wait(cx, 200);
 
-    cx.simulate_keystrokes("down");
-    wait(cx, 200);
+        cx.simulate_keystrokes("down");
+        wait(cx, 200);
 
-    let full = zoomed(&workspace, cx);
-    assert_eq!(full.len(), 1);
-    assert_eq!(full[0].0, 61..67);
+        let full = zoomed(&workspace, cx);
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].0, 61..67);
+    });
 }
 
-#[gpui::test]
-fn with_reduced_motion_the_zoom_is_at_once(cx: &mut TestAppContext) {
-    let settings = Settings {
-        reduced_motion: true,
-        ..Settings::default()
-    };
-    let (workspace, cx) = open(cx, settings);
+#[test]
+fn with_reduced_motion_the_zoom_is_at_once() {
+    system_text::run(1, |cx| {
+        let settings = Settings {
+            reduced_motion: true,
+            ..Settings::default()
+        };
+        let (workspace, cx) = open(cx, settings);
 
-    cx.simulate_keystrokes("down");
+        cx.simulate_keystrokes("down");
 
-    let full = zoomed(&workspace, cx);
-    assert_eq!(full.len(), 1);
-    assert!(near(full[0].1, 1.02));
+        let full = zoomed(&workspace, cx);
+        assert_eq!(full.len(), 1);
+        assert!(near(full[0].1, 1.02));
+    });
 }
 
-#[gpui::test]
-fn with_the_setting_off_nothing_zooms(cx: &mut TestAppContext) {
-    let settings = Settings {
-        focus_zoom: false,
-        ..Settings::default()
-    };
-    let (workspace, cx) = open(cx, settings);
+#[test]
+fn with_the_setting_off_nothing_zooms() {
+    system_text::run(1, |cx| {
+        let settings = Settings {
+            focus_zoom: false,
+            ..Settings::default()
+        };
+        let (workspace, cx) = open(cx, settings);
 
-    cx.simulate_keystrokes("down");
-    wait(cx, 200);
+        cx.simulate_keystrokes("down");
+        wait(cx, 200);
 
-    assert_eq!(zoomed(&workspace, cx), Vec::new());
+        assert_eq!(zoomed(&workspace, cx), Vec::new());
+    });
 }
 
-#[gpui::test]
-fn nothing_zooms_while_the_alternatives_panel_dims_the_text(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Settings::default());
+#[test]
+fn nothing_zooms_while_the_alternatives_panel_dims_the_text() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Settings::default());
 
-    cx.simulate_keystrokes("down right right ctrl-shift-a");
-    wait(cx, 200);
+        cx.simulate_keystrokes("down right right ctrl-shift-a");
+        wait(cx, 200);
 
-    assert!(workspace.read_with(cx, |workspace, _| workspace.alternatives_panel().is_some()));
-    assert_eq!(zoomed(&workspace, cx), Vec::new());
+        assert!(workspace.read_with(cx, |workspace, _| workspace.alternatives_panel().is_some()));
+        assert_eq!(zoomed(&workspace, cx), Vec::new());
+    });
 }
 
-#[gpui::test]
-fn the_zoomed_paragraph_shows_1_02_times_wider(cx: &mut TestAppContext) {
-    let (workspace, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes("down");
-    let normal =
-        caret_bounds(&workspace, 56, cx).origin.x - caret_bounds(&workspace, 10, cx).origin.x;
+#[test]
+fn the_zoomed_paragraph_shows_1_02_times_wider() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes("down");
+        let normal =
+            caret_bounds(&workspace, 56, cx).origin.x - caret_bounds(&workspace, 10, cx).origin.x;
 
-    wait(cx, 200);
-    let zoomed =
-        caret_bounds(&workspace, 56, cx).origin.x - caret_bounds(&workspace, 10, cx).origin.x;
+        wait(cx, 200);
+        let zoomed =
+            caret_bounds(&workspace, 56, cx).origin.x - caret_bounds(&workspace, 10, cx).origin.x;
 
-    assert!(near(zoomed / normal, 1.02), "{normal:?} {zoomed:?}");
+        assert!(near(zoomed / normal, 1.02), "{normal:?} {zoomed:?}");
+    });
 }
 
-#[gpui::test]
-fn a_click_on_the_zoomed_text_puts_the_caret_at_the_glyph_under_the_pointer(
-    cx: &mut TestAppContext,
-) {
-    let (workspace, cx) = open(cx, Settings::default());
-    cx.simulate_keystrokes("down");
-    wait(cx, 200);
+#[test]
+fn a_click_on_the_zoomed_text_puts_the_caret_at_the_glyph_under_the_pointer() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, Settings::default());
+        cx.simulate_keystrokes("down");
+        wait(cx, 200);
 
-    for offset in [7, 58] {
-        let bounds = caret_bounds(&workspace, offset, cx);
-        let position = bounds.origin + point(px(1.), bounds.size.height / 2.);
-        cx.simulate_click(position, Modifiers::none());
-        assert_eq!(caret(&workspace, cx), offset..offset);
-    }
+        for offset in [7, 58] {
+            let bounds = caret_bounds(&workspace, offset, cx);
+            let position = bounds.origin + point(px(1.), bounds.size.height / 2.);
+            cx.simulate_click(position, Modifiers::none());
+            assert_eq!(caret(&workspace, cx), offset..offset);
+        }
+    });
 }
 
-#[gpui::test]
-fn the_pointer_on_the_zoomed_end_of_a_slot_hovers_it(cx: &mut TestAppContext) {
-    let mut document = Document::new(TEXT);
-    let slot = document
-        .create_slot(50..60, Level::Word, "klmnopqrst", Provenance::Writer)
-        .unwrap();
-    let (workspace, cx) = open_document(cx, Settings::default(), document);
-    cx.simulate_keystrokes("down");
-    wait(cx, 200);
+#[test]
+fn the_pointer_on_the_zoomed_end_of_a_slot_hovers_it() {
+    system_text::run(1, |cx| {
+        let mut document = Document::new(TEXT);
+        let slot = document
+            .create_slot(50..60, Level::Word, "klmnopqrst", Provenance::Writer)
+            .unwrap();
+        let (workspace, cx) = open_document(cx, Settings::default(), document);
+        cx.simulate_keystrokes("down");
+        wait(cx, 200);
 
-    let bounds = caret_bounds(&workspace, 60, cx);
-    let position = bounds.origin + point(px(-1.), bounds.size.height / 2.);
-    cx.simulate_mouse_move(position, None, Modifiers::none());
+        let bounds = caret_bounds(&workspace, 60, cx);
+        let position = bounds.origin + point(px(-1.), bounds.size.height / 2.);
+        cx.simulate_mouse_move(position, None, Modifiers::none());
 
-    let hovered = cx.read(|cx| workspace.read(cx).editor().read(cx).hovered_slot());
-    assert_eq!(hovered, Some(slot));
+        let hovered = cx.read(|cx| workspace.read(cx).editor().read(cx).hovered_slot());
+        assert_eq!(hovered, Some(slot));
+    });
 }
