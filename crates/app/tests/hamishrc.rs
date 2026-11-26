@@ -1,11 +1,13 @@
 mod system_text;
 
+use std::cell::Cell;
 use std::fs;
 use std::path::Path;
+use std::rc::Rc;
 
-use app::{Notice, Workspace};
+use app::{Notice, Quit, Workspace};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use hamish_core::{Document, LoadedSettings, Settings};
+use hamish_core::{Document, HamishrcError, HamishrcProblem, LineError, LoadedSettings, Settings};
 use tempfile::TempDir;
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
@@ -152,9 +154,10 @@ fn a_bad_line_shows_its_line_number_in_a_notice_and_the_good_lines_load() {
 
         assert_eq!(
             notice(&workspace, cx),
-            Some(Notice::Hamishrc(vec![
-                "hamishrc line 2: Not a key: <Nope>".to_owned()
-            ]))
+            Some(Notice::Hamishrc(vec![HamishrcError {
+                line: 2,
+                problem: HamishrcProblem::UnknownKey("<Nope>".to_owned()),
+            }]))
         );
         keys(cx, "shift-x");
         assert_eq!(text(&workspace, cx), "two");
@@ -175,12 +178,12 @@ fn source_on_the_command_line_reads_the_changed_hamishrc() {
 }
 
 #[test]
-fn reload_config_reads_the_changed_hamishrc() {
+fn reload_hamishrc_reads_the_changed_hamishrc() {
     system_text::run(1, |cx| {
         let (workspace, cx, dir) = open(cx, "one\ntwo", "", true);
         rewrite(&dir, "nnoremap X dd\n");
 
-        cx.dispatch_action(app::ReloadConfig);
+        cx.dispatch_action(app::ReloadHamishrc);
         cx.run_until_parked();
         keys(cx, "shift-x");
 
@@ -195,24 +198,19 @@ fn a_recursive_map_stops_with_a_notice() {
 
         keys(cx, "a");
 
-        assert_eq!(
-            notice(&workspace, cx),
-            Some(Notice::Hamishrc(vec![
-                "hamishrc: a recursive map stopped after 1000 maps".to_owned()
-            ]))
-        );
+        assert_eq!(notice(&workspace, cx), Some(Notice::RecursiveMap));
         assert_eq!(text(&workspace, cx), "one");
     });
 }
 
 #[test]
-fn the_reload_config_button_of_settings_reads_the_changed_hamishrc() {
+fn the_reload_hamishrc_button_of_settings_reads_the_changed_hamishrc() {
     system_text::run(1, |cx| {
         let (workspace, cx, dir) = open(cx, "one\ntwo", "", true);
         rewrite(&dir, "nnoremap X dd\n");
 
         keys(cx, "ctrl-,");
-        for id in ["settings-section-editor", "settings-reload-config"] {
+        for id in ["settings-section-editor", "settings-reload-hamishrc"] {
             let bounds = cx.debug_bounds(id).unwrap();
             cx.simulate_click(bounds.center(), Modifiers::none());
             cx.run_until_parked();
@@ -220,5 +218,80 @@ fn the_reload_config_button_of_settings_reads_the_changed_hamishrc() {
         keys(cx, "escape shift-x");
 
         assert_eq!(text(&workspace, cx), "two");
+    });
+}
+
+/// Counts each Quit dispatch. The test app cannot close, so Quit stops here.
+fn count_quits(cx: &mut VisualTestContext) -> Rc<Cell<usize>> {
+    let quits = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&quits);
+    cx.update(|_, cx| {
+        cx.on_action(move |_: &Quit, _| counted.set(counted.get() + 1));
+    });
+    quits
+}
+
+#[test]
+fn a_map_to_quit_refuses_with_unsaved_changes_as_q_does() {
+    system_text::run(1, |cx| {
+        let (workspace, cx, _dir) = open(cx, "one", "nnoremap Q :Quit\n", true);
+        let quits = count_quits(cx);
+
+        keys(cx, "x shift-q");
+
+        assert_eq!(
+            notice(&workspace, cx),
+            Some(Notice::CommandFailed(LineError::Unsaved))
+        );
+        assert_eq!(quits.get(), 0);
+    });
+}
+
+#[test]
+fn a_map_to_quit_with_no_unsaved_changes_closes_hamish() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx, _dir) = open(cx, "one", "nnoremap Q :Quit\n", true);
+        let quits = count_quits(cx);
+
+        keys(cx, "shift-q");
+
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn a_map_to_force_quit_closes_hamish_with_unsaved_changes() {
+    system_text::run(1, |cx| {
+        let (_workspace, cx, _dir) = open(cx, "one", "nnoremap Q :ForceQuit\n", true);
+        let quits = count_quits(cx);
+
+        keys(cx, "x shift-q");
+
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn a_map_on_a_key_that_a_key_binding_takes_shows_its_line_number_in_a_notice() {
+    system_text::run(1, |cx| {
+        let (workspace, cx, _dir) = open(
+            cx,
+            "one",
+            "nnoremap <Esc> x\ninoremap <CR> x\nnnoremap <CR> x\ninoremap <C-z> x\n",
+            true,
+        );
+
+        let error = |line, keys: &str| HamishrcError {
+            line,
+            problem: HamishrcProblem::BoundKey(keys.to_owned()),
+        };
+        assert_eq!(
+            notice(&workspace, cx),
+            Some(Notice::Hamishrc(vec![
+                error(1, "<Esc>"),
+                error(2, "<CR>"),
+                error(4, "<C-z>"),
+            ]))
+        );
     });
 }

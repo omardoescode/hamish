@@ -227,6 +227,35 @@ fn wq_when_the_save_fails_shows_a_notice_and_does_not_close() {
 }
 
 #[test]
+fn a_failed_save_before_wq_does_not_stop_the_close_after_the_wq_save() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let bad = dir.path().join("missing").join("draft.md");
+        let good = dir.path().join("done.md");
+        let (_workspace, cx) = open(cx, "Done.");
+        let quits = count_quits(cx);
+        let line = |typed: String| {
+            let keys: Vec<String> = typed
+                .chars()
+                .map(|typed| match typed {
+                    ' ' => "space".to_owned(),
+                    typed => typed.to_string(),
+                })
+                .collect();
+            format!(": {} enter", keys.join(" "))
+        };
+
+        let first = line(format!("w {}", bad.display()));
+        let second = line(format!("wq {}", good.display()));
+        cx.simulate_keystrokes(&format!("{first} {second}"));
+        cx.run_until_parked();
+
+        assert!(fs::read_to_string(&good).unwrap().starts_with("Done.\n"));
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
 fn x_with_unsaved_changes_saves_then_closes() {
     system_text::run(1, |cx| {
         let dir = TempDir::new().unwrap();
@@ -256,6 +285,21 @@ fn x_with_no_unsaved_changes_does_not_save_and_closes() {
         run_line(cx, "x");
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "Changed on disk.");
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn x_with_a_path_and_no_unsaved_changes_does_not_save_and_closes() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("other.md");
+        let (_workspace, cx) = open(cx, "one");
+        let quits = count_quits(cx);
+
+        run_line(cx, &format!("x {}", path.display()));
+
+        assert!(!path.exists());
         assert_eq!(quits.get(), 1);
     });
 }

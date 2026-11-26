@@ -45,7 +45,7 @@ pub use actions::{
     AiAlternatives, Backspace, CloseMenu, CloseSettings, Copy, Cut, Delete, DeleteActiveVariant,
     EditHamishrc, LeaveOverflow, MoveDown, MoveLeft, MoveRight, MoveToLineEnd, MoveToLineStart,
     MoveUp, NewDocument, Newline, Open, OpenAlternatives, OpenSettings, Paste, Quit, Redo,
-    ReloadConfig, Save, SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
+    ReloadHamishrc, Save, SaveAs, SelectAll, SelectDown, SelectLeft, SelectRight, SelectToLineEnd,
     SelectToLineStart, SelectUp, Stash, ToggleGhost, ToggleOverflow, Undo, UseOverflowBlock,
 };
 pub use ai::{Ai, AiFailure, AiStatus};

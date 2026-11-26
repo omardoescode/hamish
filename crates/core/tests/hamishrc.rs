@@ -1,12 +1,12 @@
+use std::fs;
+
 use hamish_core::{
-    Caret, Fed, HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, Vim,
-    VimAction, VimCommand, VimKey,
+    Caret, Fed, HAMISHRC_EXAMPLE, Hamishrc, HamishrcError, HamishrcProblem, MapMode, TrimLevel,
+    Vim, VimAction, VimCommand, VimKey, create_hamishrc, hamishrc_text,
 };
 
-const ACTIONS: [&str; 2] = ["Stash", "AcceptLabMark"];
-
 fn parse(text: &str) -> Hamishrc {
-    Hamishrc::parse(text, &ACTIONS)
+    Hamishrc::parse(text, &[])
 }
 
 /// The keys of `typed` (one char each) through the maps of `rc` in `mode`, until the feed
@@ -152,11 +152,46 @@ fn an_action_name_after_a_colon_runs_that_action() {
 
     assert_eq!(
         fed(&rc, MapMode::Normal, " s"),
-        [Fed::Action("Stash".to_owned())]
+        [Fed::Action(VimAction::Stash)]
     );
     assert_eq!(
         fed(&rc, MapMode::Normal, " y"),
-        [Fed::Action("AcceptLabMark".to_owned())]
+        [Fed::Action(VimAction::AcceptLabMark)]
+    );
+}
+
+#[test]
+fn run_trim_1_to_4_name_the_trim_levels_and_run_trim_alone_is_no_action() {
+    let rc = parse("nnoremap a :RunTrim1\nnnoremap b :RunTrim4\nnnoremap c :RunTrim\n");
+
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "a"),
+        [Fed::Action(VimAction::RunTrim(TrimLevel::SlightTrim))]
+    );
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "b"),
+        [Fed::Action(VimAction::RunTrim(TrimLevel::CutInHalf))]
+    );
+    assert_eq!(
+        rc.errors(),
+        [HamishrcError {
+            line: 3,
+            problem: HamishrcProblem::UnknownAction("RunTrim".to_owned()),
+        }]
+    );
+}
+
+#[test]
+fn quit_and_force_quit_are_two_actions() {
+    let rc = parse("nnoremap a :Quit\nnnoremap b :ForceQuit\n");
+
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "a"),
+        [Fed::Action(VimAction::Quit)]
+    );
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "b"),
+        [Fed::Action(VimAction::ForceQuit)]
     );
 }
 
@@ -241,4 +276,69 @@ fn a_flush_gives_the_held_keys_with_no_wait_for_a_longer_map() {
     assert_eq!(normal.next_key(&rc), None);
     assert_eq!(normal.flush_key(&rc), Some(Fed::Key(VimKey::Char('X'))));
     assert_eq!(normal.flush_key(&rc), None);
+}
+
+#[test]
+fn a_map_on_a_key_that_a_key_binding_takes_is_an_error_with_its_line_number() {
+    let bound = [
+        (MapMode::Insert, VimKey::Enter),
+        (MapMode::Normal, VimKey::Escape),
+    ];
+    let rc = Hamishrc::parse(
+        "inoremap <CR> x\nnnoremap <CR> x\nnnoremap a<Esc> b\n",
+        &bound,
+    );
+
+    assert_eq!(
+        rc.errors(),
+        [
+            HamishrcError {
+                line: 1,
+                problem: HamishrcProblem::BoundKey("<CR>".to_owned()),
+            },
+            HamishrcError {
+                line: 3,
+                problem: HamishrcProblem::BoundKey("a<Esc>".to_owned()),
+            },
+        ]
+    );
+    assert_eq!(
+        rc.errors()[0].to_string(),
+        "hamishrc line 1: A key binding takes a key of <CR> first, so the map cannot run"
+    );
+    assert_eq!(
+        fed(&rc, MapMode::Normal, "x"),
+        [Fed::Key(VimKey::Char('x'))]
+    );
+}
+
+#[test]
+fn a_missing_hamishrc_is_made_with_the_example_and_its_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hamish").join("hamishrc");
+
+    create_hamishrc(&path).unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), HAMISHRC_EXAMPLE);
+}
+
+#[test]
+fn a_hamishrc_that_exists_stays_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hamishrc");
+    fs::write(&path, "nnoremap Y y$\n").unwrap();
+
+    create_hamishrc(&path).unwrap();
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "nnoremap Y y$\n");
+}
+
+#[test]
+fn the_text_of_a_missing_hamishrc_is_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hamishrc");
+
+    assert_eq!(hamishrc_text(&path).unwrap(), "");
+    fs::write(&path, "nnoremap Y y$\n").unwrap();
+    assert_eq!(hamishrc_text(&path).unwrap(), "nnoremap Y y$\n");
 }

@@ -150,7 +150,7 @@ The one line at the window bottom that `:` in Normal mode opens. The writer type
 _Avoid_: Ex mode, command palette
 
 **hamishrc**:
-The key config file of Vim mode, `hamishrc` in the XDG config dir next to the Settings file. A Vimscript subset: Key maps, `let mapleader`, and `"` comments. It applies only with Vim mode on. It reads again on window focus, `:source` and "Reload config"; a bad line shows as a Notice with its line number, and the other lines still load.
+The key map file of Vim mode, `hamishrc` in the XDG config dir next to the Settings file. A Vimscript subset: Key maps, `let mapleader`, and `"` comments. It applies only with Vim mode on. It reads again on window focus, `:source` and "Reload hamishrc"; a bad line shows as a Notice with its line number, and the other lines still load.
 _Avoid_: vimrc
 
 **Key map**:

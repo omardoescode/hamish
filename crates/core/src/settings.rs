@@ -128,7 +128,7 @@ pub struct Settings {
     /// IBM Plex Mono by default (ADR 0023).
     pub ui_font: String,
     /// Font family of the Document text and the Overflow text. `None` (the default) uses
-    /// the UI font. An old file's `font_family` reads as this field.
+    /// the UI font. The key `font_family` also reads as this field.
     #[serde(alias = "font_family")]
     pub text_font: Option<String>,
     pub font_size: f32,
@@ -146,8 +146,8 @@ pub struct Settings {
     pub vim_mode: bool,
     /// Each Slot shows its Marker. On by default.
     pub markers: bool,
-    /// The Editor draws the Markdown styles. Off: the text shows plain. On by default. An
-    /// old file's `markdown` reads as this field.
+    /// The Editor draws the Markdown styles. Off: the text shows plain. On by default. The
+    /// key `markdown` also reads as this field.
     #[serde(alias = "markdown")]
     pub markdown_styles: bool,
 }
@@ -383,16 +383,6 @@ impl Settings {
     /// Turns `toggle` on or off.
     pub fn set(&mut self, toggle: Toggle, on: bool) {
         *self.toggle_mut(toggle) = on;
-    }
-
-    /// One step up, to at most the highest value.
-    pub fn increase(&mut self, setting: Setting) {
-        self.step(setting, Direction::Forward);
-    }
-
-    /// One step down, to at least the lowest value.
-    pub fn decrease(&mut self, setting: Setting) {
-        self.step(setting, Direction::Back);
     }
 
     /// One step: `Forward` up, to at most the highest value; `Back` down, to at least the

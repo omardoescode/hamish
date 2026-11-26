@@ -140,7 +140,7 @@ fn with_a_leader_from_the_hamishrc_the_vim_keys_show_that_leader() {
         };
         let (_, cx) = open(cx, settings);
         cx.update(|_, cx| app::use_hamishrc(Some(path), cx));
-        cx.dispatch_action(app::ReloadConfig);
+        cx.dispatch_action(app::ReloadHamishrc);
         cx.run_until_parked();
 
         let groups = groups(cx);

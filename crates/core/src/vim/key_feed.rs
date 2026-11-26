@@ -4,18 +4,18 @@
 use std::collections::VecDeque;
 
 use super::hamishrc::{Hamishrc, KeyMap, MapMode, MapTarget};
-use super::{Leader, Vim, VimKey, VimMode};
+use super::{Leader, Vim, VimAction, VimKey, VimMode};
 
 /// How many maps in a row a key can go through (Vim `maxmapdepth`).
 pub const MAX_MAP_DEPTH: usize = 1000;
 
 /// What the key feed gives the Editor next.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fed {
     /// Give this key to [`Vim::key`].
     Key(VimKey),
-    /// Run the Hamish action of this name.
-    Action(String),
+    /// Run this Hamish action.
+    Action(VimAction),
     /// A recursive map went through more than [`MAX_MAP_DEPTH`] maps in a row. The keys not
     /// yet read are gone.
     TooDeep,
@@ -135,7 +135,7 @@ impl KeyFeed {
             return Some(Fed::TooDeep);
         }
         let keys = match &map.target {
-            MapTarget::Action(name) => return Some(Fed::Action(name.clone())),
+            MapTarget::Action(action) => return Some(Fed::Action(*action)),
             MapTarget::Keys(keys) => keys,
         };
         // Vim: when the target starts with the keys of the map, those keys do not map again.

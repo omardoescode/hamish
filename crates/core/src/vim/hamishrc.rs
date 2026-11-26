@@ -2,8 +2,11 @@
 //! goes in; the maps and the line-numbered errors come out.
 
 use std::fmt;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
+use std::path::Path;
 
-use super::VimKey;
+use super::{VimAction, VimKey};
 
 /// The text of a new hamishrc: each line is a comment, so it changes no key.
 pub const HAMISHRC_EXAMPLE: &str = r#"" hamishrc: the Vim mode keys of Hamish. It applies only with Vim mode on.
@@ -21,7 +24,41 @@ pub const HAMISHRC_EXAMPLE: &str = r#"" hamishrc: the Vim mode keys of Hamish. I
 
 " A Hamish action by name:
 " nnoremap <leader>s :Stash
+
+" A Trim level by name: :RunTrim1 (Slight trim), :RunTrim2 (Tighten more),
+" :RunTrim3 (Even sharper), :RunTrim4 (Cut in half).
+" nnoremap <leader>2 :RunTrim2
+
+" :Quit closes Hamish as :q does; :ForceQuit drops unsaved changes, as :q!.
+" nnoremap <leader>q :Quit
 "#;
+
+/// The text of the hamishrc file at `path`; empty when no file is there.
+///
+/// # Errors
+/// When the file is there and does not read.
+pub fn hamishrc_text(path: &Path) -> io::Result<String> {
+    match fs::read_to_string(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        read => read,
+    }
+}
+
+/// Writes [`HAMISHRC_EXAMPLE`] to `path`, and makes its directory, when no file is there. A
+/// file that is there stays as it is.
+///
+/// # Errors
+/// When the directory or the file cannot be made.
+pub fn create_hamishrc(path: &Path) -> io::Result<()> {
+    if let Some(directory) = path.parent() {
+        fs::create_dir_all(directory)?;
+    }
+    match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut created) => created.write_all(HAMISHRC_EXAMPLE.as_bytes()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error),
+    }
+}
 
 /// The Vim mode states that have maps of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,8 +73,8 @@ pub enum MapMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MapTarget {
     Keys(Vec<VimKey>),
-    /// The Hamish action of this name, as `:Name` names it.
-    Action(String),
+    /// The Hamish action that `:Name` names.
+    Action(VimAction),
 }
 
 /// One map of a hamishrc.
@@ -71,6 +108,8 @@ pub enum HamishrcProblem {
     UnknownVariable(String),
     /// A `mapleader` value that is not one quoted key that types a char.
     BadLeader(String),
+    /// Map keys with a key that a GPUI key binding takes before Vim mode reads it.
+    BoundKey(String),
 }
 
 impl fmt::Display for HamishrcProblem {
@@ -90,6 +129,10 @@ impl fmt::Display for HamishrcProblem {
                 write!(f, "Not a hamishrc variable: {name} (use mapleader)")
             }
             Self::BadLeader(value) => write!(f, "The leader must be one quoted key: {value}"),
+            Self::BoundKey(keys) => write!(
+                f,
+                "A key binding takes a key of {keys} first, so the map cannot run"
+            ),
         }
     }
 }
@@ -129,14 +172,15 @@ impl Default for Hamishrc {
 }
 
 impl Hamishrc {
-    /// Reads the hamishrc `text`, line by line. `actions` are the names that `:Name` can
-    /// name. A line with an error does not load; the other lines do. `<leader>` is the
-    /// leader at its line.
+    /// Reads the hamishrc `text`, line by line. A line with an error does not load; the
+    /// other lines do. `<leader>` is the leader at its line. `bound` are the keys that a
+    /// key binding takes before Vim mode reads them, per mode: a map with one of them is an
+    /// error.
     #[must_use]
-    pub fn parse(text: &str, actions: &[&str]) -> Self {
+    pub fn parse(text: &str, bound: &[(MapMode, VimKey)]) -> Self {
         let mut rc = Self::default();
         for (index, line) in text.lines().enumerate() {
-            if let Err(problem) = rc.read_line(line, actions) {
+            if let Err(problem) = rc.read_line(line, bound) {
                 rc.errors.push(HamishrcError {
                     line: index + 1,
                     problem,
@@ -163,7 +207,11 @@ impl Hamishrc {
         self.maps.iter().filter(move |map| map.mode == mode)
     }
 
-    fn read_line(&mut self, line: &str, actions: &[&str]) -> Result<(), HamishrcProblem> {
+    fn read_line(
+        &mut self,
+        line: &str,
+        bound: &[(MapMode, VimKey)],
+    ) -> Result<(), HamishrcProblem> {
         let line = line.trim();
         if line.is_empty() || line.starts_with('"') {
             return Ok(());
@@ -189,7 +237,10 @@ impl Hamishrc {
         if target.is_empty() {
             return Err(HamishrcProblem::NoTarget);
         }
-        let target = parse_target(target, self.leader, actions)?;
+        if keys.iter().any(|key| bound.contains(&(mode, *key))) {
+            return Err(HamishrcProblem::BoundKey(typed.to_owned()));
+        }
+        let target = parse_target(target, self.leader)?;
         self.maps
             .retain(|map| !(map.mode == mode && map.keys == keys));
         self.maps.push(KeyMap {
@@ -260,19 +311,14 @@ fn map_command(command: &str) -> Option<(MapMode, Option<bool>)> {
 }
 
 /// `:Name` (with an optional `<CR>`) is an action; other text is keys.
-fn parse_target(
-    target: &str,
-    leader: char,
-    actions: &[&str],
-) -> Result<MapTarget, HamishrcProblem> {
+fn parse_target(target: &str, leader: char) -> Result<MapTarget, HamishrcProblem> {
     let Some(name) = target.strip_prefix(':') else {
         return parse_keys(target, leader).map(MapTarget::Keys);
     };
     let name = strip_suffix_ignore_case(name, "<cr>");
-    if actions.contains(&name) {
-        return Ok(MapTarget::Action(name.to_owned()));
-    }
-    Err(HamishrcProblem::UnknownAction(name.to_owned()))
+    VimAction::named(name)
+        .map(MapTarget::Action)
+        .ok_or_else(|| HamishrcProblem::UnknownAction(name.to_owned()))
 }
 
 fn strip_suffix_ignore_case<'a>(text: &'a str, suffix: &str) -> &'a str {

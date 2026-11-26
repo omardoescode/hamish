@@ -20,7 +20,7 @@ use hamish_core::{
 
 use crate::actions::{
     CloseSelect, CloseSettings, DeleteQueryBackward, EditHamishrc, NextRow, OpenSettings, PickRow,
-    PreviousRow, ReloadConfig,
+    PreviousRow, ReloadHamishrc,
 };
 use crate::caret::CARET_WIDTH;
 use crate::chrome::{
@@ -606,7 +606,7 @@ impl SettingsModal {
     }
 }
 
-/// "Edit hamishrc" opens the hamishrc in the system editor; "Reload config" reads it again.
+/// "Edit hamishrc" opens the hamishrc in the system editor; "Reload hamishrc" reads it again.
 fn hamishrc_buttons(theme: &Theme) -> [Stateful<Div>; 2] {
     let button = |id: &'static str, label: &'static str, action: fn() -> Box<dyn gpui::Action>| {
         text_button(theme, theme.panel_border)
@@ -620,8 +620,8 @@ fn hamishrc_buttons(theme: &Theme) -> [Stateful<Div>; 2] {
         button("settings-edit-hamishrc", "Edit hamishrc", || {
             Box::new(EditHamishrc)
         }),
-        button("settings-reload-config", "Reload config", || {
-            Box::new(ReloadConfig)
+        button("settings-reload-hamishrc", "Reload hamishrc", || {
+            Box::new(ReloadHamishrc)
         }),
     ]
 }

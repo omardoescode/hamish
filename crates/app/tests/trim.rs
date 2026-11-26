@@ -429,7 +429,7 @@ fn a_hamishrc_map_to_run_trim_with_a_level_number_runs_that_trim_level() {
             );
             app::use_hamishrc(Some(path), cx);
         });
-        cx.dispatch_action(app::ReloadConfig);
+        cx.dispatch_action(app::ReloadHamishrc);
         cx.run_until_parked();
 
         cx.simulate_keystrokes("shift-x");
