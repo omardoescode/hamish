@@ -661,10 +661,10 @@ impl Editor {
         window.focus(&self.focus_handle, cx);
         self.keep_trim_cut_at(event.position, cx);
         self.selecting = true;
-        if event.click_count == 2 {
-            caret::select_word(self, event.position, cx);
-        } else {
-            caret::press(self, event.position, event.modifiers.shift, cx);
+        match event.click_count {
+            2 => caret::select_word(self, event.position, cx),
+            _ if self.press_visual(event.position, event.modifiers.shift, cx) => {}
+            _ => caret::press(self, event.position, event.modifiers.shift, cx),
         }
         if let Some(slot) = self.slot_at(event.position) {
             cx.emit(EditorEvent::SlotClicked(slot));
@@ -672,7 +672,7 @@ impl Editor {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selecting {
+        if self.selecting && !self.press_visual(event.position, false, cx) {
             caret::press(self, event.position, true, cx);
         }
         let hovered = self.slot_at(event.position);
@@ -893,6 +893,7 @@ impl Render for Editor {
         let theme = cx.global::<Theme>().clone();
         if !vim_on(cx) {
             self.vim = Vim::default();
+            self.session.end_insert();
         }
         let key_context = match self.vim_mode(cx) {
             None => "Editor",

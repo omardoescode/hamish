@@ -324,6 +324,51 @@ fn u_and_ctrl_r_undo_and_redo_one_vim_command_at_a_time() {
 }
 
 #[test]
+fn one_insert_session_with_typing_and_deleting_is_one_undo_step() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one", true);
+
+        cx.simulate_keystrokes("$ a");
+        cx.simulate_input("ab");
+        cx.simulate_keystrokes("backspace");
+        cx.simulate_input("c");
+        cx.simulate_keystrokes("escape");
+        assert_eq!(text(&workspace, cx), "oneac");
+
+        cx.simulate_keystrokes("u");
+        assert_eq!(text(&workspace, cx), "one");
+    });
+}
+
+fn click_at(
+    workspace: &Entity<Workspace>,
+    offset: usize,
+    modifiers: Modifiers,
+    cx: &mut VisualTestContext,
+) {
+    let char = bounds_at(workspace, offset, cx);
+    cx.simulate_click(point(char.origin.x + px(1.), char.center().y), modifiers);
+}
+
+#[test]
+fn in_visual_mode_a_click_moves_the_selection_end_and_a_shift_click_the_nearer_end() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two three", true);
+
+        cx.simulate_keystrokes("w v");
+        click_at(&workspace, 9, Modifiers::none(), cx);
+        assert_eq!(selection(&workspace, cx), 4..10);
+        assert_eq!(status(&workspace, cx).as_deref(), Some("VISUAL"));
+
+        click_at(&workspace, 1, Modifiers::shift(), cx);
+        assert_eq!(selection(&workspace, cx), 1..10);
+
+        cx.simulate_keystrokes("l");
+        assert_eq!(selection(&workspace, cx), 2..10);
+    });
+}
+
+#[test]
 fn visual_mode_selects_and_types_nothing_and_d_deletes_the_selection() {
     system_text::run(1, |cx| {
         let (workspace, cx) = open(cx, "one two\nthree", true);
