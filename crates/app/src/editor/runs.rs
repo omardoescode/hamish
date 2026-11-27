@@ -112,18 +112,20 @@ pub(super) fn text_runs(
 }
 
 /// A stretch of the text with one style.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each flag is one independent style layer of the span"
-)]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Span {
     pub(super) range: Range<usize>,
     title: bool,
     pub(super) underlined: bool,
-    ghost: bool,
     /// The Markdown styles over it, outer first.
     markdown: Vec<MarkdownStyle>,
+    fades: Fades,
+}
+
+/// The layers that lower the opacity of a span.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Fades {
+    ghost: bool,
     /// Outside the bright paragraph while the Alternatives panel is open.
     dimmed: bool,
     /// In a cut of the Trim proposal.
@@ -190,10 +192,12 @@ pub(super) fn spans(
                 range: start..end,
                 title: end <= title_end,
                 underlined: flag(&underlined),
-                ghost: flag(&ghost),
                 markdown,
-                faded: flag(&faded),
-                dimmed: bright.as_ref().is_some_and(|bright| !flag(bright)),
+                fades: Fades {
+                    ghost: flag(&ghost),
+                    dimmed: bright.as_ref().is_some_and(|bright| !flag(bright)),
+                    faded: flag(&faded),
+                },
             }
         })
         .collect()
@@ -202,6 +206,12 @@ pub(super) fn spans(
 impl Span {
     /// Ghost, dim, and Trim fade opacity of the text and its underline.
     pub(super) fn opacity(&self, theme: &Theme) -> f32 {
+        self.fades.opacity(theme)
+    }
+}
+
+impl Fades {
+    fn opacity(self, theme: &Theme) -> f32 {
         let ghost = if self.ghost { theme.ghost_opacity } else { 1. };
         let dim = if self.dimmed {
             theme.panel_open_dim_opacity
@@ -304,7 +314,7 @@ mod tests {
 
     use gpui::{TextRun, font, hsla};
 
-    use super::{Span, faded_runs, heading_lines, spans};
+    use super::{Fades, Span, faded_runs, heading_lines, spans};
 
     #[test]
     fn a_fade_splits_the_runs_at_its_range_and_dims_only_inside() {
@@ -329,10 +339,11 @@ mod tests {
             range,
             title,
             underlined,
-            ghost,
             markdown: Vec::new(),
-            dimmed: false,
-            faded: false,
+            fades: Fades {
+                ghost,
+                ..Fades::default()
+            },
         };
         assert_eq!(
             spans(
@@ -362,10 +373,8 @@ mod tests {
             range,
             title: false,
             underlined: false,
-            ghost: false,
             markdown,
-            dimmed: false,
-            faded: false,
+            fades: Fades::default(),
         };
         assert_eq!(
             spans(
@@ -407,7 +416,7 @@ mod tests {
         let dimmed: Vec<(std::ops::Range<usize>, bool)> =
             spans(30, 5, &[], &[], &[], &[], Some(&(6..18)))
                 .into_iter()
-                .map(|span| (span.range, span.dimmed))
+                .map(|span| (span.range, span.fades.dimmed))
                 .collect();
         assert_eq!(
             dimmed,
@@ -427,7 +436,7 @@ mod tests {
             None,
         )
         .into_iter()
-        .map(|span| (span.range, span.ghost, span.faded))
+        .map(|span| (span.range, span.fades.ghost, span.fades.faded))
         .collect();
         assert_eq!(
             faded,
