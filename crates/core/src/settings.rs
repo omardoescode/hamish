@@ -113,14 +113,30 @@ impl Toggle {
     }
 }
 
+/// The state of one on/off setting. The settings file holds it as `true` or `false`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "bool", into = "bool")]
+pub enum OnOff {
+    Off,
+    On,
+}
+
+impl From<bool> for OnOff {
+    fn from(on: bool) -> Self {
+        if on { Self::On } else { Self::Off }
+    }
+}
+
+impl From<OnOff> for bool {
+    fn from(state: OnOff) -> Self {
+        state == OnOff::On
+    }
+}
+
 /// The writer's settings. The file holds them as JSON; a field not in the file takes
 /// its default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each bool is an independent on/off setting the Settings toggles flip"
-)]
 pub struct Settings {
     pub theme: ThemeName,
     pub ui_scale: f32,
@@ -136,20 +152,20 @@ pub struct Settings {
     pub column_width: f32,
     /// Effects are instant. Off by default: GPUI does not read the OS
     /// setting.
-    pub reduced_motion: bool,
+    pub reduced_motion: OnOff,
     /// A tone on each Active variant switch and a sound on a Variant delete.
-    pub cycle_sounds: bool,
+    pub cycle_sounds: OnOff,
     /// The paragraph with the caret shows a little larger.
-    pub focus_zoom: bool,
+    pub focus_zoom: OnOff,
     /// The Editor has a Normal mode, an Insert mode and a Visual mode, with Vim keys. Off by
     /// default.
-    pub vim_mode: bool,
+    pub vim_mode: OnOff,
     /// Each Slot shows its Marker. On by default.
-    pub markers: bool,
+    pub markers: OnOff,
     /// The Editor draws the Markdown styles. Off: the text shows plain. On by default. The
     /// key `markdown` also reads as this field.
     #[serde(alias = "markdown")]
-    pub markdown_styles: bool,
+    pub markdown_styles: OnOff,
 }
 
 impl Default for Settings {
@@ -163,12 +179,12 @@ impl Default for Settings {
             font_size: 15.0,
             line_height: 1.8,
             column_width: 585.0,
-            reduced_motion: false,
-            cycle_sounds: true,
-            focus_zoom: true,
-            vim_mode: false,
-            markers: true,
-            markdown_styles: true,
+            reduced_motion: OnOff::Off,
+            cycle_sounds: OnOff::On,
+            focus_zoom: OnOff::On,
+            vim_mode: OnOff::Off,
+            markers: OnOff::On,
+            markdown_styles: OnOff::On,
         }
     }
 }
@@ -334,13 +350,13 @@ impl Settings {
     /// `toggle` is on.
     #[must_use]
     pub fn is_on(&self, toggle: Toggle) -> bool {
-        *self.toggle_ref(toggle)
+        bool::from(*self.toggle_ref(toggle))
     }
 
     /// Turns `toggle` on when it is off, and off when it is on.
     pub fn flip(&mut self, toggle: Toggle) {
-        let on = self.toggle_mut(toggle);
-        *on = !*on;
+        let state = self.toggle_mut(toggle);
+        *state = OnOff::from(!bool::from(*state));
     }
 
     /// "On" or "Off".
@@ -349,7 +365,7 @@ impl Settings {
         if self.is_on(toggle) { "On" } else { "Off" }
     }
 
-    fn toggle_ref(&self, toggle: Toggle) -> &bool {
+    fn toggle_ref(&self, toggle: Toggle) -> &OnOff {
         match toggle {
             Toggle::ReducedMotion => &self.reduced_motion,
             Toggle::FocusZoom => &self.focus_zoom,
@@ -360,7 +376,7 @@ impl Settings {
         }
     }
 
-    fn toggle_mut(&mut self, toggle: Toggle) -> &mut bool {
+    fn toggle_mut(&mut self, toggle: Toggle) -> &mut OnOff {
         match toggle {
             Toggle::ReducedMotion => &mut self.reduced_motion,
             Toggle::FocusZoom => &mut self.focus_zoom,
@@ -382,7 +398,7 @@ impl Settings {
 
     /// Turns `toggle` on or off.
     pub fn set(&mut self, toggle: Toggle, on: bool) {
-        *self.toggle_mut(toggle) = on;
+        *self.toggle_mut(toggle) = OnOff::from(on);
     }
 
     /// One step: `Forward` up, to at most the highest value; `Back` down, to at least the

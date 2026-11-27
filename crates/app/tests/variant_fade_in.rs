@@ -10,7 +10,7 @@ use gpui::{
 };
 use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
-    LoadedSettings, Provenance, Settings, SlotId, TrimRequest,
+    LoadedSettings, OnOff, Provenance, Settings, SlotId, TrimRequest,
 };
 
 /// Gives two fixed Variant texts, as an AI backend would.
@@ -156,7 +156,7 @@ fn typing_during_a_fade_goes_into_the_document() {
 fn with_reduced_motion_a_variant_switch_shows_at_once() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            reduced_motion: true,
+            reduced_motion: OnOff::On,
             ..Settings::default()
         };
         let (workspace, _, cx) = open(cx, settings);

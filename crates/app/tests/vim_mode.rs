@@ -7,7 +7,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Pixels, TestAppContext, VisualTestContext,
     point, px,
 };
-use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, OnOff, Provenance, Settings};
 
 fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
     cx.update(|_, cx| {
@@ -15,7 +15,7 @@ fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode,
+                    vim_mode: OnOff::from(vim_mode),
                     ..Settings::default()
                 },
                 problem: None,

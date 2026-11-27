@@ -12,7 +12,7 @@ use gpui::{
 };
 use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, LoadedSettings,
-    Provenance, Settings, TrimRequest,
+    OnOff, Provenance, Settings, TrimRequest,
 };
 
 /// Gives fixed Variant texts, or fails, as an AI backend would.
@@ -182,7 +182,7 @@ fn with_reduced_motion_the_loading_row_is_still() {
         let (_workspace, cx) = open(cx, Some(client_and_patron()));
         let settings = LoadedSettings {
             settings: Settings {
-                reduced_motion: true,
+                reduced_motion: OnOff::On,
                 ..Settings::default()
             },
             problem: None,

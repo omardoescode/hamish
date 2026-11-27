@@ -6,7 +6,7 @@ use app::{SoundSink, Sounds, Workspace};
 use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, TestAppContext, VisualTestContext, point, px,
 };
-use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings, Sound};
+use hamish_core::{Document, Level, LoadedSettings, OnOff, Provenance, Settings, Sound};
 
 /// A fake audio device: it keeps the sounds the app asks for.
 #[derive(Default)]
@@ -163,7 +163,7 @@ fn a_variant_delete_plays_the_explosion() {
 fn no_sound_plays_with_cycle_sounds_off() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            cycle_sounds: false,
+            cycle_sounds: OnOff::Off,
             ..Settings::default()
         };
         let (workspace, heard, cx) = open(cx, settings);

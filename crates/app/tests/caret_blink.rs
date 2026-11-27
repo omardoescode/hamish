@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use app::Workspace;
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use hamish_core::{Document, LoadedSettings, Settings};
+use hamish_core::{Document, LoadedSettings, OnOff, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -100,7 +100,7 @@ fn typing_starts_the_blink_again() {
 fn with_reduced_motion_the_caret_stays_on() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            reduced_motion: true,
+            reduced_motion: OnOff::On,
             ..Settings::default()
         };
         let (workspace, cx) = open(cx, settings);
@@ -114,7 +114,7 @@ fn with_reduced_motion_the_caret_stays_on() {
 fn the_normal_mode_block_caret_blinks() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            vim_mode: true,
+            vim_mode: OnOff::On,
             ..Settings::default()
         };
         let (workspace, cx) = open(cx, settings);

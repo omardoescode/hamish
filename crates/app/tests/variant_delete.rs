@@ -2,7 +2,7 @@ mod system_text;
 
 use app::{PlayingEffect, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use hamish_core::{Document, Effect, Level, LoadedSettings, Provenance, Settings, SlotId};
+use hamish_core::{Document, Effect, Level, LoadedSettings, OnOff, Provenance, Settings, SlotId};
 
 fn open(
     cx: &mut TestAppContext,
@@ -212,7 +212,7 @@ fn up_and_down_with_the_caret_in_a_slot_cycle_its_variants() {
 fn reduce_motion(cx: &mut VisualTestContext) {
     let loaded = LoadedSettings {
         settings: Settings {
-            reduced_motion: true,
+            reduced_motion: OnOff::On,
             ..Settings::default()
         },
         problem: None,

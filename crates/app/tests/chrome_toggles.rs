@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use app::Workspace;
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use hamish_core::{Document, Level, Provenance, Settings};
+use hamish_core::{Document, Level, Provenance, Settings, Toggle};
 
 /// Opens "Title\nIt is a **tension** here." with a Word Slot on "tension", and the settings
 /// file `path`. The Text font is Adwaita Sans: it has no bold face, so its bold text shows as
@@ -65,12 +65,12 @@ fn the_variant_dots_icon_hides_and_shows_the_markers_and_saves() {
 
         assert_eq!(marker_count(&workspace, cx), 0);
         assert_eq!(underline_points(&workspace, cx), 0);
-        assert!(!Settings::load(&path).settings.markers);
+        assert!(!Settings::load(&path).settings.is_on(Toggle::Markers));
 
         click(cx, "markers-button");
 
         assert_eq!(marker_count(&workspace, cx), 1);
-        assert!(Settings::load(&path).settings.markers);
+        assert!(Settings::load(&path).settings.is_on(Toggle::Markers));
     });
 }
 
@@ -86,12 +86,12 @@ fn the_markdown_icon_turns_the_markdown_styles_off_and_on_and_saves() {
         click(cx, "markdown-button");
 
         assert_eq!(bold_glyphs(&workspace, cx), vec![0, 1, 2, 3, 4]);
-        assert!(!Settings::load(&path).settings.markdown_styles);
+        assert!(!Settings::load(&path).settings.is_on(Toggle::MarkdownStyles));
 
         click(cx, "markdown-button");
 
         assert_eq!(bold_glyphs(&workspace, cx), title_and_bold);
-        assert!(Settings::load(&path).settings.markdown_styles);
+        assert!(Settings::load(&path).settings.is_on(Toggle::MarkdownStyles));
     });
 }
 
@@ -110,6 +110,6 @@ fn markers_and_markdown_styles_turn_off_in_settings() {
         assert_eq!(marker_count(&workspace, cx), 0);
         assert_eq!(bold_glyphs(&workspace, cx), vec![0, 1, 2, 3, 4]);
         let saved = Settings::load(&path).settings;
-        assert!(!saved.markers && !saved.markdown_styles);
+        assert!(!saved.is_on(Toggle::Markers) && !saved.is_on(Toggle::MarkdownStyles));
     });
 }

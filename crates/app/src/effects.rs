@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::time::Instant;
 
 use gpui::{App, Bounds, BoxShadow, Hsla, Pixels, Window, fill, point, px, rgb, size};
-use hamish_core::{Effect, Particle, ParticleArea};
+use hamish_core::{Effect, Particle, ParticleArea, Toggle};
 
 use crate::settings;
 
@@ -160,7 +160,7 @@ fn bounds_in(area: Bounds<Pixels>, particle: Particle) -> Bounds<Pixels> {
 
 /// Whether Effects play: with Reduced motion they show no particles and are done at once.
 pub(crate) fn plays(cx: &App) -> bool {
-    !settings::is_on(cx, |settings| settings.reduced_motion)
+    !settings::is_on(cx, Toggle::ReducedMotion)
 }
 
 #[cfg(test)]
@@ -241,7 +241,7 @@ mod tests {
             let mut player = EffectPlayer::default();
             cx.update(|cx| {
                 let settings = Settings {
-                    reduced_motion: true,
+                    reduced_motion: hamish_core::OnOff::On,
                     ..Settings::default()
                 };
                 crate::settings::use_settings(

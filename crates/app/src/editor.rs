@@ -21,7 +21,7 @@ use gpui::{
 };
 use hamish_core::{
     Caret, CaretEdit, Cycle, Document, EditSession, Effect, FocusZoom, LabMark, Level, SlotError,
-    SlotId, Sound, TrimProposal, Vim, VimKey, VimMode, follow_change, paragraph_around,
+    SlotId, Sound, Toggle, TrimProposal, Vim, VimKey, VimMode, follow_change, paragraph_around,
 };
 
 use element::EditorElement;
@@ -482,10 +482,8 @@ impl Editor {
             .background_executor()
             .now()
             .saturating_duration_since(started);
-        let progress = Effect::VariantFadeIn.progress(
-            elapsed,
-            settings::is_on(cx, |settings| settings.reduced_motion),
-        );
+        let progress =
+            Effect::VariantFadeIn.progress(elapsed, settings::is_on(cx, Toggle::ReducedMotion));
         (progress < 1.).then_some((
             slot,
             FADE_IN_START_OPACITY + (1. - FADE_IN_START_OPACITY) * progress,

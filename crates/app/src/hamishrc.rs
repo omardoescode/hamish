@@ -105,7 +105,7 @@ impl Workspace {
                 return;
             }
         };
-        let vim_mode = settings::is_on(cx, |settings| settings.is_on(Toggle::VimMode));
+        let vim_mode = settings::is_on(cx, Toggle::VimMode);
         let store = cx.global_mut::<HamishrcStore>();
         let changed = store.text.as_ref() != Some(&text);
         let errors = rc.errors().to_vec();

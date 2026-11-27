@@ -9,7 +9,7 @@ use std::thread;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample, Stream, StreamConfig};
 use gpui::{App, Global};
-use hamish_core::Sound;
+use hamish_core::{Sound, Toggle};
 
 use crate::settings;
 
@@ -27,7 +27,7 @@ impl Global for Sounds {}
 /// Plays `sound` when the "Cycle sounds" setting is on. A Variant delete plays
 /// [`Sound::Explosion`].
 pub(crate) fn play(sound: Sound, cx: &App) {
-    if !settings::is_on(cx, |settings| settings.cycle_sounds) {
+    if !settings::is_on(cx, Toggle::CycleSounds) {
         return;
     }
     if let Some(Sounds(sink)) = cx.try_global::<Sounds>() {

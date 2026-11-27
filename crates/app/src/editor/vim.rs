@@ -3,7 +3,7 @@
 
 use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
 use hamish_core::{
-    Caret, Document, Fed, Motion, Vim, VimAction, VimCommand, VimKey, VimMode, one_char,
+    Caret, Document, Fed, Motion, Toggle, Vim, VimAction, VimCommand, VimKey, VimMode, one_char,
 };
 
 use super::Editor;
@@ -289,7 +289,7 @@ pub(crate) fn run_text_command<V: CaretView>(
 }
 
 pub(crate) fn vim_on(cx: &App) -> bool {
-    settings::is_on(cx, |settings| settings.vim_mode)
+    settings::is_on(cx, Toggle::VimMode)
 }
 
 /// Puts `text` in the register, the system clipboard. Empty text leaves it as it is.

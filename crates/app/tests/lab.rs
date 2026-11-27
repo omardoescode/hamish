@@ -10,7 +10,7 @@ use gpui::{
 };
 use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabCheck, LabFinding, LabRequest,
-    LoadedSettings, Settings, TrimRequest,
+    LoadedSettings, OnOff, Settings, TrimRequest,
 };
 
 /// Gives fixed findings for each Lab check, or fails, as an AI backend would.
@@ -528,7 +528,7 @@ fn set_vim_mode(cx: &mut VisualTestContext) {
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode: true,
+                    vim_mode: OnOff::On,
                     ..Settings::default()
                 },
                 problem: None,

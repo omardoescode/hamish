@@ -7,7 +7,7 @@ use app::{Ai, LabStatus, Theme, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, Level,
-    LoadedSettings, Provenance, Settings, TrimRequest,
+    LoadedSettings, OnOff, Provenance, Settings, TrimRequest,
 };
 
 /// Gives no Variants and no Lab findings, and the same Trim cuts for each level.
@@ -40,7 +40,7 @@ fn open_document(
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode: true,
+                    vim_mode: OnOff::On,
                     ..Settings::default()
                 },
                 problem: None,

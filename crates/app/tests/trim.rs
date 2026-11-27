@@ -10,7 +10,7 @@ use gpui::{
 };
 use hamish_core::{
     AiAdapter, AiError, AiRequest, CancelToken, Document, LabFinding, LabRequest, LoadedSettings,
-    Settings, TrimCut, TrimLevel, TrimRequest,
+    OnOff, Settings, TrimCut, TrimLevel, TrimRequest,
 };
 
 /// Gives fixed cuts for each Trim level, or fails, as an AI backend would.
@@ -385,7 +385,7 @@ fn in_vim_mode_a_count_and_space_t_run_that_trim_level_and_space_k_keeps_a_cut()
                 None,
                 LoadedSettings {
                     settings: Settings {
-                        vim_mode: true,
+                        vim_mode: OnOff::On,
                         ..Settings::default()
                     },
                     problem: None,
@@ -420,7 +420,7 @@ fn a_hamishrc_map_to_run_trim_with_a_level_number_runs_that_trim_level() {
                 None,
                 LoadedSettings {
                     settings: Settings {
-                        vim_mode: true,
+                        vim_mode: OnOff::On,
                         ..Settings::default()
                     },
                     problem: None,

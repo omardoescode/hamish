@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use app::{Notice, Theme, Workspace};
 use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, point, px, rgb};
-use hamish_core::{Document, Settings, ThemeName};
+use hamish_core::{Document, Settings, ThemeName, Toggle};
 
 fn open(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) {
     assert!(cx.update(app::init).is_ok(), "bundled font loads");
@@ -437,11 +437,11 @@ fn reduced_motion_turns_on_in_appearance_and_saves() {
         cx.simulate_keystrokes("ctrl-,");
         click(cx, "settings-reduced-motion");
 
-        assert!(Settings::load(&path).settings.reduced_motion);
+        assert!(Settings::load(&path).settings.is_on(Toggle::ReducedMotion));
 
         click(cx, "settings-reduced-motion");
 
-        assert!(!Settings::load(&path).settings.reduced_motion);
+        assert!(!Settings::load(&path).settings.is_on(Toggle::ReducedMotion));
     });
 }
 
@@ -455,11 +455,11 @@ fn focus_zoom_turns_off_in_appearance_and_saves() {
         cx.simulate_keystrokes("ctrl-,");
         click(cx, "settings-focus-zoom");
 
-        assert!(!Settings::load(&path).settings.focus_zoom);
+        assert!(!Settings::load(&path).settings.is_on(Toggle::FocusZoom));
 
         click(cx, "settings-focus-zoom");
 
-        assert!(Settings::load(&path).settings.focus_zoom);
+        assert!(Settings::load(&path).settings.is_on(Toggle::FocusZoom));
     });
 }
 

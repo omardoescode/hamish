@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use gpui::{App, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window};
-use hamish_core::{Level, MarkdownSpan, MarkdownStyle};
+use hamish_core::{Level, MarkdownSpan, MarkdownStyle, Toggle};
 
 use super::{Editor, synthetic_bold};
 use crate::{Theme, settings};
@@ -23,7 +23,7 @@ pub(super) fn text_runs(
     let style = window.text_style();
     let shown = editor.shown_document();
     let text = shown.text();
-    let markdown = if settings::is_on(cx, |settings| settings.markdown_styles) {
+    let markdown = if settings::is_on(cx, Toggle::MarkdownStyles) {
         shown.markdown_styles()
     } else {
         Vec::new()
