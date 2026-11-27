@@ -10,7 +10,7 @@ use gpui::{
 use hamish_core::{
     AiAlternativesError, AiRequest, AiTrigger, AlternativesCommand, AlternativesKeys,
     AlternativesList, Document, Effect, Level, ListEditor, ListOutcome, ListTarget, Provenance,
-    SlotError, SlotId, VariantRow, VimKey,
+    SlotError, SlotId, Toggle, VariantRow, VimKey,
 };
 
 use crate::actions::{
@@ -628,7 +628,7 @@ impl AlternativesPanel {
             .children(variant_rows)
             .children(self.render_ai_status(theme))
             .when(self.ai_busy(), |list| {
-                let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
+                let reduced_motion = settings::is_on(cx, Toggle::ReducedMotion);
                 list.child(
                     row_box(theme, true)
                         .id("alternatives-loading")

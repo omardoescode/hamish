@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use app::{Notice, Quit, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use hamish_core::{Document, LineError, LoadedSettings, Settings};
+use hamish_core::{Document, LineError, LoadedSettings, OnOff, Settings};
 use tempfile::TempDir;
 
 fn open<'a>(
@@ -21,7 +21,7 @@ fn open<'a>(
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode: true,
+                    vim_mode: OnOff::On,
                     ..Settings::default()
                 },
                 problem: None,

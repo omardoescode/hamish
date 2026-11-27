@@ -379,8 +379,8 @@ impl Workspace {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let counter_label = self.editor.read(cx).counter_label();
-        let markers = settings::is_on(cx, |settings| settings.markers);
-        let markdown = settings::is_on(cx, |settings| settings.markdown_styles);
+        let markers = settings::is_on(cx, Toggle::Markers);
+        let markdown = settings::is_on(cx, Toggle::MarkdownStyles);
         div()
             .id("chrome")
             .debug_selector(|| "chrome-bar".to_owned())

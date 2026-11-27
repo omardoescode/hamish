@@ -9,7 +9,7 @@ use std::ops::Range;
 use gpui::{
     App, Bounds, FontId, GlyphId, Hsla, PaintQuad, Pixels, Point, TextRun, Window, fill, point, px,
 };
-use hamish_core::{paragraph_index, paragraph_range};
+use hamish_core::{Toggle, paragraph_index, paragraph_range};
 
 use super::Editor;
 use super::element::{EditorElement, EditorPrepaint};
@@ -193,7 +193,7 @@ impl Editor {
         let now = cx.background_executor().now();
         let text = self.session.document().text();
         self.focus_zoom
-            .zoomed(now, settings::is_on(cx, |settings| settings.reduced_motion))
+            .zoomed(now, settings::is_on(cx, Toggle::ReducedMotion))
             .into_iter()
             .filter_map(|(index, scale)| Some((paragraph_range(text, index)?, scale)))
             .collect()
@@ -201,12 +201,11 @@ impl Editor {
 
     /// Zooms the paragraph with the caret; `true` while a zoom runs.
     fn focus_zoom_step(&mut self, cx: &App) -> bool {
-        let on = settings::is_on(cx, |settings| settings.focus_zoom)
-            && self.bright_paragraph().is_none();
+        let on = settings::is_on(cx, Toggle::FocusZoom) && self.bright_paragraph().is_none();
         let paragraph =
             on.then(|| paragraph_index(self.session.document().text(), self.caret_offset()));
         let now = cx.background_executor().now();
-        let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
+        let reduced_motion = settings::is_on(cx, Toggle::ReducedMotion);
         self.focus_zoom.focus(paragraph, now, reduced_motion);
         self.focus_zoom.is_moving(now, reduced_motion)
     }

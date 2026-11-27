@@ -11,7 +11,8 @@ use gpui::{
     ScrollHandle, Task, UTF16Selection, Window, fill, point, px, size,
 };
 use hamish_core::{
-    Caret, CaretEdit, Cycle, Motion, byte_range, caret_shown, next_caret_toggle, utf16_range,
+    Caret, CaretEdit, Cycle, Motion, Toggle, byte_range, caret_shown, next_caret_toggle,
+    utf16_range,
 };
 
 use crate::Theme;
@@ -77,7 +78,7 @@ impl CaretBlink {
             .background_executor()
             .now()
             .saturating_duration_since(self.started.get());
-        let still = settings::is_on(cx, |settings| settings.reduced_motion);
+        let still = settings::is_on(cx, Toggle::ReducedMotion);
         !window.is_window_active() || caret_shown(elapsed, still)
     }
 }

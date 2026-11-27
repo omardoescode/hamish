@@ -52,7 +52,7 @@ pub use overflow::{Overflow, OverflowError};
 pub use particles::{Particle, ParticleArea, ParticleLook};
 pub use select_search::SelectSearch;
 pub use settings::{
-    LoadedSettings, Setting, Settings, SettingsError, Toggle, hamishrc_path, settings_path,
+    LoadedSettings, OnOff, Setting, Settings, SettingsError, Toggle, hamishrc_path, settings_path,
 };
 pub use shortcut::key_label;
 pub use slot::{Cycle, Level, Provenance, Slot, SlotError, SlotId, Switch, Variant};

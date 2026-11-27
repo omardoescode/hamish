@@ -3,7 +3,7 @@
 
 use gpui::{Action, App, ClipboardItem, Context, KeyDownEvent, Window};
 use hamish_core::{
-    Caret, Document, Fed, Motion, Vim, VimAction, VimCommand, VimKey, VimMode, one_char,
+    Caret, Document, Fed, Motion, Toggle, Vim, VimAction, VimCommand, VimKey, VimMode, one_char,
 };
 
 use super::Editor;
@@ -166,22 +166,26 @@ impl Editor {
         }
     }
 
-    /// A press at `position` in Visual mode moves the end of the Visual selection there;
-    /// `false` outside Visual mode.
+    /// A press at `position` in Visual mode moves the end of the Visual selection there; a
+    /// double press makes the word there the Visual selection. `false` outside Visual mode.
     pub(super) fn press_visual(
         &mut self,
         position: gpui::Point<gpui::Pixels>,
         extend: bool,
+        click_count: usize,
         cx: &mut Context<Self>,
     ) -> bool {
         if !vim_on(cx) {
             return false;
         }
         let offset = caret::offset_at(self, position, cx);
-        let Some(caret) = self
-            .vim
-            .click(self.session.document().text(), offset, extend)
-        else {
+        let text = self.session.document().text();
+        let clicked = if click_count == 2 {
+            self.vim.double_click(text, offset)
+        } else {
+            self.vim.click(text, offset, extend)
+        };
+        let Some(caret) = clicked else {
             return false;
         };
         CaretView::select(self, caret, cx);
@@ -289,7 +293,7 @@ pub(crate) fn run_text_command<V: CaretView>(
 }
 
 pub(crate) fn vim_on(cx: &App) -> bool {
-    settings::is_on(cx, |settings| settings.vim_mode)
+    settings::is_on(cx, Toggle::VimMode)
 }
 
 /// Puts `text` in the register, the system clipboard. Empty text leaves it as it is.

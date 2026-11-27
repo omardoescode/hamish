@@ -168,19 +168,21 @@ impl OverflowPanel {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        let shift = event.modifiers.shift;
         match event.click_count {
+            count if self.press_visual(event.position, shift, count, cx) => {}
             2 => caret::select_word(self, event.position, cx),
-            _ if self.press_visual(event.position, event.modifiers.shift, cx) => {}
-            _ => caret::press(self, event.position, event.modifiers.shift, cx),
+            _ => caret::press(self, event.position, shift, cx),
         }
     }
 
-    /// A press at `position` in Visual mode moves the end of the Visual selection there;
-    /// `false` outside Visual mode.
+    /// A press at `position` in Visual mode moves the end of the Visual selection there; a
+    /// double press makes the word there the Visual selection. `false` outside Visual mode.
     fn press_visual(
         &mut self,
         position: gpui::Point<Pixels>,
         extend: bool,
+        click_count: usize,
         cx: &mut Context<Self>,
     ) -> bool {
         if !vim_on(cx) {
@@ -188,7 +190,12 @@ impl OverflowPanel {
         }
         let offset = caret::offset_at(self, position, cx);
         let text = self.text(cx);
-        let Some(caret) = self.vim.click(&text, offset, extend) else {
+        let clicked = if click_count == 2 {
+            self.vim.double_click(&text, offset)
+        } else {
+            self.vim.click(&text, offset, extend)
+        };
+        let Some(caret) = clicked else {
             return false;
         };
         CaretView::select(self, caret, cx);

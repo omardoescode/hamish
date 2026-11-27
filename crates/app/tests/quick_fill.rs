@@ -8,7 +8,7 @@ use app::{Ai, AiAlternativesError, AiFailure, AiStatus, AlternativesPanel, Works
 use gpui::{Entity, Keystroke, TestAppContext, VisualTestContext};
 use hamish_core::{
     AiAdapter, AiError, AiRequest, AiTrigger, CancelToken, Document, LabFinding, LabRequest, Level,
-    LoadedSettings, Provenance, Settings, TrimRequest,
+    LoadedSettings, OnOff, Provenance, Settings, TrimRequest,
 };
 
 /// Gives fixed Variant texts, or fails, as an AI backend would, and keeps each request.
@@ -287,7 +287,7 @@ fn the_quick_fill_row_dances_while_the_ai_works() {
 fn with_reduced_motion_the_quick_fill_row_shows_a_still_question_mark_pair() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            reduced_motion: true,
+            reduced_motion: OnOff::On,
             ..Settings::default()
         };
         let (_workspace, cx, _) = open_with(cx, Ok(DEMO.to_vec()), settings);

@@ -8,7 +8,7 @@ use gpui::{
     InspectorElementId, LayoutId, PaintQuad, Pixels, Point, SharedString, Size, Style, TextRun,
     Window, fill, point, px, relative, size,
 };
-use hamish_core::{Level, Slot, SlotId, VimMode};
+use hamish_core::{Level, Slot, SlotId, Toggle, VimMode};
 
 use super::painted_text::{PaintedLine, PaintedText, shape_sized};
 use super::pen::{PenStroke, pen_strokes};
@@ -414,7 +414,7 @@ fn hover_quads(
 
 /// The Slots that show a Marker: all of them, or none while the Markers setting is off.
 fn marked_slots<'a, 'b>(slots: &'a [Slot<'b>], cx: &App) -> &'a [Slot<'b>] {
-    if settings::is_on(cx, |settings| settings.markers) {
+    if settings::is_on(cx, Toggle::Markers) {
         slots
     } else {
         &[]

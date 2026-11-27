@@ -5,7 +5,7 @@ use gpui::{
     Action, App, Context, Div, Focusable, IntoElement, MouseButton, MouseDownEvent, Window, div,
     prelude::*, px,
 };
-use hamish_core::{key_label, vim_keys};
+use hamish_core::{Toggle, key_label, vim_keys};
 
 use crate::actions::{
     ClosePanel, CloseShortcuts, ConfirmVariant, Copy, Cut, DeleteVariant, LeaveOverflow,
@@ -122,7 +122,7 @@ pub fn shortcut_groups(cx: &App) -> Vec<ShortcutGroup> {
                 .collect(),
         })
         .collect();
-    if settings::is_on(cx, |settings| settings.vim_mode) {
+    if settings::is_on(cx, Toggle::VimMode) {
         shown.push(ShortcutGroup {
             name: "Vim mode",
             rows: vim_keys(hamishrc::current(cx).leader())

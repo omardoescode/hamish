@@ -313,7 +313,7 @@ impl SettingsModal {
             Select::TextFont => ("settings-text-font-select", "settings-text-font-list"),
         };
         let open = self.open_select == Some(select);
-        let reduced_motion = settings::is_on(cx, |settings| settings.reduced_motion);
+        let reduced_motion = settings::is_on(cx, Toggle::ReducedMotion);
         let width = list_width(theme);
         let outline = if open {
             theme.accent_outline

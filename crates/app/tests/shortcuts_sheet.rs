@@ -5,7 +5,7 @@ use gpui::{
     Entity, KeyBinding, Modifiers, OperatingSystem, PlatformInfo, PlatformTarget, TestAppContext,
     VisualTestContext,
 };
-use hamish_core::{Document, LoadedSettings, Settings};
+use hamish_core::{Document, LoadedSettings, OnOff, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -113,7 +113,7 @@ fn the_sheet_lists_the_key_bindings_in_groups() {
 fn with_vim_mode_on_the_sheet_lists_the_vim_keys() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            vim_mode: true,
+            vim_mode: OnOff::On,
             ..Settings::default()
         };
         let (_, cx) = open(cx, settings);
@@ -135,7 +135,7 @@ fn with_a_leader_from_the_hamishrc_the_vim_keys_show_that_leader() {
         let path = dir.path().join("hamishrc");
         std::fs::write(&path, "let mapleader = \",\"\n").unwrap();
         let settings = Settings {
-            vim_mode: true,
+            vim_mode: OnOff::On,
             ..Settings::default()
         };
         let (_, cx) = open(cx, settings);

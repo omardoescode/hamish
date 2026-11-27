@@ -8,7 +8,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Focusable, Modifiers, MouseButton, Point, ScrollDelta,
     ScrollEvent, TestAppContext, VisualTestContext, point, px,
 };
-use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, OnOff, Provenance, Settings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -488,7 +488,7 @@ fn with_reduced_motion_a_row_delete_plays_no_explosion() {
         let (workspace, cx) = open(cx, slot_document());
         let loaded = LoadedSettings {
             settings: Settings {
-                reduced_motion: true,
+                reduced_motion: OnOff::On,
                 ..Settings::default()
             },
             problem: None,
