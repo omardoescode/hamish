@@ -1,6 +1,7 @@
 //! New, Save, and Open: file dialogs, the unsaved sign, and the notice that shows
 //! errors and what an open dropped (ADR 0007). File I/O runs on the background executor.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use gpui::{
@@ -46,9 +47,9 @@ pub(crate) struct SaveOpen {
     path: Option<PathBuf>,
     notice: Option<Notice>,
     saving: bool,
-    /// A save asked for while one runs; it starts when that one ends, so two saves never
-    /// write the same file at once.
-    queued: Option<QueuedSave>,
+    /// The saves asked for while one runs, in order. Each starts when the one before it
+    /// ends, so two saves never write the same file at once.
+    queued: VecDeque<QueuedSave>,
     /// Counts the Documents that replaced the first one. A save that ends after a New or an
     /// Open belongs to a Document that is gone, so it changes nothing.
     generation: u64,
@@ -138,18 +139,10 @@ impl Workspace {
     }
 
     /// Saves to `path`; with `quit`, Hamish closes when this save ends well. A save asked for
-    /// while one runs replaces the queued save, and keeps its close.
+    /// while one runs waits in the queue. A close goes on to the last save of the queue.
     fn start_save(&mut self, path: PathBuf, quit: bool, cx: &mut Context<Self>) {
         if self.save_open.saving {
-            let queued_quit = self
-                .save_open
-                .queued
-                .as_ref()
-                .is_some_and(|queued| queued.quit);
-            self.save_open.queued = Some(QueuedSave {
-                path,
-                quit: quit || queued_quit,
-            });
+            self.save_open.queued.push_back(QueuedSave { path, quit });
             return;
         }
         self.save_open.saving = true;
@@ -187,7 +180,7 @@ impl Workspace {
             }
             Err(error) => self.save_open.notice = Some(Notice::SaveFailed(error.to_string())),
         }
-        match self.save_open.queued.take() {
+        match self.save_open.queued.pop_front() {
             Some(queued) => self.start_save(queued.path, queued.quit || quit, cx),
             None if quit => cx.defer(|cx| cx.dispatch_action(&Quit)),
             None => {}
