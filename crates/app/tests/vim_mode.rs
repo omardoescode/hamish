@@ -4,10 +4,10 @@ use std::ops::Range;
 
 use app::Workspace;
 use gpui::{
-    Bounds, Entity, EntityInputHandler, Modifiers, Pixels, TestAppContext, VisualTestContext,
-    point, px,
+    Bounds, Entity, EntityInputHandler, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
+    Pixels, TestAppContext, VisualTestContext, point, px,
 };
-use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, OnOff, Provenance, Settings};
 
 fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
     cx.update(|_, cx| {
@@ -15,7 +15,7 @@ fn set_vim_mode(cx: &mut VisualTestContext, vim_mode: bool) {
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode,
+                    vim_mode: OnOff::from(vim_mode),
                     ..Settings::default()
                 },
                 problem: None,
@@ -365,6 +365,39 @@ fn in_visual_mode_a_click_moves_the_selection_end_and_a_shift_click_the_nearer_e
 
         cx.simulate_keystrokes("l");
         assert_eq!(selection(&workspace, cx), 2..10);
+    });
+}
+
+fn double_click_at(workspace: &Entity<Workspace>, offset: usize, cx: &mut VisualTestContext) {
+    let char = bounds_at(workspace, offset, cx);
+    let position = point(char.origin.x + px(1.), char.center().y);
+    cx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position,
+        modifiers: Modifiers::none(),
+        click_count: 2,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        button: MouseButton::Left,
+        position,
+        modifiers: Modifiers::none(),
+        click_count: 2,
+    });
+}
+
+#[test]
+fn in_visual_mode_a_double_click_makes_the_word_the_visual_selection() {
+    system_text::run(1, |cx| {
+        let (workspace, cx) = open(cx, "one two three", true);
+
+        cx.simulate_keystrokes("v");
+        double_click_at(&workspace, 9, cx);
+        assert_eq!(selection(&workspace, cx), 8..13);
+        assert_eq!(status(&workspace, cx).as_deref(), Some("VISUAL"));
+
+        cx.simulate_keystrokes("h");
+        assert_eq!(selection(&workspace, cx), 8..12);
     });
 }
 

@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use gpui::{App, AppContext, Global};
-use hamish_core::{LoadedSettings, Settings, SettingsError};
+use hamish_core::{LoadedSettings, Settings, SettingsError, Toggle};
 
 /// What a save does when it fails.
 type OnSaveFailed = Box<dyn FnOnce(&SettingsError, &mut App)>;
@@ -91,10 +91,10 @@ pub(crate) fn change(
     save(cx, failed);
 }
 
-/// The on/off setting that `pick` reads. `false` when no settings are set.
-pub(crate) fn is_on(cx: &App, pick: impl FnOnce(&Settings) -> bool) -> bool {
+/// `toggle` is on. `false` when no settings are set.
+pub(crate) fn is_on(cx: &App, toggle: Toggle) -> bool {
     cx.try_global::<SettingsStore>()
-        .is_some_and(|store| pick(&store.settings))
+        .is_some_and(|store| store.settings.is_on(toggle))
 }
 
 /// The UI scale in use; 1 when no settings are set.

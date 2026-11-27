@@ -94,9 +94,16 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     );
     use_hamishrc(None, cx);
     cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.bind_keys(key_bindings());
+    Ok(())
+}
+
+/// The key bindings of the app. [`init`] binds them; the hamishrc reads its bound keys from them.
+fn key_bindings() -> Vec<KeyBinding> {
+    let mut bindings = Vec::new();
     for context in ["Editor", "OverflowPanel"] {
         let context = Some(context);
-        cx.bind_keys([
+        bindings.extend([
             KeyBinding::new("left", MoveLeft, context),
             KeyBinding::new("right", MoveRight, context),
             KeyBinding::new("ctrl-left", MoveWordLeft, context),
@@ -126,7 +133,7 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     }
     let editor = Some("Editor");
     let overflow = Some("OverflowPanel");
-    cx.bind_keys([
+    bindings.extend([
         KeyBinding::new("ctrl-shift-a", OpenAlternatives, editor),
         KeyBinding::new("ctrl-shift-g", AiAlternatives, editor),
         KeyBinding::new("ctrl-/", ToggleGhost, editor),
@@ -147,19 +154,19 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
     ]);
     // In Normal and Visual mode these keys go to Vim mode, not to their text edits.
     let vim_normal = Some("(Editor || OverflowPanel) && (VimNormal || VimVisual)");
-    cx.bind_keys(
+    bindings.extend(
         ["backspace", "delete", "enter", "ctrl-x", "ctrl-v"]
             .map(|key| KeyBinding::new(key, gpui::NoAction {}, vim_normal)),
     );
     for context in ["AlternativesPanel", "Lab"] {
         let context = Some(context);
-        cx.bind_keys([
+        bindings.extend([
             KeyBinding::new("ctrl-z", Undo, context),
             KeyBinding::new("ctrl-shift-z", Redo, context),
         ]);
     }
     let panel = Some("AlternativesPanel");
-    cx.bind_keys([
+    bindings.extend([
         KeyBinding::new("up", SelectPreviousVariant, panel),
         KeyBinding::new("down", SelectNextVariant, panel),
         KeyBinding::new("enter", ConfirmVariant, panel),
@@ -170,12 +177,12 @@ pub fn init(cx: &mut App) -> gpui::Result<()> {
         KeyBinding::new("ctrl-v", Paste, panel),
     ]);
     let select = Some("SettingsSelect");
-    cx.bind_keys([
+    bindings.extend([
         KeyBinding::new("up", PreviousRow, select),
         KeyBinding::new("down", NextRow, select),
         KeyBinding::new("enter", PickRow, select),
         KeyBinding::new("escape", CloseSelect, select),
         KeyBinding::new("backspace", DeleteQueryBackward, select),
     ]);
-    Ok(())
+    bindings
 }

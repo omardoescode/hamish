@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "hamish"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "gpui",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "hamish-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cargo-husky",
  "pulldown-cmark",

@@ -9,7 +9,7 @@ use gpui::{
     px,
 };
 use hamish_core::{
-    CommandLine, LineCommand, LineError, LineKey, LineStep, directory_entries, resolve_path,
+    CommandLine, LineCommand, LineError, LineKey, LineStep, Toggle, directory_entries, resolve_path,
 };
 
 use crate::actions::{OpenCommandLine, OpenSettings, Quit, QuitIfSaved, Save};
@@ -144,7 +144,7 @@ impl Workspace {
             LineCommand::WriteQuit { path, .. } => self.write_quit(path, cx),
             LineCommand::Edit { path, .. } => self.edit(path, cx),
             LineCommand::SetVimMode(on) => {
-                Self::change_setting(move |settings| settings.vim_mode = on, cx);
+                Self::change_setting(move |settings| settings.set(Toggle::VimMode, on), cx);
             }
             LineCommand::ToggleChrome => {
                 self.chrome_shown = self.chrome_shown.toggled();

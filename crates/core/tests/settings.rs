@@ -2,7 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use hamish_core::{
-    Direction, Setting, Settings, ThemeName, Toggle, contrast_ratio, hamishrc_path, settings_path,
+    Direction, OnOff, Setting, Settings, ThemeName, Toggle, contrast_ratio, hamishrc_path,
+    settings_path,
 };
 
 #[test]
@@ -53,7 +54,7 @@ fn defaults_are_the_hamish_theme_and_the_bundled_font_at_the_default_sizes() {
     assert!((settings.font_size - 15.0).abs() < 1e-6);
     assert!((settings.line_height - 1.8).abs() < 1e-6);
     assert!((settings.column_width - 585.0).abs() < 1e-6);
-    assert!(settings.cycle_sounds);
+    assert!(settings.is_on(Toggle::CycleSounds));
 }
 
 #[test]
@@ -68,12 +69,12 @@ fn saved_settings_open_again_the_same() {
         font_size: 18.0,
         line_height: 1.5,
         column_width: 700.0,
-        reduced_motion: true,
-        cycle_sounds: false,
-        focus_zoom: false,
-        vim_mode: true,
-        markers: false,
-        markdown_styles: false,
+        reduced_motion: OnOff::On,
+        cycle_sounds: OnOff::Off,
+        focus_zoom: OnOff::Off,
+        vim_mode: OnOff::On,
+        markers: OnOff::Off,
+        markdown_styles: OnOff::Off,
     };
 
     settings.save(&path).unwrap();
@@ -241,8 +242,8 @@ fn set_turns_a_toggle_on_or_off_whatever_it_was() {
     assert_eq!(
         settings,
         Settings {
-            vim_mode: true,
-            focus_zoom: false,
+            vim_mode: OnOff::On,
+            focus_zoom: OnOff::Off,
             ..Settings::default()
         }
     );
@@ -257,7 +258,42 @@ fn a_file_with_the_markdown_key_loads_markdown_styles() {
     let loaded = Settings::load(&path);
 
     assert!(loaded.problem.is_none());
-    assert!(!loaded.settings.markdown_styles);
+    assert!(!loaded.settings.is_on(Toggle::MarkdownStyles));
+}
+
+#[test]
+fn an_old_file_loads_and_saves_again_with_the_same_keys_and_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(
+        &path,
+        r#"{ "theme": "light", "font_family": "DejaVu Serif", "reduced_motion": true, "cycle_sounds": false, "focus_zoom": false, "vim_mode": true, "markers": false, "markdown": false }"#,
+    )
+    .unwrap();
+
+    let loaded = Settings::load(&path);
+    assert!(loaded.problem.is_none());
+    loaded.settings.save(&path).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        r#"{
+  "theme": "hamish-light",
+  "ui_scale": 1.0,
+  "ui_font": "IBM Plex Mono",
+  "text_font": "DejaVu Serif",
+  "font_size": 15.0,
+  "line_height": 1.8,
+  "column_width": 585.0,
+  "reduced_motion": true,
+  "cycle_sounds": false,
+  "focus_zoom": false,
+  "vim_mode": true,
+  "markers": false,
+  "markdown_styles": false
+}"#
+    );
+    assert_eq!(Settings::load(&path).settings, loaded.settings);
 }
 
 #[test]
@@ -345,9 +381,9 @@ fn a_flip_turns_a_toggle_on_or_off_and_shows_it() {
     assert_eq!(
         settings,
         Settings {
-            reduced_motion: true,
-            focus_zoom: false,
-            cycle_sounds: false,
+            reduced_motion: OnOff::On,
+            focus_zoom: OnOff::Off,
+            cycle_sounds: OnOff::Off,
             ..Settings::default()
         }
     );
@@ -373,8 +409,8 @@ fn vim_mode_is_off_by_default_and_in_a_file_without_it() {
     let path = dir.path().join("settings.json");
     fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
 
-    assert!(!Settings::default().vim_mode);
-    assert!(!Settings::load(&path).settings.vim_mode);
+    assert!(!Settings::default().is_on(Toggle::VimMode));
+    assert!(!Settings::load(&path).settings.is_on(Toggle::VimMode));
 }
 
 #[test]
@@ -383,8 +419,8 @@ fn reduced_motion_is_off_by_default_and_in_a_file_without_it() {
     let path = dir.path().join("settings.json");
     fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
 
-    assert!(!Settings::default().reduced_motion);
-    assert!(!Settings::load(&path).settings.reduced_motion);
+    assert!(!Settings::default().is_on(Toggle::ReducedMotion));
+    assert!(!Settings::load(&path).settings.is_on(Toggle::ReducedMotion));
 }
 
 #[test]
@@ -393,8 +429,8 @@ fn focus_zoom_is_on_by_default_and_in_a_file_without_it() {
     let path = dir.path().join("settings.json");
     fs::write(&path, r#"{ "theme": "light" }"#).unwrap();
 
-    assert!(Settings::default().focus_zoom);
-    assert!(Settings::load(&path).settings.focus_zoom);
+    assert!(Settings::default().is_on(Toggle::FocusZoom));
+    assert!(Settings::load(&path).settings.is_on(Toggle::FocusZoom));
 }
 
 #[test]

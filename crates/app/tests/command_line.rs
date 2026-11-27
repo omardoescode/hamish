@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use app::{Notice, Quit, Workspace};
 use gpui::{Entity, TestAppContext, VisualTestContext};
-use hamish_core::{Document, LineError, LoadedSettings, Settings};
+use hamish_core::{Document, LineError, LoadedSettings, OnOff, Settings};
 use tempfile::TempDir;
 
 fn open<'a>(
@@ -21,7 +21,7 @@ fn open<'a>(
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode: true,
+                    vim_mode: OnOff::On,
                     ..Settings::default()
                 },
                 problem: None,
@@ -251,6 +251,36 @@ fn a_failed_save_before_wq_does_not_stop_the_close_after_the_wq_save() {
         cx.run_until_parked();
 
         assert!(fs::read_to_string(&good).unwrap().starts_with("Done.\n"));
+        assert_eq!(quits.get(), 1);
+    });
+}
+
+#[test]
+fn ctrl_s_while_the_wq_save_waits_saves_after_it_and_the_wq_save_keeps_its_path() {
+    system_text::run(1, |cx| {
+        let dir = TempDir::new().unwrap();
+        let draft = dir.path().join("draft.md");
+        let done = dir.path().join("done.md");
+        let (_workspace, cx) = open(cx, "Done.");
+        save_to(cx, &draft);
+        let quits = count_quits(cx);
+        let line = |typed: String| {
+            let keys: Vec<String> = typed
+                .chars()
+                .map(|typed| match typed {
+                    ' ' => "space".to_owned(),
+                    typed => typed.to_string(),
+                })
+                .collect();
+            format!(": {} enter", keys.join(" "))
+        };
+
+        let first = line(format!("w {}", draft.display()));
+        let second = line(format!("wq {}", done.display()));
+        cx.simulate_keystrokes(&format!("{first} {second} ctrl-s"));
+        cx.run_until_parked();
+
+        assert!(fs::read_to_string(&done).unwrap().starts_with("Done.\n"));
         assert_eq!(quits.get(), 1);
     });
 }

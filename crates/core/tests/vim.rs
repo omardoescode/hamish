@@ -748,6 +748,23 @@ fn in_visual_mode_a_click_moves_the_selection_end_and_a_shift_click_the_nearer_e
 }
 
 #[test]
+fn in_visual_mode_a_double_click_makes_the_word_the_visual_selection() {
+    let text = "one two  three";
+    let mut vim = Vim::default();
+    assert_eq!(vim.double_click(text, 5), None);
+
+    vim.key(VimKey::Char('V'), text, &Caret::at(0));
+    assert_eq!(vim.double_click(text, 5), Some(Caret::over(4..7)));
+    assert_eq!(vim.mode(), VimMode::Visual);
+    assert_eq!(
+        vim.key(VimKey::Char('l'), text, &Caret::over(4..7)),
+        VimCommand::Select(Caret::over(4..8))
+    );
+
+    assert_eq!(vim.double_click(text, 8), Some(Caret::over(4..9)));
+}
+
+#[test]
 fn dot_repeats_a_put() {
     let done = run_with("ab", 0, "p.", "X");
     assert_eq!((done.text.as_str(), done.offset), ("aXXb", 2));

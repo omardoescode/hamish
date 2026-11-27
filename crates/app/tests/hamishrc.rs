@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 use app::{Notice, Quit, Workspace};
 use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
-use hamish_core::{Document, HamishrcError, HamishrcProblem, LineError, LoadedSettings, Settings};
+use hamish_core::{
+    Document, HamishrcError, HamishrcProblem, LineError, LoadedSettings, OnOff, Settings,
+};
 use tempfile::TempDir;
 
 #[expect(clippy::unwrap_used, reason = "test fixture")]
@@ -27,7 +29,7 @@ fn open<'a>(
             None,
             LoadedSettings {
                 settings: Settings {
-                    vim_mode,
+                    vim_mode: OnOff::from(vim_mode),
                     ..Settings::default()
                 },
                 problem: None,

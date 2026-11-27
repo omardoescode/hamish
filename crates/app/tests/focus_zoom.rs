@@ -8,7 +8,7 @@ use gpui::{
     Bounds, Entity, EntityInputHandler, Modifiers, Pixels, TestAppContext, VisualTestContext,
     point, px,
 };
-use hamish_core::{Document, Level, LoadedSettings, Provenance, Settings};
+use hamish_core::{Document, Level, LoadedSettings, OnOff, Provenance, Settings};
 
 /// "Title" is 0..5, the long paragraph 6..60, "Short." 61..67.
 const TEXT: &str = "Title\nabcdefghij abcdefghij abcdefghij abcdefghij abcdefghij\nShort.";
@@ -111,7 +111,7 @@ fn the_zoom_moves_with_the_caret() {
 fn with_reduced_motion_the_zoom_is_at_once() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            reduced_motion: true,
+            reduced_motion: OnOff::On,
             ..Settings::default()
         };
         let (workspace, cx) = open(cx, settings);
@@ -128,7 +128,7 @@ fn with_reduced_motion_the_zoom_is_at_once() {
 fn with_the_setting_off_nothing_zooms() {
     system_text::run(1, |cx| {
         let settings = Settings {
-            focus_zoom: false,
+            focus_zoom: OnOff::Off,
             ..Settings::default()
         };
         let (workspace, cx) = open(cx, settings);
