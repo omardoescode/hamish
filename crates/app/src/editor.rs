@@ -662,10 +662,11 @@ impl Editor {
         window.focus(&self.focus_handle, cx);
         self.keep_trim_cut_at(event.position, cx);
         self.selecting = true;
+        let shift = event.modifiers.shift;
         match event.click_count {
+            count if self.press_visual(event.position, shift, count, cx) => {}
             2 => caret::select_word(self, event.position, cx),
-            _ if self.press_visual(event.position, event.modifiers.shift, cx) => {}
-            _ => caret::press(self, event.position, event.modifiers.shift, cx),
+            _ => caret::press(self, event.position, shift, cx),
         }
         if let Some(slot) = self.slot_at(event.position) {
             cx.emit(EditorEvent::SlotClicked(slot));
@@ -673,7 +674,7 @@ impl Editor {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selecting && !self.press_visual(event.position, false, cx) {
+        if self.selecting && !self.press_visual(event.position, false, 1, cx) {
             caret::press(self, event.position, true, cx);
         }
         let hovered = self.slot_at(event.position);

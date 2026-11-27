@@ -18,7 +18,7 @@ mod visual;
 
 use std::ops::Range;
 
-use crate::caret::{line_start, previous_boundary};
+use crate::caret::{line_start, previous_boundary, word_at};
 use crate::{Caret, CaretEdit, Cycle, Direction, Document, EditKind, TrimProposal};
 pub use command_line::{
     CommandLine, DirectoryEntry, LineCommand, LineError, LineKey, LineStep, directory_entries,
@@ -317,6 +317,23 @@ impl Vim {
             self.anchor = self.head;
         }
         self.head = offset;
+        self.column = None;
+        Some(self.visual_caret(text))
+    }
+
+    /// A double click at `offset` of `text` in Visual mode: the word there becomes the
+    /// Visual selection, of chars. With no word there, it acts as [`Self::click`]. `None`
+    /// outside Visual mode.
+    pub fn double_click(&mut self, text: &str, offset: usize) -> Option<Caret> {
+        if !matches!(self.mode, VimMode::Visual | VimMode::VisualLine) {
+            return None;
+        }
+        let Some(word) = word_at(text, offset.min(text.len())) else {
+            return self.click(text, offset, false);
+        };
+        self.mode = VimMode::Visual;
+        self.anchor = word.start;
+        self.head = previous_boundary(text, word.end);
         self.column = None;
         Some(self.visual_caret(text))
     }
