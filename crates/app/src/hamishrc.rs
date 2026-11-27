@@ -5,31 +5,58 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use gpui::{App, AppContext, Context, Global, InteractiveElement, Window};
+use gpui::{
+    App, AppContext, AsKeystroke, Context, Global, InteractiveElement, KeyContext, Keymap,
+    Keystroke, Window,
+};
 use hamish_core::{Hamishrc, MapMode, Toggle, VimKey, create_hamishrc, hamishrc_text};
 
 use crate::actions::{EditHamishrc, RecursiveMap, ReloadHamishrc};
+use crate::editor::vim_key;
 use crate::save_open::Notice;
 use crate::{Workspace, settings};
 
-/// The keys that a GPUI key binding takes before Vim mode reads them (`crate::init`), per
-/// map mode. Escape and the Ctrl shortcuts in each mode; Enter, Backspace, Ctrl+X and Ctrl+V
-/// only in Insert mode.
+/// The keys that a key binding of [`crate::key_bindings`] takes before Vim mode reads them,
+/// per map mode, in the Editor or in Overflow. A key with Shift is not in the list: the Vim key
+/// without Shift still reaches the maps.
 fn bound_keys() -> Vec<(MapMode, VimKey)> {
-    let each_mode = [VimKey::Escape]
-        .into_iter()
-        .chain("acz/son,".chars().map(VimKey::Ctrl));
-    let insert_only = [
-        VimKey::Enter,
-        VimKey::Backspace,
-        VimKey::Ctrl('x'),
-        VimKey::Ctrl('v'),
+    let keymap = Keymap::new(crate::key_bindings());
+    let keystrokes: Vec<Keystroke> = keymap
+        .bindings()
+        .filter_map(|binding| match binding.keystrokes() {
+            [keystroke] => Some(keystroke.as_keystroke().clone()),
+            _ => None,
+        })
+        .filter(|keystroke| !keystroke.modifiers.shift && vim_key(keystroke) != VimKey::Other)
+        .collect();
+    let modes = [
+        (MapMode::Normal, "VimNormal"),
+        (MapMode::Insert, "VimInsert"),
+        (MapMode::Visual, "VimVisual"),
     ];
-    [MapMode::Normal, MapMode::Insert, MapMode::Visual]
-        .into_iter()
-        .flat_map(|mode| each_mode.clone().map(move |key| (mode, key)))
-        .chain(insert_only.map(|key| (MapMode::Insert, key)))
-        .collect()
+    let mut bound = Vec::new();
+    for (mode, vim_context) in modes {
+        let stacks = ["Editor", "OverflowPanel"].map(|view| {
+            let mut context = KeyContext::default();
+            context.add(view);
+            context.add(vim_context);
+            let mut workspace = KeyContext::default();
+            workspace.add("Workspace");
+            [workspace, context]
+        });
+        for keystroke in &keystrokes {
+            let taken = stacks.iter().any(|stack| {
+                let (bindings, _) =
+                    keymap.bindings_for_input(std::slice::from_ref(keystroke), stack);
+                !bindings.is_empty()
+            });
+            let key = (mode, vim_key(keystroke));
+            if taken && !bound.contains(&key) {
+                bound.push(key);
+            }
+        }
+    }
+    bound
 }
 
 /// The hamishrc in use and its file; a global.
@@ -79,9 +106,10 @@ impl Workspace {
         let Some(path) = path(cx) else {
             return;
         };
+        let bound = bound_keys();
         let reading = cx.background_spawn(async move {
             hamishrc_text(&path).map(|text| {
-                let rc = Hamishrc::parse(&text, &bound_keys());
+                let rc = Hamishrc::parse(&text, &bound);
                 (text, rc)
             })
         });
@@ -148,5 +176,47 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.show(Notice::RecursiveMap, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamish_core::{MapMode, VimKey};
+
+    use super::bound_keys;
+
+    #[test]
+    fn escape_and_ctrl_shortcuts_are_bound_in_each_mode_and_text_edit_keys_only_in_insert_mode() {
+        let shortcuts = [
+            VimKey::Escape,
+            VimKey::Ctrl('a'),
+            VimKey::Ctrl('c'),
+            VimKey::Ctrl('z'),
+            VimKey::Ctrl('/'),
+            VimKey::Ctrl('s'),
+            VimKey::Ctrl('o'),
+            VimKey::Ctrl('n'),
+            VimKey::Ctrl(','),
+        ];
+        let text_edits = [
+            VimKey::Enter,
+            VimKey::Backspace,
+            VimKey::Ctrl('x'),
+            VimKey::Ctrl('v'),
+        ];
+        let bound = bound_keys();
+
+        for mode in [MapMode::Normal, MapMode::Insert, MapMode::Visual] {
+            for key in shortcuts {
+                assert!(bound.contains(&(mode, key)), "{mode:?} {key:?}");
+            }
+        }
+        for key in text_edits {
+            assert!(bound.contains(&(MapMode::Insert, key)), "{key:?}");
+            assert!(!bound.contains(&(MapMode::Normal, key)), "{key:?}");
+            assert!(!bound.contains(&(MapMode::Visual, key)), "{key:?}");
+        }
+        assert!(!bound.contains(&(MapMode::Normal, VimKey::Ctrl('g'))));
+        assert_eq!(bound.len(), 3 * shortcuts.len() + text_edits.len());
     }
 }
